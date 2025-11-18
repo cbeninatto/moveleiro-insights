@@ -8,18 +8,24 @@ import time
 # -------------------------------------------------------
 # STREAMLIT UI CONFIG
 # -------------------------------------------------------
-st.set_page_config(page_title="Relatório de Faturamento Extractor", page_icon="📄")
-st.title("📄 Extrator de Relatório de Faturamento")
+st.set_page_config(page_title="Billing Report PDF Extractor", page_icon="📄")
+st.title("📄 Billing Report PDF Extractor")
 
 st.markdown(
     """
-Envie o PDF completo do relatório de faturamento e o sistema extrairá automaticamente os dados para **CSV** e **XLSX**, incluindo a **categoria de cada produto** com a lógica oficial do Performance Moveleiro e as colunas **Cliente** e **Representante**.
+Upload the **full billing report PDF** exported from your BI.
 
-Upload your complete billing report PDF below — the system extracts and classifies products into clean **CSV** and **XLSX** files, now including **Client** and **Sales Rep**.
+The app will automatically extract:
+
+- **Product** data → `Codigo`, `Descricao`, `Quantidade`, `Valor`, `Mes`, `Ano`
+- **Client** and **Sales Rep** → `Cliente`, `Representante`
+- **Category** for each product using the official Performance Moveleiro logic.
+
+You can then download clean **CSV** and **XLSX** files ready for GitHub and dashboards.
 """
 )
 
-uploaded_file = st.file_uploader("📤 Escolha o arquivo PDF", type="pdf")
+uploaded_file = st.file_uploader("📤 Upload the billing report PDF", type="pdf")
 
 
 # -------------------------------------------------------
@@ -68,19 +74,22 @@ def map_categoria(desc: str) -> str:
 prod_header_re = re.compile(r"^\s*PRODUTO:\s*(\d+)\s*-\s*(.+?)\s*$", re.IGNORECASE)
 
 # Remove duplicated "Quantidade % Quantidade Valor % Valor" clutter from the description
-cleanup_re = re.compile(r"\s*Quantidade\s*%\s*Quantidade\s*Valor\s*%\s*Valor\s*$", re.IGNORECASE)
-
-# Example month line:
-# "MÊS: 10/2025      50,0   100,0%   275,50   100,0%"
-mes_line_re = re.compile(
-    r"^\s*MÊS\s*:\s*(\d{2})/(\d{4}).*?\s([\d\.\,]+)\s+[\d\.\,]+%\s+([\d\.\,]+)\s+[\d\.\,]+%",
+cleanup_re = re.compile(
+    r"\s*Quantidade\s*%\s*Quantidade\s*Valor\s*%\s*Valor\s*$",
     re.IGNORECASE,
 )
 
-# New: CLIENTE and REPRESENTANTE headers
-# We assume lines like:
-# "CLIENTE: ALGUM NOME DE CLIENTE"
-# "REPRESENTANTE: NOME DO REPRESENTANTE"
+# Month line (Mes/Ano + Qty + Value)
+# More tolerant: handles "MÊS" or "MES"
+mes_line_re = re.compile(
+    r"^\s*M[ÊE]S\s*:\s*(\d{2})/(\d{4}).*?\s([\d\.\,]+)\s+[\d\.\,]+%\s+([\d\.\,]+)\s+[\d\.\,]+%",
+    re.IGNORECASE,
+)
+
+# CLIENTE and REPRESENTANTE lines.
+# Assumes something like:
+# "CLIENTE: SOME CLIENT NAME"
+# "REPRESENTANTE: SOME REP NAME"
 cliente_re = re.compile(r"^\s*CLIENTE\s*:\s*(.+?)\s*$", re.IGNORECASE)
 representante_re = re.compile(r"^\s*REPRESENTANTE\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
@@ -101,13 +110,13 @@ if uploaded_file:
 
     with pdfplumber.open(uploaded_file) as pdf:
         total_pages = len(pdf.pages)
-        st.info(f"📄 PDF carregado com **{total_pages} páginas**.")
+        st.info(f"📄 PDF loaded with **{total_pages} pages**.")
 
         progress_bar = st.progress(0)
         status_text = st.empty()
 
         for i, page in enumerate(pdf.pages, start=1):
-            status_text.text(f"🔍 Lendo página {i}/{total_pages}...")
+            status_text.text(f"🔍 Reading page {i}/{total_pages}...")
 
             text = page.extract_text() or ""
             for raw in text.splitlines():
@@ -126,7 +135,6 @@ if uploaded_file:
                 m_cliente = cliente_re.match(line)
                 if m_cliente:
                     current_cliente = m_cliente.group(1).strip()
-                    # Move to next line
                     continue
 
                 # -------------------------------
@@ -135,7 +143,6 @@ if uploaded_file:
                 m_rep = representante_re.match(line)
                 if m_rep:
                     current_representante = m_rep.group(1).strip()
-                    # Move to next line
                     continue
 
                 # -------------------------------
@@ -169,14 +176,14 @@ if uploaded_file:
                         }
                         records.append(record)
                     except Exception:
-                        # If a single line fails parsing, we just skip it.
-                        # You can log this to a debug area if needed.
+                        # If parsing of this line fails, skip it silently.
+                        # We can later add optional debug logging.
                         pass
 
             progress_bar.progress(i / total_pages)
             time.sleep(0.02)
 
-        status_text.text("📘 Leitura concluída — processando dados...")
+        status_text.text("📘 Finished reading PDF — processing data...")
 
 
     # -------------------------------------------------------
@@ -184,9 +191,18 @@ if uploaded_file:
     # -------------------------------------------------------
     if not records:
         st.error(
-            "Nenhum dado encontrado. O PDF pode estar em formato inesperado "
-            "ou as expressões regulares precisam ser ajustadas para o novo layout."
+            "No data was extracted.\n\n"
+            "The PDF layout may have changed or the parsing expressions (regex) "
+            "need to be updated for this version of the report."
         )
+
+        # Optional: show a small text sample from the first page to help debugging
+        with pdfplumber.open(uploaded_file) as pdf_debug:
+            if pdf_debug.pages:
+                sample_text = (pdf_debug.pages[0].extract_text() or "").splitlines()
+                sample_text = "\n".join(sample_text[:40])  # first 40 lines
+                with st.expander("Show first page text (for debugging)"):
+                    st.text(sample_text)
 
     else:
         df = pd.DataFrame(records)
@@ -225,8 +241,8 @@ if uploaded_file:
         ]
 
         st.success(
-            f"✅ Extração concluída — {len(df)} linhas "
-            f"({df['Codigo'].nunique()} produtos)."
+            f"✅ Extraction complete — {len(df)} rows "
+            f"({df['Codigo'].nunique()} unique products)."
         )
         st.dataframe(df.head(50))
 
@@ -235,7 +251,7 @@ if uploaded_file:
         # -------------------------------------------------------
         csv_data = df.to_csv(index=False).encode("utf-8-sig")
         st.download_button(
-            "⬇️ Baixar CSV",
+            "⬇️ Download CSV",
             csv_data,
             "relatorio_faturamento.csv",
             "text/csv",
@@ -249,13 +265,12 @@ if uploaded_file:
             df.to_excel(writer, index=False)
 
         st.download_button(
-            "⬇️ Baixar XLSX",
+            "⬇️ Download XLSX",
             xlsx_io.getvalue(),
             "relatorio_faturamento.xlsx",
             "application/vnd.ms-excel",
         )
 
         st.info(
-            "📊 Arquivos prontos para download (incluindo colunas "
-            "**Cliente**, **Representante** e **Categoria**)."
+            "📊 Files are ready (including **Cliente**, **Representante** and **Categoria** columns)."
         )
