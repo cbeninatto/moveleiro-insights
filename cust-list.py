@@ -20,15 +20,21 @@ st.markdown("""
 Upload the **client list PDF** (billing report grouped by **Estado → Cidade → Cliente**)  
 and this app will build a clean client base with:
 
-- State code + name
-- City code + name
-- Client code + name
-- Quantity and Billing (Valor) from the report
+- State code + name  
+- City code + name  
+- Client code + name  
+- Quantity and Billing (Valor) from the report  
 
 The output CSV is meant to be saved in:
 
 `performance-moveleiro-v2/data/clientes_relatorio_faturamento.csv`
 """)
+
+# Initialize session state
+if "export_df" not in st.session_state:
+    st.session_state.export_df = None
+if "uploaded_file_name" not in st.session_state:
+    st.session_state.uploaded_file_name = None
 
 # -----------------------------
 # Helpers
@@ -59,6 +65,12 @@ def extract_clientes_from_pdf(file) -> pd.DataFrame:
     Estado, Cidade, Cliente, Quantidade, %Quantidade, Valor, %Valor.
     """
     rows = []
+
+    # Reset file pointer in case it was read before
+    try:
+        file.seek(0)
+    except Exception:
+        pass
 
     with pdfplumber.open(file) as pdf:
         total_pages = len(pdf.pages)
@@ -158,23 +170,9 @@ def extract_clientes_from_pdf(file) -> pd.DataFrame:
 
     return df
 
-def make_download_links(df: pd.DataFrame):
-    """Create CSV and (optionally) XLSX buffers for download."""
-    # CSV (UTF-8 with BOM for Excel PT-BR)
-    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-
-    xlsx_buffer = None
-    try:
-        # Try to create an XLSX file using xlsxwriter
-        xlsx_buffer = BytesIO()
-        with pd.ExcelWriter(xlsx_buffer, engine="xlsxwriter") as writer:
-            df.to_excel(writer, index=False, sheet_name="Clientes")
-        xlsx_buffer.seek(0)
-    except Exception:
-        # If xlsxwriter is not installed, we simply skip XLSX export
-        xlsx_buffer = None
-
-    return csv_bytes, xlsx_buffer
+def make_csv_bytes(df: pd.DataFrame) -> bytes:
+    """Create CSV bytes (UTF-8 with BOM) for download."""
+    return df.to_csv(index=False).encode("utf-8-sig")
 
 
 # -----------------------------
@@ -188,6 +186,7 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
     st.info("File uploaded. Click **Extract data** to process the PDF.")
 
+    # Button to trigger extraction
     if st.button("📤 Extract data"):
         start = time.time()
         try:
@@ -201,6 +200,10 @@ if uploaded_file is not None:
 
             elapsed = time.time() - start
 
+            # Store in session_state so downloads don't reprocess the PDF
+            st.session_state.export_df = export_df
+            st.session_state.uploaded_file_name = uploaded_file.name
+
             st.success(
                 f"Extraction completed! "
                 f"Found **{len(export_df)} client records** "
@@ -209,45 +212,30 @@ if uploaded_file is not None:
                 f"(time: {elapsed:.1f}s)."
             )
 
-            st.subheader("Preview of extracted data")
-            st.dataframe(export_df.head(200))
+        except Exception as e:
+            st.error(f"Error processing PDF: {e}")
 
-            csv_bytes, xlsx_buffer = make_download_links(export_df)
+    # If we have already extracted data, show preview + download button
+    if st.session_state.export_df is not None:
+        export_df = st.session_state.export_df
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    "⬇️ Download CSV (clientes_relatorio_faturamento.csv)",
-                    data=csv_bytes,
-                    file_name="clientes_relatorio_faturamento.csv",
-                    mime="text/csv",
-                )
-            with col2:
-                if xlsx_buffer is not None:
-                    st.download_button(
-                        "⬇️ Download XLSX (clientes_relatorio_faturamento.xlsx)",
-                        data=xlsx_buffer,
-                        file_name="clientes_relatorio_faturamento.xlsx",
-                        mime=(
-                            "application/vnd.openxmlformats-officedocument."
-                            "spreadsheetml.sheet"
-                        ),
-                    )
-                else:
-                    st.info(
-                        "XLSX export not available. "
-                        "To enable it, install the `xlsxwriter` package:\n\n"
-                        "`pip install xlsxwriter`"
-                    )
+        st.subheader("Preview of extracted data")
+        st.dataframe(export_df.head(200))
 
-            st.markdown("""
+        csv_bytes = make_csv_bytes(export_df)
+
+        st.download_button(
+            "⬇️ Download CSV (clientes_relatorio_faturamento.csv)",
+            data=csv_bytes,
+            file_name="clientes_relatorio_faturamento.csv",
+            mime="text/csv",
+        )
+
+        st.markdown("""
 > After downloading, place the CSV in  
 > `performance-moveleiro-v2/data/clientes_relatorio_faturamento.csv`  
 > so your other dashboards/apps can consume it.
-            """)
-
-        except Exception as e:
-            st.error(f"Error processing PDF: {e}")
+        """)
 
 else:
     st.warning("No file uploaded yet. Please upload the PDF to begin.")
