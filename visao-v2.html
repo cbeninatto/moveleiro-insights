@@ -698,7 +698,6 @@
 
   <script>
     // ---------- CONFIG ----------
-    // Uses data/relatorio_faturamento.csv
     const CSV_PATH = "data/relatorio_faturamento.csv";
 
     // Arizona Sunset palette
@@ -724,11 +723,7 @@
       filterClient: "ALL",
       filterRep: "ALL",
       filterState: "ALL",
-      filterCategory: "ALL",
-      distinctClients: [],
-      distinctReps: [],
-      distinctStates: [],
-      distinctCategories: []
+      filterCategory: "ALL"
     };
 
     // ---------- HELPERS ----------
@@ -767,6 +762,11 @@
       const semis = (sample.match(/;/g) || []).length;
       if (semis > commas) return ";";
       return ",";
+    }
+
+    function uniqueSorted(values) {
+      const set = new Set(values);
+      return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
     }
 
     // ---------- DATA LOAD ----------
@@ -811,15 +811,9 @@
       const keyToLabel = new Map();
       const normalizedRows = [];
 
-      const clientSet = new Set();
-      const repSet = new Set();
-      const stateSet = new Set();
-      const categorySet = new Set();
-
       for (const row of rows) {
         const ano = parseInt(row["Ano"], 10);
         const mes = parseInt(row["Mes"], 10);
-
         if (!ano || !mes) continue;
 
         const key = `${ano}-${String(mes).padStart(2, "0")}`;
@@ -855,11 +849,6 @@
           valor: isNaN(valor) ? 0 : valor,
           quantidade: isNaN(quantidade) ? 0 : quantidade
         });
-
-        clientSet.add(cliente);
-        repSet.add(representante);
-        stateSet.add(estado);
-        categorySet.add(categoria);
       }
 
       const allKeysSorted = Array.from(keySet).sort();
@@ -867,10 +856,6 @@
       state.rows = normalizedRows;
       state.allKeysSorted = allKeysSorted;
       state.keyToLabel = keyToLabel;
-      state.distinctClients = Array.from(clientSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
-      state.distinctReps = Array.from(repSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
-      state.distinctStates = Array.from(stateSet).sort((a, b) => a.localeCompare(b, "pt-BR"));
-      state.distinctCategories = Array.from(categorySet).sort((a, b) => a.localeCompare(b, "pt-BR"));
 
       if (allKeysSorted.length === 0) {
         document.getElementById("statusInfo").textContent = "Nenhum dado válido para exibir.";
@@ -958,7 +943,6 @@
           }
         });
 
-        // Reset custom range to full
         document.getElementById("fromPeriod").value = state.allKeysSorted[0];
         document.getElementById("toPeriod").value =
           state.allKeysSorted[state.allKeysSorted.length - 1];
@@ -970,27 +954,22 @@
         updateAll();
       });
 
-      // Dimension filters
-      initDimensionSelect("filterClient", state.distinctClients, "Todos os clientes");
-      initDimensionSelect("filterRep", state.distinctReps, "Todos os representantes");
-      initDimensionSelect("filterState", state.distinctStates, "Todos os estados");
-      initDimensionSelect("filterCategory", state.distinctCategories, "Todas as categorias");
-
+      // Dimension filters change handlers
       document.getElementById("filterClient").addEventListener("change", (e) => {
         state.filterClient = e.target.value;
-        updateAll();
+        onFiltersChanged();
       });
       document.getElementById("filterRep").addEventListener("change", (e) => {
         state.filterRep = e.target.value;
-        updateAll();
+        onFiltersChanged();
       });
       document.getElementById("filterState").addEventListener("change", (e) => {
         state.filterState = e.target.value;
-        updateAll();
+        onFiltersChanged();
       });
       document.getElementById("filterCategory").addEventListener("change", (e) => {
         state.filterCategory = e.target.value;
-        updateAll();
+        onFiltersChanged(false); // category doesn't affect other select options
       });
 
       // Measure toggle
@@ -1013,12 +992,21 @@
           updateAll();
         });
       });
+
+      // Initial population of selects
+      updateFilterOptions();
     }
 
-    function initDimensionSelect(elementId, values, allLabel) {
-      const select = document.getElementById(elementId);
-      select.innerHTML = "";
+    function onFiltersChanged(updateCategoryOptions = true) {
+      updateFilterOptions(updateCategoryOptions);
+      updateAll();
+    }
 
+    function refillSelect(selectId, values, allLabel, filterKeyName) {
+      const select = document.getElementById(selectId);
+      const currentValue = state[filterKeyName];
+
+      select.innerHTML = "";
       const optAll = document.createElement("option");
       optAll.value = "ALL";
       optAll.textContent = allLabel;
@@ -1031,10 +1019,55 @@
         select.appendChild(opt);
       });
 
-      select.value = "ALL";
+      const hasCurrent = currentValue !== "ALL" && values.includes(currentValue);
+      if (hasCurrent) {
+        select.value = currentValue;
+      } else {
+        select.value = "ALL";
+        state[filterKeyName] = "ALL";
+      }
     }
 
-    // ---------- RANGE & METRICS ----------
+    function updateFilterOptions(updateCategoryOptions = true) {
+      const rows = state.rows;
+
+      // Options for Cliente: respect Rep + State, ignore current Client
+      const rowsForClients = rows.filter(r =>
+        (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+        (state.filterState === "ALL" || r.estado === state.filterState)
+      );
+      const clientValues = uniqueSorted(rowsForClients.map(r => r.cliente));
+      refillSelect("filterClient", clientValues, "Todos os clientes", "filterClient");
+
+      // Options for Representante: respect Client + State, ignore current Rep
+      const rowsForReps = rows.filter(r =>
+        (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+        (state.filterState === "ALL" || r.estado === state.filterState)
+      );
+      const repValues = uniqueSorted(rowsForReps.map(r => r.representante));
+      refillSelect("filterRep", repValues, "Todos os representantes", "filterRep");
+
+      // Options for Estado: respect Client + Rep, ignore current State
+      const rowsForStates = rows.filter(r =>
+        (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+        (state.filterRep === "ALL" || r.representante === state.filterRep)
+      );
+      const stateValues = uniqueSorted(rowsForStates.map(r => r.estado));
+      refillSelect("filterState", stateValues, "Todos os estados", "filterState");
+
+      if (updateCategoryOptions) {
+        // Options for Categoria: respect Client + Rep + State
+        const rowsForCat = rows.filter(r =>
+          (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+          (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+          (state.filterState === "ALL" || r.estado === state.filterState)
+        );
+        const catValues = uniqueSorted(rowsForCat.map(r => r.categoria));
+        refillSelect("filterCategory", catValues, "Todas as categorias", "filterCategory");
+      }
+    }
+
+    // ---------- RANGE & SERIES ----------
     function getFilteredKeys() {
       const keys = state.allKeysSorted;
       if (!keys.length) return [];
@@ -1067,7 +1100,6 @@
     function buildSeriesForCurrentFilters(filteredKeys) {
       const filteredKeySet = new Set(filteredKeys);
       const seriesByCategory = new Map();
-
       const useFaturamento = state.valueMode === "FATURAMENTO";
 
       for (const row of state.rows) {
@@ -1142,7 +1174,6 @@
         }
       }
 
-      // Mean format depends on mode
       if (state.valueMode === "FATURAMENTO") {
         document.getElementById("metricMean").textContent = formatCurrencyBRL(mean);
       } else {
@@ -1155,21 +1186,27 @@
 
     // ---------- CHART ----------
     function renderChart(filteredKeys, seriesByCategory) {
-      const traces = [];
       const labels = filteredKeys.map(key =>
         state.keyToLabel.get(key) || mmYYYYFromKey(key)
       );
 
-      let colorIndex = 0;
+      // Sort categories by total in the filtered period (descending)
+      const catEntries = Array.from(seriesByCategory.entries());
+      catEntries.sort((a, b) => {
+        const sumA = filteredKeys.reduce((acc, key) => acc + (a[1].get(key) || 0), 0);
+        const sumB = filteredKeys.reduce((acc, key) => acc + (b[1].get(key) || 0), 0);
+        return sumB - sumA;
+      });
+
+      const traces = [];
       const measureName = state.valueLabel; // "Faturamento" or "Volume"
+      const unit = state.valueMode === "FATURAMENTO" ? "R$" : "un";
+      const decimals = state.valueMode === "FATURAMENTO" ? 2 : 0;
+      const yFormat = decimals === 2 ? ",.2f" : ",.0f";
 
-      seriesByCategory.forEach((mapByKey, category) => {
-        const y = filteredKeys.map(key => {
-          return mapByKey.get(key) || 0;
-        });
-
-        const color = ARIZONA_PALETTE[colorIndex % ARIZONA_PALETTE.length];
-        colorIndex++;
+      catEntries.forEach(([category, mapByKey], idx) => {
+        const y = filteredKeys.map(key => mapByKey.get(key) || 0);
+        const color = ARIZONA_PALETTE[idx % ARIZONA_PALETTE.length];
 
         traces.push({
           x: filteredKeys, // categorical key
@@ -1187,11 +1224,7 @@
           },
           customdata: labels,
           hovertemplate:
-            "%{customdata}<br>" +
-            measureName +
-            ": %{y:,.0f}<extra>" +
-            category +
-            "</extra>"
+            "<b>" + unit + "</b> %{y:" + yFormat + "}<extra>" + category + "</extra>"
         });
       });
 
