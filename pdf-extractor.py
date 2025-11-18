@@ -8,39 +8,44 @@ import time
 # -------------------------------------------------------
 # STREAMLIT UI CONFIG
 # -------------------------------------------------------
-st.set_page_config(page_title="Billing Report PDF Extractor", page_icon="📄")
+st.set_page_config(page_title="Billing Report Extractor", page_icon="📄")
 st.title("📄 Billing Report PDF Extractor")
 
 st.markdown(
     """
 Upload the **full billing report PDF** exported from your BI.
+The app will read all products and output clean **CSV** and **XLSX** files with:
 
-The app will automatically extract:
-
-- **Product** data → `Codigo`, `Descricao`, `Quantidade`, `Valor`, `Mes`, `Ano`
-- **Client** and **Sales Rep** → `Cliente`, `Representante`
-- **Category** for each product using the official Performance Moveleiro logic.
-
-You can then download clean **CSV** and **XLSX** files ready for GitHub and dashboards.
-"""
+- Product code and description
+- Month and year
+- Quantity and value (Brazilian formatting converted to float)
+- **Client** (code + name)
+- **Sales representative** (code + name)
+- **Categoria** (using the official Performance Moveleiro mapping)
+    """
 )
 
-uploaded_file = st.file_uploader("📤 Upload the billing report PDF", type="pdf")
+uploaded_file = st.file_uploader("📤 Choose the billing PDF file", type="pdf")
 
+# -------------------------------------------------------
+# SETTINGS
+# -------------------------------------------------------
+# For now we only scan the first page so you can validate the logic.
+# When everything looks good, set MAX_PAGES = None to process the whole PDF.
+MAX_PAGES = None
 
 # -------------------------------------------------------
 # UTILS
 # -------------------------------------------------------
 def br_to_float(s: str) -> float:
-    """
-    Converts Brazilian number formatting to float.
-    Example: '1.234,56' -> 1234.56
+    """Converts Brazilian number formatting to float.
+    Example: '50,0000' -> 50.0 ; '1.234,56' -> 1234.56
     """
     return float(s.strip().replace(".", "").replace(",", "."))
 
 
 # -------------------------------------------------------
-# 📌 LOAD CATEGORY MAP CSV
+# LOAD CATEGORY MAP CSV
 # -------------------------------------------------------
 @st.cache_data
 def load_category_map():
@@ -56,7 +61,7 @@ CATEGORY_MAP = load_category_map()
 
 
 # -------------------------------------------------------
-# 🧠 OFFICIAL PERFORMANCE MOVELEIRO CATEGORY ENGINE
+# CATEGORY ENGINE
 # -------------------------------------------------------
 def map_categoria(desc: str) -> str:
     text = (str(desc) or "").upper()
@@ -69,179 +74,154 @@ def map_categoria(desc: str) -> str:
 # -------------------------------------------------------
 # REGEX DEFINITIONS FOR PDF PARSING
 # -------------------------------------------------------
-# Example product header:
-# "PRODUTO: 9587 - DOBRADICA 45° COM PISTAO ..."
-prod_header_re = re.compile(r"^\s*PRODUTO:\s*(\d+)\s*-\s*(.+?)\s*$", re.IGNORECASE)
-
-# Remove duplicated "Quantidade % Quantidade Valor % Valor" clutter from the description
-cleanup_re = re.compile(
-    r"\s*Quantidade\s*%\s*Quantidade\s*Valor\s*%\s*Valor\s*$",
+# Example:
+# PRODUTO: 9587-DOBRADICA 45° COM PISTAO ...
+prod_header_re = re.compile(
+    r"^\s*PRODUTO:\s*(\d+)\s*-\s*(.+)$",
     re.IGNORECASE,
 )
 
-# Month line (Mes/Ano + Qty + Value)
-# More tolerant: handles "MÊS" or "MES"
-mes_line_re = re.compile(
-    r"^\s*M[ÊE]S\s*:\s*(\d{2})/(\d{4}).*?\s([\d\.\,]+)\s+[\d\.\,]+%\s+([\d\.\,]+)\s+[\d\.\,]+%",
+# Example:
+# MÊS: 10/2025-Outubro de 2025
+mes_re = re.compile(
+    r"^\s*MÊS\s*:\s*(\d{2})/(\d{4})",
     re.IGNORECASE,
 )
 
-# CLIENTE and REPRESENTANTE lines.
-# Assumes something like:
-# "CLIENTE: SOME CLIENT NAME"
-# "REPRESENTANTE: SOME REP NAME"
-cliente_re = re.compile(r"^\s*CLIENTE\s*:\s*(.+?)\s*$", re.IGNORECASE)
-representante_re = re.compile(r"^\s*REPRESENTANTE\s*:\s*(.+?)\s*$", re.IGNORECASE)
+# Example:
+# REPRESENTANTE: 4593-OPENFIELD BENTO
+rep_re = re.compile(
+    r"^\s*REPRESENTANTE:\s*(\d+)\s*-\s*(.+)$",
+    re.IGNORECASE,
+)
+
+# Example:
+# CLIENTE : 8819 - AMBIENTAL MOVEIS PLANEJADOS LTDA 50,0000 100,00% 275,50 100,00%
+cliente_line_re = re.compile(
+    r"^\s*CLIENTE\s*:\s*(\d+)\s*-\s*(.+?)\s+([\d\.\,]+)\s+[\d\.\,]+%\s+([\d\.\,]+)\s+[\d\.\,]+%\s*$",
+    re.IGNORECASE,
+)
 
 
 # -------------------------------------------------------
-# 📘 PROCESS PDF
+# PROCESS PDF
 # -------------------------------------------------------
-if uploaded_file:
-
+if uploaded_file is not None:
     records = []
-
-    current_code = None
-    current_desc = None
-
-    # These will be updated whenever we find CLIENTE / REPRESENTANTE lines
-    current_cliente = None
-    current_representante = None
 
     with pdfplumber.open(uploaded_file) as pdf:
         total_pages = len(pdf.pages)
-        st.info(f"📄 PDF loaded with **{total_pages} pages**.")
+        pages_to_process = (
+            min(total_pages, MAX_PAGES) if MAX_PAGES is not None else total_pages
+        )
+
+        st.info(
+            f"📄 PDF loaded with **{total_pages} pages**. "
+            f"Processing **{pages_to_process} page(s)** for this run."
+        )
 
         progress_bar = st.progress(0)
         status_text = st.empty()
 
+        # Context variables that change as we move through the PDF
+        current_code = None
+        current_desc = None
+        current_mes = None
+        current_ano = None
+        rep_code = None
+        rep_name = None
+
         for i, page in enumerate(pdf.pages, start=1):
-            status_text.text(f"🔍 Reading page {i}/{total_pages}...")
+            if i > pages_to_process:
+                break
+
+            status_text.text(f"🔍 Reading page {i}/{pages_to_process}...")
 
             text = page.extract_text() or ""
             for raw in text.splitlines():
                 line = raw.strip()
-
                 if not line:
                     continue
 
-                # Ignore some known noise lines
-                if "Subtotal PRODUTO" in line or "www.kunden.com.br" in line:
+                # 1) PRODUCT HEADER (reset month and rep context)
+                m = prod_header_re.match(line)
+                if m:
+                    current_code = m.group(1).strip()
+                    current_desc = m.group(2).strip()
+                    current_mes = None
+                    current_ano = None
+                    rep_code = None
+                    rep_name = None
                     continue
 
-                # -------------------------------
-                # Detect CLIENTE line
-                # -------------------------------
-                m_cliente = cliente_re.match(line)
-                if m_cliente:
-                    current_cliente = m_cliente.group(1).strip()
+                # 2) MONTH / YEAR (reset rep context for new month)
+                m = mes_re.match(line)
+                if m:
+                    current_mes, current_ano = m.groups()
+                    rep_code = None
+                    rep_name = None
                     continue
 
-                # -------------------------------
-                # Detect REPRESENTANTE line
-                # -------------------------------
-                m_rep = representante_re.match(line)
-                if m_rep:
-                    current_representante = m_rep.group(1).strip()
+                # 3) REPRESENTATIVE
+                m = rep_re.match(line)
+                if m:
+                    rep_code, rep_name = m.groups()
+                    rep_code = rep_code.strip()
+                    rep_name = rep_name.strip()
                     continue
 
-                # -------------------------------
-                # Detect product header
-                # -------------------------------
-                if line.upper().startswith("PRODUTO:"):
-                    m_prod = prod_header_re.match(line)
-                    if m_prod:
-                        current_code = m_prod.group(1).strip()
-                        desc_raw = m_prod.group(2)
-                        desc_clean = cleanup_re.sub("", desc_raw).strip(" -")
-                        current_desc = desc_clean
+                # 4) CLIENT LINE WITH QTY + VALUE
+                m = cliente_line_re.match(line)
+                if m:
+                    cli_code, cli_name, qty_str, val_str = m.groups()
+
+                    # We only add a row if the necessary context is available
+                    if (
+                        current_code
+                        and current_desc is not None
+                        and current_mes
+                        and current_ano
+                        and rep_code
+                        and rep_name
+                    ):
+                        try:
+                            record = {
+                                "Codigo": current_code,
+                                "Descricao": current_desc,
+                                "Quantidade": br_to_float(qty_str),
+                                "Valor": br_to_float(val_str),
+                                "Mes": int(current_mes),
+                                "Ano": int(current_ano),
+                                "Cliente": f"{cli_code.strip()} - {cli_name.strip()}",
+                                "Representante": f"{rep_code}-{rep_name}",
+                            }
+                            records.append(record)
+                        except Exception as e:
+                            # Skip bad lines but continue processing
+                            print(f"Error parsing line: {line} -> {e}")
                     continue
 
-                # -------------------------------
-                # Detect month line (Mes/Ano + Qty + Value)
-                # -------------------------------
-                m_mes = mes_line_re.match(line)
-                if m_mes and current_code:
-                    mes, ano, qty, val = m_mes.groups()
-                    try:
-                        record = {
-                            "Codigo": current_code,
-                            "Descricao": current_desc,
-                            "Quantidade": br_to_float(qty),
-                            "Valor": br_to_float(val),
-                            "Mes": int(mes),
-                            "Ano": int(ano),
-                            "Cliente": current_cliente,
-                            "Representante": current_representante,
-                        }
-                        records.append(record)
-                    except Exception:
-                        # If parsing of this line fails, skip it silently.
-                        # We can later add optional debug logging.
-                        pass
+            progress_bar.progress(i / pages_to_process)
+            time.sleep(0.01)
 
-            progress_bar.progress(i / total_pages)
-            time.sleep(0.02)
-
-        status_text.text("📘 Finished reading PDF — processing data...")
-
+        status_text.text("📘 PDF scan finished — building DataFrame...")
 
     # -------------------------------------------------------
     # CREATE DATAFRAME
     # -------------------------------------------------------
     if not records:
         st.error(
-            "No data was extracted.\n\n"
-            "The PDF layout may have changed or the parsing expressions (regex) "
-            "need to be updated for this version of the report."
+            "No data rows were found. "
+            "The PDF layout may have changed or the parsing patterns need to be adjusted."
         )
-
-        # Optional: show a small text sample from the first page to help debugging
-        with pdfplumber.open(uploaded_file) as pdf_debug:
-            if pdf_debug.pages:
-                sample_text = (pdf_debug.pages[0].extract_text() or "").splitlines()
-                sample_text = "\n".join(sample_text[:40])  # first 40 lines
-                with st.expander("Show first page text (for debugging)"):
-                    st.text(sample_text)
-
     else:
         df = pd.DataFrame(records)
 
-        # Ensure all expected columns exist even if some values are missing
-        expected_cols = [
-            "Codigo",
-            "Descricao",
-            "Quantidade",
-            "Valor",
-            "Mes",
-            "Ano",
-            "Cliente",
-            "Representante",
-        ]
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = None
-
-        # 🔥 APPLY OFFICIAL CATEGORY LOGIC
+        # Apply category logic
         df["Categoria"] = df["Descricao"].apply(map_categoria)
 
-        # Reorder columns to the official schema
-        df = df[
-            [
-                "Codigo",
-                "Descricao",
-                "Quantidade",
-                "Valor",
-                "Mes",
-                "Ano",
-                "Cliente",
-                "Representante",
-                "Categoria",
-            ]
-        ]
-
         st.success(
-            f"✅ Extraction complete — {len(df)} rows "
+            f"✅ Extraction finished — {len(df)} rows "
             f"({df['Codigo'].nunique()} unique products)."
         )
         st.dataframe(df.head(50))
@@ -272,5 +252,6 @@ if uploaded_file:
         )
 
         st.info(
-            "📊 Files are ready (including **Cliente**, **Representante** and **Categoria** columns)."
+            "📊 Files are ready (including **Cliente**, "
+            "**Representante** and **Categoria** columns)."
         )
