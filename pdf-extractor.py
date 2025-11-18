@@ -47,15 +47,13 @@ def br_to_float(s: str) -> float:
 # -------------------------------------------------------
 # LOAD CATEGORY MAP CSV
 # -------------------------------------------------------
-@st.cache_data
 def load_category_map():
     df = pd.read_csv("data/categorias_map.csv")
-    df["pattern"] = df["pattern"].astype(str).str.upper()
-    df["categoria"] = df["categoria"].astype(str)
+    df["pattern"] = df["pattern"].astype(str).str.upper().str.strip()
+    df["categoria"] = df["categoria"].astype(str).str.strip()
     df["prioridade"] = df["prioridade"].astype(int)
     df = df.sort_values("prioridade")
     return df
-
 
 CATEGORY_MAP = load_category_map()
 
@@ -87,7 +85,7 @@ CLIENT_GEO_MAP = load_client_geo_map()
 # CATEGORY ENGINE
 # -------------------------------------------------------
 def map_categoria(desc: str) -> str:
-    text = (str(desc) or "").upper()
+    text = (str(desc) or "").upper().strip()
     for _, row in CATEGORY_MAP.iterrows():
         if row["pattern"] in text:
             return row["categoria"]
