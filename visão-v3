@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Meu Novo Gráfico - Performance Moveleiro</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Plotly & PapaParse -->
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <style>
+    :root {
+      --bg-body: #050608;
+      --bg-card: #ffffff;
+      --bg-chip: #111827;
+      --text-main: #111827;
+      --text-muted: #6b7280;
+      --text-invert: #f9fafb;
+      --accent-gold: #f5b95f;
+      --accent-gold-soft: #f9cf7f;
+      --border-subtle: rgba(15, 23, 42, 0.08);
+      --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.35);
+      --radius-card: 18px;
+      --radius-pill: 999px;
+      --transition-fast: 160ms ease-out;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #111827 0, #050608 55%);
+      color: var(--text-main);
+      min-height: 100vh;
+    }
+
+    body { display: flex; flex-direction: column; }
+    .page { min-height: 100vh; display: flex; flex-direction: column; }
+
+    /* Top bar */
+    .top-bar {
+      background: #000;
+      color: var(--text-invert);
+      border-bottom: 2px solid var(--accent-gold);
+      padding: 10px 18px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+    .top-bar-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+    }
+    .top-bar-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent-gold);
+      white-space: nowrap;
+    }
+    .top-bar-sub {
+      font-size: 0.75rem;
+      color: rgba(249,250,251,0.75);
+      margin-top: 2px;
+    }
+    .top-bar-updated {
+      font-size: 0.75rem;
+      color: rgba(249,250,251,0.75);
+      white-space: nowrap;
+    }
+    .top-bar-updated span {
+      font-weight: 500;
+      color: var(--accent-gold-soft);
+    }
+
+    /* Content */
+    .content {
+      flex: 1;
+      padding: 22px 14px 28px;
+      display: flex;
+      justify-content: center;
+    }
+    .content-inner { width: 100%; max-width: 1200px; }
+
+    /* Card */
+    .card {
+      background: var(--bg-card);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+      border: 1px solid rgba(15,23,42,0.05);
+    }
+    .card-header {
+      background: #000;
+      color: var(--text-invert);
+      padding: 10px 18px;
+      border-left: 4px solid var(--accent-gold);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .card-header-left { display: flex; flex-direction: column; gap: 2px; }
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .card-header-pill {
+      font-size: 0.7rem;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(249,250,251,0.16);
+      color: rgba(249,250,251,0.8);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: linear-gradient(
+        135deg,
+        rgba(245,185,95,0.25),
+        rgba(15,23,42,0.3)
+      );
+    }
+    .card-header-right { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .metric-toggle {
+      display: inline-flex;
+      border-radius: 999px;
+      border: 1px solid rgba(248,250,252,0.18);
+      overflow: hidden;
+      background: rgba(15,23,42,0.5);
+    }
+    .toggle-btn {
+      border: none;
+      background: transparent;
+      color: rgba(248,250,252,0.8);
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background var(--transition-fast),
+        color var(--transition-fast), transform 80ms ease-out;
+    }
+    .toggle-btn.active {
+      background: var(--accent-gold);
+      color: #111827;
+      transform: translateY(-0.2px);
+    }
+
+    .card-body {
+      padding: 14px 16px 18px;
+      background: radial-gradient(circle at top left,#f9fafb 0,#e5e7eb 32%,#f3f4f6 100%);
+    }
+
+    /* Filters */
+    .filters-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      align-items: flex-end;
+      margin-bottom: 10px;
+    }
+    .filters-row-secondary { margin: 4px 0 14px; }
+    .filters-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .filters-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .range-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+    .range-btn {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(15,23,42,0.14);
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: var(--bg-chip);
+      color: var(--text-invert);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background var(--transition-fast),
+        color var(--transition-fast), border-color var(--transition-fast),
+        box-shadow var(--transition-fast), transform 90ms ease-out;
+    }
+    .range-btn.active {
+      background: var(--accent-gold);
+      color: #111827;
+      border-color: var(--accent-gold);
+      box-shadow: 0 0 0 1px rgba(15,23,42,0.5);
+    }
+    .custom-range {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: flex-end;
+    }
+    .field-group { display: flex; flex-direction: column; gap: 3px; min-width: 120px; }
+    .field-group.small { min-width: 140px; }
+    .field-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    select {
+      appearance: none;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      padding: 5px 26px 5px 8px;
+      font-size: 0.75rem;
+      background:
+        url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='%236b7280' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E")
+        no-repeat right 7px center / 12px 12px,
+        #ffffff;
+      color: #111827;
+    }
+    select:focus {
+      outline: none;
+      border-color: var(--accent-gold);
+      box-shadow: 0 0 0 1px rgba(245,185,95,0.6);
+    }
+    .btn-small {
+      border-radius: 999px;
+      border: 1px solid rgba(15,23,42,0.14);
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-soft));
+      color: #111827;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+    }
+    .btn-small.secondary {
+      background: #111827;
+      color: #f9fafb;
+      box-shadow: none;
+    }
+
+    /* Metrics */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3,minmax(0,1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .metric-card {
+      background: rgba(255,255,255,0.85);
+      border-radius: 12px;
+      border: 1px solid rgba(15,23,42,0.07);
+      padding: 7px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .metric-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .metric-value {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .metric-sub { font-size: 0.7rem; color: var(--text-muted); }
+
+    /* Chart */
+    .chart-wrapper {
+      border-radius: 14px;
+      border: 1px solid rgba(148,163,184,0.3);
+      background: radial-gradient(circle at top,
+        rgba(15,23,42,0.06) 0,
+        rgba(15,23,42,0.02) 45%,
+        rgba(255,255,255,1) 100%);
+      padding: 6px;
+    }
+    .chart { width: 100%; height: 520px; }
+
+    /* Status */
+    .status-line {
+      margin-top: 6px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .status-pill {
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid rgba(15,23,42,0.08);
+      background: rgba(15,23,42,0.03);
+      font-size: 0.7rem;
+    }
+
+    @media (max-width: 900px) {
+      .chart { height: 440px; }
+      .metrics-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    }
+    @media (max-width: 640px) {
+      .top-bar-inner { flex-direction: column; align-items: flex-start; }
+      .content { padding: 14px 10px 18px; }
+      .filters-row { flex-direction: column; align-items: stretch; }
+      .chart { height: 380px; }
+      .metrics-grid { grid-template-columns: 1fr; }
+      .card-header { flex-direction: column; align-items: flex-start; }
+    }
+    @media (max-width: 480px) {
+      .chart { height: 340px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="top-bar">
+      <div class="top-bar-inner">
+        <div>
+          <div class="top-bar-title">Performance Moveleiro</div>
+          <div class="top-bar-sub">Faturamento / Volume com Filtros</div>
+        </div>
+        <div class="top-bar-updated">
+          Atualizado: <span id="updatedAt">--/----</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      <div class="content-inner">
+        <section class="card">
+          <header class="card-header">
+            <div class="card-header-left">
+              <div class="card-title">Visão Temporal por Categoria</div>
+              <div class="card-header-pill">
+                <span>Dashboard</span>
+                <span style="width:4px;height:4px;border-radius:999px;background:#facc15;"></span>
+                <span>Interativo</span>
+              </div>
+            </div>
+            <div class="card-header-right">
+              <div class="metric-toggle" id="measureToggle">
+                <button class="toggle-btn active" data-mode="FATURAMENTO">Faturamento</button>
+                <button class="toggle-btn" data-mode="VOLUME">Volume</button>
+              </div>
+            </div>
+          </header>
+
+          <div class="card-body">
+            <!-- Period filters -->
+            <div class="filters-row">
+              <div class="filters-group">
+                <div class="filters-label">Período</div>
+                <div class="range-buttons" id="rangeButtons">
+                  <button class="range-btn" data-range="3M"><span>3M</span></button>
+                  <button class="range-btn" data-range="6M"><span>6M</span></button>
+                  <button class="range-btn" data-range="1A"><span>1A</span></button>
+                  <button class="range-btn" data-range="5A"><span>5A</span></button>
+                  <button class="range-btn active" data-range="ALL"><span>Tudo</span></button>
+                </div>
+              </div>
+
+              <div class="custom-range">
+                <div class="field-group">
+                  <label class="field-label" for="fromPeriod">De</label>
+                  <select id="fromPeriod"></select>
+                </div>
+                <div class="field-group">
+                  <label class="field-label" for="toPeriod">Até</label>
+                  <select id="toPeriod"></select>
+                </div>
+                <button class="btn-small" id="applyCustom">Aplicar</button>
+                <button class="btn-small secondary" id="resetCustom">Reset</button>
+              </div>
+            </div>
+
+            <!-- Dimension filters -->
+            <div class="filters-row filters-row-secondary">
+              <div class="filters-group">
+                <div class="filters-label">Filtros</div>
+
+                <div class="field-group small">
+                  <label class="field-label" for="filterClient">Cliente</label>
+                  <select id="filterClient"></select>
+                </div>
+                <div class="field-group small">
+                  <label class="field-label" for="filterRep">Representante</label>
+                  <select id="filterRep"></select>
+                </div>
+                <div class="field-group small">
+                  <label class="field-label" for="filterState">Estado</label>
+                  <select id="filterState"></select>
+                </div>
+                <div class="field-group small">
+                  <label class="field-label" for="filterCategory">Categoria</label>
+                  <select id="filterCategory"></select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Metrics -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <div class="metric-label">Variação Total</div>
+                <div class="metric-value" id="metricChange">--</div>
+                <div class="metric-sub">Referente ao período selecionado</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Média Mensal</div>
+                <div class="metric-value" id="metricMean">--</div>
+                <div class="metric-sub" id="metricMeanSub">Faturamento médio mensal</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Volatilidade</div>
+                <div class="metric-value" id="metricVol">--</div>
+                <div class="metric-sub">Desvio padrão da variação mensal</div>
+              </div>
+            </div>
+
+            <!-- Chart -->
+            <div class="chart-wrapper">
+              <div id="chart" class="chart"></div>
+            </div>
+
+            <div class="status-line">
+              <div id="statusInfo">Carregando dados...</div>
+              <div class="status-pill" id="statusRange">Período: --</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const CSV_PATH = "data/relatorio_faturamento.csv";
+    const ARIZONA_PALETTE = [
+      "#264653","#287271","#2a9d8f",
+      "#e9c46a","#f4a261","#ee8959","#e76f51"
+    ];
+
+    const state = {
+      rows: [],
+      allKeysSorted: [],
+      keyToLabel: new Map(), // "YYYY-MM" -> "MMM AA"
+      range: "ALL",
+      customFrom: null,
+      customTo: null,
+      valueMode: "FATURAMENTO",
+      valueLabel: "Faturamento",
+      filterClient: "ALL",
+      filterRep: "ALL",
+      filterState: "ALL",
+      filterCategory: "ALL"
+    };
+
+    function labelFromKey(key) {
+      const [y,mStr] = key.split("-");
+      const m = parseInt(mStr,10);
+      const shortYear = y.slice(-2);
+      const months = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
+      return (months[m-1] || mStr) + " " + shortYear;
+    }
+    function formatCurrencyBRL(v) {
+      if (!isFinite(v)) return "--";
+      return v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+    }
+    function formatNumberBR(v) {
+      if (!isFinite(v)) return "--";
+      return v.toLocaleString("pt-BR",{maximumFractionDigits:0});
+    }
+    function formatPercent(v) {
+      if (!isFinite(v)) return "--";
+      return v.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1}) + "%";
+    }
+    function detectDelimiter(text) {
+      const sample = text.slice(0,1000);
+      const commas = (sample.match(/,/g)||[]).length;
+      const semis  = (sample.match(/;/g)||[]).length;
+      return semis>commas?";":",";
+    }
+    function uniqueSorted(arr) {
+      return Array.from(new Set(arr)).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    }
+
+    function loadCSV() {
+      fetch(CSV_PATH,{cache:"no-cache"})
+        .then(r => {
+          if (!r.ok) throw new Error("erro");
+          return r.text();
+        })
+        .then(text => {
+          const delimiter = detectDelimiter(text);
+          Papa.parse(text,{
+            header:true,
+            skipEmptyLines:true,
+            delimiter,
+            complete:(res)=>processData(res.data||[])
+          });
+        })
+        .catch(err => {
+          console.error(err);
+          document.getElementById("statusInfo").textContent = "Erro ao carregar dados.";
+        });
+    }
+
+    function processData(rows) {
+      const keySet = new Set();
+      const keyToLabel = new Map();
+      const normalized = [];
+
+      for (const row of rows) {
+        const ano = parseInt(row["Ano"],10);
+        const mes = parseInt(row["Mes"],10);
+        if (!ano || !mes) continue;
+
+        const key = `${ano}-${String(mes).padStart(2,"0")}`;
+        const label = labelFromKey(key);
+        keySet.add(key);
+        if (!keyToLabel.has(key)) keyToLabel.set(key,label);
+
+        const rawValor = (row["Valor"] ?? "0").toString().replace(",",".");
+        const rawQtd   = (row["Quantidade"] ?? "0").toString().replace(",",".");
+        const valor = parseFloat(rawValor);
+        const quantidade = parseFloat(rawQtd);
+
+        const categoria = (row["Categoria"] || "").toString().trim() || "Sem Categoria";
+        const cliente   = (row["Cliente"] || "").toString().trim()   || "Sem Cliente";
+        const rep       = (row["Representante"] || "").toString().trim() || "Sem Representante";
+        const estado    = (row["Estado"] || "").toString().trim()    || "Sem Estado";
+
+        normalized.push({
+          key,label,ano,mes,
+          categoria,cliente,representante:rep,estado,
+          valor:isNaN(valor)?0:valor,
+          quantidade:isNaN(quantidade)?0:quantidade
+        });
+      }
+
+      const keysSorted = Array.from(keySet).sort();
+      if (!keysSorted.length) {
+        document.getElementById("statusInfo").textContent = "Nenhum dado encontrado.";
+        return;
+      }
+
+      state.rows = normalized;
+      state.allKeysSorted = keysSorted;
+      state.keyToLabel = keyToLabel;
+
+      initUI();
+      updateAll();
+    }
+
+    function initUI() {
+      const fromSel = document.getElementById("fromPeriod");
+      const toSel   = document.getElementById("toPeriod");
+      fromSel.innerHTML = "";
+      toSel.innerHTML   = "";
+
+      state.allKeysSorted.forEach(key => {
+        const label = state.keyToLabel.get(key) || labelFromKey(key);
+        const o1 = document.createElement("option");
+        o1.value = key; o1.textContent = label; fromSel.appendChild(o1);
+        const o2 = document.createElement("option");
+        o2.value = key; o2.textContent = label; toSel.appendChild(o2);
+      });
+
+      fromSel.value = state.allKeysSorted[0];
+      toSel.value   = state.allKeysSorted[state.allKeysSorted.length-1];
+      state.customFrom = fromSel.value;
+      state.customTo   = toSel.value;
+
+      const lastKey = state.allKeysSorted[state.allKeysSorted.length-1];
+      document.getElementById("updatedAt").textContent =
+        state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
+
+      // range buttons
+      document.querySelectorAll("#rangeButtons .range-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll("#rangeButtons .range-btn")
+            .forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          state.range = btn.dataset.range || "ALL";
+          updateAll();
+        });
+      });
+
+      document.getElementById("applyCustom").addEventListener("click", () => {
+        const fromVal = fromSel.value;
+        const toVal   = toSel.value;
+        const all = state.allKeysSorted;
+        const fi = all.indexOf(fromVal);
+        const ti = all.indexOf(toVal);
+        if (fi === -1 || ti === -1 || fi > ti) {
+          alert("Selecione um intervalo De/Até válido.");
+          return;
+        }
+        state.customFrom = fromVal;
+        state.customTo   = toVal;
+        state.range = "CUSTOM";
+        document.querySelectorAll("#rangeButtons .range-btn")
+          .forEach(b => b.classList.remove("active"));
+        updateAll();
+      });
+
+      document.getElementById("resetCustom").addEventListener("click", () => {
+        fromSel.value = state.allKeysSorted[0];
+        toSel.value   = state.allKeysSorted[state.allKeysSorted.length-1];
+        state.customFrom = fromSel.value;
+        state.customTo   = toSel.value;
+        state.range = "ALL";
+        document.querySelectorAll("#rangeButtons .range-btn")
+          .forEach(b => {
+            b.classList.toggle("active", b.dataset.range === "ALL");
+          });
+        updateAll();
+      });
+
+      // filter events
+      document.getElementById("filterClient").addEventListener("change", e => {
+        state.filterClient = e.target.value;
+        updateFilterOptions();
+        updateAll();
+      });
+      document.getElementById("filterRep").addEventListener("change", e => {
+        state.filterRep = e.target.value;
+        updateFilterOptions();
+        updateAll();
+      });
+      document.getElementById("filterState").addEventListener("change", e => {
+        state.filterState = e.target.value;
+        updateFilterOptions();
+        updateAll();
+      });
+      document.getElementById("filterCategory").addEventListener("change", e => {
+        state.filterCategory = e.target.value;
+        updateAll();
+      });
+
+      // toggle
+      document.querySelectorAll("#measureToggle .toggle-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const mode = btn.dataset.mode;
+          state.valueMode  = mode;
+          state.valueLabel = mode === "FATURAMENTO" ? "Faturamento" : "Volume";
+          document.querySelectorAll("#measureToggle .toggle-btn")
+            .forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          document.getElementById("metricMeanSub").textContent =
+            mode === "FATURAMENTO" ? "Faturamento médio mensal" : "Volume médio mensal";
+          updateAll();
+        });
+      });
+
+      updateFilterOptions();
+    }
+
+    function refillSelect(id, values, allLabel, filterKeyName) {
+      const sel = document.getElementById(id);
+      const current = state[filterKeyName];
+      sel.innerHTML = "";
+      const optAll = document.createElement("option");
+      optAll.value = "ALL";
+      optAll.textContent = allLabel;
+      sel.appendChild(optAll);
+      values.forEach(v => {
+        const o = document.createElement("option");
+        o.value = v; o.textContent = v; sel.appendChild(o);
+      });
+      if (current !== "ALL" && values.includes(current)) {
+        sel.value = current;
+      } else {
+        sel.value = "ALL";
+        state[filterKeyName] = "ALL";
+      }
+    }
+
+    function updateFilterOptions() {
+      const rows = state.rows;
+
+      // For CLIENTE, respect current Rep + State
+      const rowsForClients = rows.filter(r =>
+        (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+        (state.filterState === "ALL" || r.estado === state.filterState)
+      );
+      refillSelect("filterClient",
+        uniqueSorted(rowsForClients.map(r => r.cliente)),
+        "Todos os clientes","filterClient");
+
+      // For REP, respect current Client + State
+      const rowsForReps = rows.filter(r =>
+        (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+        (state.filterState === "ALL" || r.estado === state.filterState)
+      );
+      refillSelect("filterRep",
+        uniqueSorted(rowsForReps.map(r => r.representante)),
+        "Todos os representantes","filterRep");
+
+      // For ESTADO, respect current Client + Rep
+      const rowsForStates = rows.filter(r =>
+        (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+        (state.filterRep === "ALL" || r.representante === state.filterRep)
+      );
+      refillSelect("filterState",
+        uniqueSorted(rowsForStates.map(r => r.estado)),
+        "Todos os estados","filterState");
+
+      // For CATEGORIA, respect all three
+      const rowsForCats = rows.filter(r =>
+        (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+        (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+        (state.filterState === "ALL" || r.estado === state.filterState)
+      );
+      refillSelect("filterCategory",
+        uniqueSorted(rowsForCats.map(r => r.categoria)),
+        "Todas as categorias","filterCategory");
+    }
+
+    function getFilteredKeys() {
+      const keys = state.allKeysSorted;
+      if (!keys.length) return [];
+      if (state.range === "CUSTOM") {
+        const from = state.customFrom || keys[0];
+        const to   = state.customTo   || keys[keys.length-1];
+        const fi = keys.indexOf(from);
+        const ti = keys.indexOf(to);
+        if (fi === -1 || ti === -1 || fi > ti) return [];
+        return keys.slice(fi,ti+1);
+      }
+      if (["3M","6M","1A","5A"].includes(state.range)) {
+        let n = 0;
+        if (state.range === "3M") n = 3;
+        if (state.range === "6M") n = 6;
+        if (state.range === "1A") n = 12;
+        if (state.range === "5A") n = 60;
+        if (keys.length <= n) return keys.slice();
+        return keys.slice(keys.length-n);
+      }
+      return keys.slice();
+    }
+
+    function buildSeries(filteredKeys) {
+      const keySet = new Set(filteredKeys);
+      const byCat = new Map();
+      const useFat = state.valueMode === "FATURAMENTO";
+
+      for (const r of state.rows) {
+        if (!keySet.has(r.key)) continue;
+        if (state.filterClient   !== "ALL" && r.cliente       !== state.filterClient)   continue;
+        if (state.filterRep      !== "ALL" && r.representante !== state.filterRep)      continue;
+        if (state.filterState    !== "ALL" && r.estado        !== state.filterState)    continue;
+        if (state.filterCategory !== "ALL" && r.categoria     !== state.filterCategory) continue;
+
+        const cat = r.categoria;
+        const val = useFat ? r.valor : r.quantidade;
+
+        if (!byCat.has(cat)) byCat.set(cat,new Map());
+        const m = byCat.get(cat);
+        m.set(r.key,(m.get(r.key)||0)+(isNaN(val)?0:val));
+      }
+      return byCat;
+    }
+
+    function computeMetrics(filteredKeys, series) {
+      const totals = filteredKeys.map(key => {
+        let sum = 0;
+        series.forEach(m => { sum += m.get(key) || 0; });
+        return sum;
+      }).filter(v => isFinite(v) && v>0);
+
+      let mean = NaN, change = NaN, vol = NaN;
+      if (totals.length) {
+        mean = totals.reduce((a,b)=>a+b,0) / totals.length;
+      }
+      if (totals.length >= 2) {
+        const first = totals[0], last = totals[totals.length-1];
+        if (first !== 0) change = ((last-first)/Math.abs(first))*100;
+      }
+      if (totals.length >= 3) {
+        const rets = [];
+        for (let i=1;i<totals.length;i++) {
+          if (totals[i-1] !== 0) rets.push(((totals[i]/totals[i-1])-1)*100);
+        }
+        if (rets.length > 1) {
+          const meanR = rets.reduce((a,b)=>a+b,0)/rets.length;
+          const varR  = rets.reduce((acc,r)=>acc+Math.pow(r-meanR,2),0)/(rets.length-1);
+          vol = Math.sqrt(varR);
+        }
+      }
+
+      document.getElementById("metricMean").textContent =
+        state.valueMode === "FATURAMENTO" ? formatCurrencyBRL(mean) : formatNumberBR(mean);
+      document.getElementById("metricChange").textContent = formatPercent(change);
+      document.getElementById("metricVol").textContent    = formatPercent(vol);
+    }
+
+    function renderChart(filteredKeys, series) {
+      const labels = filteredKeys.map(k => state.keyToLabel.get(k) || labelFromKey(k));
+
+      // sort categories by total desc
+      const entries = Array.from(series.entries());
+      entries.sort((a,b)=>{
+        const sumA = filteredKeys.reduce((acc,k)=>acc+(a[1].get(k)||0),0);
+        const sumB = filteredKeys.reduce((acc,k)=>acc+(b[1].get(k)||0),0);
+        return sumB - sumA;
+      });
+
+      const traces = [];
+      entries.forEach(([cat,m],idx)=>{
+        const y = filteredKeys.map(k => m.get(k) || 0);
+        traces.push({
+          x: labels,
+          y,
+          type:"scatter",
+          mode:"lines+markers",
+          name:cat,
+          line:{shape:"spline",width:2,color:ARIZONA_PALETTE[idx%ARIZONA_PALETTE.length]},
+          marker:{size:5},
+          hoverinfo:"name+y"
+        });
+      });
+
+      const layout = {
+        margin:{l:60,r:20,t:20,b:60},
+        paper_bgcolor:"rgba(0,0,0,0)",
+        plot_bgcolor:"rgba(0,0,0,0)",
+        showlegend:true,
+        legend:{
+          orientation:"h",
+          yanchor:"bottom",y:-0.22,
+          xanchor:"center",x:0.5,
+          font:{size:10}
+        },
+        hovermode:"x unified",
+        xaxis:{
+          type:"category",
+          categoryorder:"array",
+          categoryarray:labels,
+          tickvals:labels,
+          ticktext:labels,
+          tickangle:-35,
+          tickfont:{size:11},
+          showgrid:false,
+          zeroline:false
+        },
+        yaxis:{
+          title:state.valueLabel,
+          tickformat:",.0f",
+          gridcolor:"rgba(148,163,184,0.4)",
+          zerolinecolor:"rgba(148,163,184,0.6)",
+          tickfont:{size:11},
+          automargin:true
+        }
+      };
+
+      Plotly.react("chart",traces,layout,{responsive:true,displayModeBar:false});
+    }
+
+    function updateAll() {
+      const keys = getFilteredKeys();
+      const statusInfo  = document.getElementById("statusInfo");
+      const statusRange = document.getElementById("statusRange");
+
+      if (!keys.length) {
+        statusInfo.textContent  = "Nenhum dado para o período selecionado.";
+        statusRange.textContent = "Período: --";
+        document.getElementById("metricMean").textContent   = "--";
+        document.getElementById("metricChange").textContent = "--";
+        document.getElementById("metricVol").textContent    = "--";
+        Plotly.purge("chart");
+        return;
+      }
+
+      const series = buildSeries(keys);
+      if (!series.size) {
+        statusInfo.textContent  = "Nenhum dado para os filtros selecionados.";
+        const fromLbl = state.keyToLabel.get(keys[0]) || labelFromKey(keys[0]);
+        const toLbl   = state.keyToLabel.get(keys[keys.length-1]) || labelFromKey(keys[keys.length-1]);
+        statusRange.textContent = "Período: " + fromLbl + " – " + toLbl;
+        document.getElementById("metricMean").textContent   = "--";
+        document.getElementById("metricChange").textContent = "--";
+        document.getElementById("metricVol").textContent    = "--";
+        Plotly.purge("chart");
+        return;
+      }
+
+      const fromLbl = state.keyToLabel.get(keys[0]) || labelFromKey(keys[0]);
+      const toLbl   = state.keyToLabel.get(keys[keys.length-1]) || labelFromKey(keys[keys.length-1]);
+      statusInfo.textContent  = "Dados carregados • " + keys.length + " pontos";
+      statusRange.textContent = "Período: " + fromLbl + " – " + toLbl;
+
+      computeMetrics(keys,series);
+      renderChart(keys,series);
+    }
+
+    document.addEventListener("DOMContentLoaded", loadCSV);
+  </script>
+</body>
+</html>
