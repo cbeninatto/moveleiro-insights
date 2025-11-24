@@ -483,6 +483,17 @@
       "#e76f51"
     ];
 
+    // Category colors (same as volume-linha.html)
+    const COLORS = {
+      "Corrediça Oculta":        "#d64b4b",
+      "Corrediça Telescópica":   "#f57c00",
+      "Dobradiças":              "#fdd835",
+      "Articuladores":           "#81c784",
+      "Rodízio":                 "#4db6ac",
+      "Pulsadores":              "#9575cd",
+      "Acessórios":              "#bcaaa4"
+    };
+
     const state = {
       rows: [],
       allKeysSorted: [],
@@ -1003,7 +1014,10 @@
       const traces = [];
       entries.forEach(([cat, map], idx) => {
         const y = filteredKeys.map((k) => map.get(k) || 0);
-        const color = ARIZONA_PALETTE[idx % ARIZONA_PALETTE.length];
+
+        // Use fixed colors for known categorias, fallback to Arizona palette
+        const color =
+          COLORS[cat] || ARIZONA_PALETTE[idx % ARIZONA_PALETTE.length];
 
         const hoverTemplate =
           state.valueMode === "FATURAMENTO"
@@ -1032,6 +1046,7 @@
           hovertemplate: hoverTemplate
         });
       });
+
 
       const layout = {
         margin: { l: 60, r: 30, t: 20, b: 80 },
