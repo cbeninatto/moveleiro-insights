@@ -296,12 +296,57 @@
       font-size: 0.7rem;
     }
 
+    /* Rankings */
+    .ranking-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .ranking-card {
+      background: #fafafa;
+      border: 1px solid #eee;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 0.78rem;
+    }
+    .ranking-card h4 {
+      margin: 0 0 4px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #4b5563;
+    }
+    .ranking-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .ranking-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+    .ranking-label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ranking-value {
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
     @media (max-width: 900px) {
       .chart { height: 460px; }
       .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ranking-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 720px) {
       .metrics-grid { grid-template-columns: 1fr; }
+      .ranking-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 640px) {
       .content { padding: 14px 10px 28px; }
@@ -422,6 +467,22 @@
               <div id="chart" class="chart"></div>
             </div>
 
+            <!-- RANKINGS -->
+            <div class="ranking-grid" id="rankingGrid">
+              <div class="ranking-card">
+                <h4>Ranking Representantes</h4>
+                <ul class="ranking-list" id="rankingReps"></ul>
+              </div>
+              <div class="ranking-card">
+                <h4>Ranking Clientes</h4>
+                <ul class="ranking-list" id="rankingClients"></ul>
+              </div>
+              <div class="ranking-card">
+                <h4>Ranking Estados</h4>
+                <ul class="ranking-list" id="rankingStates"></ul>
+              </div>
+            </div>
+
             <div class="status-line">
               <div id="statusInfo">Carregando dados...</div>
               <div class="status-pill" id="statusRange">Período: --</div>
@@ -473,14 +534,6 @@
     function formatNumberBR(v) {
       if (!isFinite(v)) return "—";
       return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-    }
-
-    function formatPercent(v) {
-      if (!isFinite(v)) return "—";
-      return v.toLocaleString("pt-BR", {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1
-      }) + " %";
     }
 
     function labelFromKey(key) {
@@ -631,6 +684,15 @@
 
       initUI();
       updateAll();
+    }
+
+    function rowPassesDimensionFilters(r) {
+      if (state.filterClient !== "ALL" && r.cliente !== state.filterClient) return false;
+      if (state.filterRep !== "ALL" && r.representante !== state.filterRep) return false;
+      if (state.filterState !== "ALL" && r.estado !== state.filterState) return false;
+      if (state.filterCategory !== "ALL" && r.categoria !== state.filterCategory) return false;
+      if (state.filterLinha !== "ALL" && r.linha !== state.filterLinha) return false;
+      return true;
     }
 
     function initUI() {
@@ -927,11 +989,7 @@
 
       for (const r of state.rows) {
         if (!keySet.has(r.key)) continue;
-        if (state.filterClient !== "ALL" && r.cliente !== state.filterClient) continue;
-        if (state.filterRep !== "ALL" && r.representante !== state.filterRep) continue;
-        if (state.filterState !== "ALL" && r.estado !== state.filterState) continue;
-        if (state.filterCategory !== "ALL" && r.categoria !== state.filterCategory) continue;
-        if (state.filterLinha !== "ALL" && r.linha !== state.filterLinha) continue;
+        if (!rowPassesDimensionFilters(r)) continue;
 
         let group;
         if (state.viewMode === "ESTADO") {
@@ -951,7 +1009,7 @@
       return byGroup;
     }
 
-    function computeBasicStats(totals, keys) {
+    function computeBasicStats(totals) {
       const n = totals.length;
       if (!n) {
         return {
@@ -1021,7 +1079,7 @@
         totals.push(sum);
       }
 
-      const stats = computeBasicStats(totals, chart.keys);
+      const stats = computeBasicStats(totals);
       const isFat = state.valueMode === "FATURAMENTO";
       const formatVal = (v) => {
         if (!isFinite(v)) return "—";
@@ -1060,6 +1118,85 @@
         document.getElementById("metricVol").textContent = "—";
         document.getElementById("metricVolSub").textContent = "—";
       }
+    }
+
+    function clearRankings() {
+      const ids = ["rankingReps", "rankingClients", "rankingStates"];
+      ids.forEach((id) => {
+        const ul = document.getElementById(id);
+        if (!ul) return;
+        ul.innerHTML = "";
+        const li = document.createElement("li");
+        li.textContent = "Sem dados";
+        ul.appendChild(li);
+      });
+    }
+
+    function updateRankings(filteredKeys) {
+      const ulReps = document.getElementById("rankingReps");
+      const ulClients = document.getElementById("rankingClients");
+      const ulStates = document.getElementById("rankingStates");
+      ulReps.innerHTML = "";
+      ulClients.innerHTML = "";
+      ulStates.innerHTML = "";
+
+      const keySet = new Set(filteredKeys);
+      const rows = state.rows.filter(
+        (r) => keySet.has(r.key) && rowPassesDimensionFilters(r)
+      );
+
+      if (!rows.length) {
+        clearRankings();
+        return;
+      }
+
+      const useFat = state.valueMode === "FATURAMENTO";
+      const valKey = useFat ? "valor" : "quantidade";
+
+      const repAgg = new Map();
+      const clientAgg = new Map();
+      const stateAgg = new Map();
+
+      rows.forEach((r) => {
+        const v = r[valKey] || 0;
+        repAgg.set(r.representante, (repAgg.get(r.representante) || 0) + v);
+        clientAgg.set(r.cliente, (clientAgg.get(r.cliente) || 0) + v);
+        stateAgg.set(r.estado, (stateAgg.get(r.estado) || 0) + v);
+      });
+
+      const maxItems = 10;
+      const makeList = (map, ul) => {
+        const arr = Array.from(map.entries())
+          .filter(([name]) => name && name.toString().trim() !== "")
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, maxItems);
+
+        if (!arr.length) {
+          const li = document.createElement("li");
+          li.textContent = "Sem dados";
+          ul.appendChild(li);
+          return;
+        }
+
+        arr.forEach(([name, value], idx) => {
+          const li = document.createElement("li");
+          const spanLabel = document.createElement("span");
+          spanLabel.className = "ranking-label";
+          spanLabel.textContent = `${idx + 1}. ${name}`;
+          const spanVal = document.createElement("span");
+          spanVal.className = "ranking-value";
+          spanVal.textContent = useFat
+            ? formatCurrencyBRL(value)
+            : formatNumberBR(value);
+          li.appendChild(spanLabel);
+          li.appendChild(spanVal);
+          ul.appendChild(li);
+        });
+      };
+
+      makeList(repAgg, ulReps);
+      makeList(clientAgg, ulClients);
+      makeList(stateAgg, ulStates);
     }
 
     function renderChart(filteredKeys, seriesMap) {
@@ -1108,8 +1245,8 @@
 
         const templateWithTotal =
           isFat
-            ? `<b>${groupName}</b><br>R$ %{y:,.2f}<br><b>Total:</b> R$ %{customdata:,.2f}<extra></extra>`
-            : `<b>${groupName}</b><br>%{y:,.0f} un<br><b>Total:</b> %{customdata:,.0f} un<extra></extra>`;
+            ? `<b>%{x} - R$ %{customdata:,.2f}</b><br>${groupName}: R$ %{y:,.2f}<extra></extra>`
+            : `<b>%{x} - %{customdata:,.0f} un</b><br>${groupName}: %{y:,.0f} un<extra></extra>`;
 
         traces.push({
           x: labels,
@@ -1206,6 +1343,7 @@
         document.getElementById("metricMeanSub").textContent = "—";
         document.getElementById("metricChangeSub").textContent = "—";
         document.getElementById("metricVolSub").textContent = "—";
+        clearRankings();
         Plotly.purge("chart");
         return;
       }
@@ -1227,6 +1365,7 @@
         document.getElementById("metricMeanSub").textContent = "—";
         document.getElementById("metricChangeSub").textContent = "—";
         document.getElementById("metricVolSub").textContent = "—";
+        clearRankings();
         Plotly.purge("chart");
         return;
       }
@@ -1248,6 +1387,7 @@
         document.getElementById("metricMeanSub").textContent = "—";
         document.getElementById("metricChangeSub").textContent = "—";
         document.getElementById("metricVolSub").textContent = "—";
+        clearRankings();
         Plotly.purge("chart");
         return;
       }
@@ -1271,6 +1411,7 @@
         state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
       statusRange.textContent = "Período: " + labelFrom + " – " + labelTo;
 
+      updateRankings(filteredKeys);
       renderChart(filteredKeys, seriesMap);
     }
 
