@@ -32,12 +32,9 @@
       --transition-fast: 160ms ease-out;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html,
-    body {
+    html, body {
       margin: 0;
       padding: 0;
       font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
@@ -101,9 +98,7 @@
       color: var(--accent-gold-soft);
     }
 
-    .section {
-      margin-top: 16px;
-    }
+    .section { margin-top: 16px; }
 
     .titlebar {
       background: #000;
@@ -213,9 +208,7 @@
         color var(--transition-fast), border-color var(--transition-fast),
         transform 90ms ease-out;
     }
-    .range-btn span {
-      font-size: 0.78rem;
-    }
+    .range-btn span { font-size: 0.78rem; }
     .range-btn:hover,
     .range-btn.active {
       background: #000;
@@ -372,40 +365,21 @@
     }
 
     @media (max-width: 900px) {
-      .chart {
-        height: 460px;
-      }
-      .metrics-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .ranking-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
+      .chart { height: 460px; }
+      .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ranking-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 720px) {
-      .metrics-grid {
-        grid-template-columns: 1fr;
-      }
-      .ranking-grid {
-        grid-template-columns: 1fr;
-      }
+      .metrics-grid { grid-template-columns: 1fr; }
+      .ranking-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 640px) {
-      .content {
-        padding: 14px 10px 28px;
-      }
-      .filters-row {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      .chart {
-        height: 380px;
-      }
+      .content { padding: 14px 10px 28px; }
+      .filters-row { flex-direction: column; align-items: flex-start; }
+      .chart { height: 380px; }
     }
     @media (max-width: 480px) {
-      .chart {
-        height: 340px;
-      }
+      .chart { height: 340px; }
     }
   </style>
 </head>
@@ -418,7 +392,7 @@
           <div>
             <div class="top-bar-title">OPENFIELD MOVELEIRO — Nova Visão</div>
             <div class="top-bar-sub">
-              Faturamento / Volume com filtros por Cliente / Representante / Estado / Categoria / Linha + Visão por Estado / Cliente
+              Faturamento / Volume com filtros por Cliente / Representante / Estado / Categoria / Linha + Visão por Estado / Cliente / Representante
             </div>
           </div>
           <div class="top-bar-updated">
@@ -456,6 +430,7 @@
                 <button class="btn-small" id="btnViewCategoria">Categoria</button>
                 <button class="btn-small secondary" id="btnViewEstado">Estado</button>
                 <button class="btn-small secondary" id="btnViewCliente">Cliente</button>
+                <button class="btn-small secondary" id="btnViewRep">Representante</button>
 
                 <span style="width:4px;"></span>
 
@@ -578,7 +553,7 @@
       customTo: null,
       valueMode: "FATURAMENTO",
       valueLabel: "Faturamento",
-      viewMode: "CATEGORIA", // CATEGORIA | ESTADO | CLIENTE
+      viewMode: "CATEGORIA", // CATEGORIA | ESTADO | CLIENTE | REPRESENTANTE
       filterClient: "ALL",
       filterRep: "ALL",
       filterState: "ALL",
@@ -860,6 +835,7 @@
       const btnViewCat = document.getElementById("btnViewCategoria");
       const btnViewEst = document.getElementById("btnViewEstado");
       const btnViewCli = document.getElementById("btnViewCliente");
+      const btnViewRep = document.getElementById("btnViewRep");
 
       function setView(mode) {
         state.viewMode = mode;
@@ -867,6 +843,7 @@
         btnViewCat.classList.toggle("secondary", mode !== "CATEGORIA");
         btnViewEst.classList.toggle("secondary", mode !== "ESTADO");
         btnViewCli.classList.toggle("secondary", mode !== "CLIENTE");
+        btnViewRep.classList.toggle("secondary", mode !== "REPRESENTANTE");
 
         updateAll();
       }
@@ -874,6 +851,7 @@
       btnViewCat.addEventListener("click", () => setView("CATEGORIA"));
       btnViewEst.addEventListener("click", () => setView("ESTADO"));
       btnViewCli.addEventListener("click", () => setView("CLIENTE"));
+      btnViewRep.addEventListener("click", () => setView("REPRESENTANTE"));
 
       // Filters
       document
@@ -1094,8 +1072,10 @@
           group = r.estado;
         } else if (state.viewMode === "CLIENTE") {
           group = r.cliente;
+        } else if (state.viewMode === "REPRESENTANTE") {
+          group = r.representante;
         } else {
-          group = r.categoria; // default: CATEGORIA
+          group = r.categoria; // CATEGORIA
         }
 
         const val = useFaturamento ? r.valor : r.quantidade;
@@ -1539,27 +1519,6 @@
         return;
       }
 
-      if (state.viewMode === "CLIENTE" && state.filterRep === "ALL") {
-        statusInfo.textContent =
-          "Selecione um representante para a visão por cliente (top 10).";
-        const firstKey = filteredKeys[0];
-        const lastKey = filteredKeys[filteredKeys.length - 1];
-        const labelFrom =
-          state.keyToLabel.get(firstKey) || labelFromKey(firstKey);
-        const labelTo =
-          state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
-        statusRange.textContent = "Período: " + labelFrom + " – " + labelTo;
-        document.getElementById("metricMean").textContent = "—";
-        document.getElementById("metricChange").textContent = "—";
-        document.getElementById("metricVol").textContent = "—";
-        document.getElementById("metricMeanSub").textContent = "—";
-        document.getElementById("metricChangeSub").textContent = "—";
-        document.getElementById("metricVolSub").textContent = "—";
-        clearRankings();
-        Plotly.purge("chart");
-        return;
-      }
-
       const seriesMap = buildSeriesForCurrentFilters(filteredKeys);
 
       if (!seriesMap.size) {
@@ -1584,10 +1543,13 @@
 
       if (state.viewMode === "CLIENTE") {
         statusInfo.textContent =
-          "Dados carregados • Top 10 clientes do representante selecionado";
+          "Dados carregados • Top 10 clientes no período";
       } else if (state.viewMode === "ESTADO") {
         statusInfo.textContent =
           "Dados carregados • Visão por estado";
+      } else if (state.viewMode === "REPRESENTANTE") {
+        statusInfo.textContent =
+          "Dados carregados • Visão por representante";
       } else {
         statusInfo.textContent =
           "Dados carregados • Visão por categoria";
