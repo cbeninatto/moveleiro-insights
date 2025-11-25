@@ -322,7 +322,7 @@
           <div>
             <div class="top-bar-title">OPENFIELD MOVELEIRO — Nova Visão</div>
             <div class="top-bar-sub">
-              Faturamento / Volume com filtros por Cliente / Representante / Estado / Categoria / Linha
+              Faturamento / Volume com filtros por Cliente / Representante / Estado / Categoria / Linha + Visão por Estado / Cliente
             </div>
           </div>
           <div class="top-bar-updated">
@@ -336,7 +336,7 @@
             <span>📊 Nova Visão Temporal</span>
           </div>
           <div class="card">
-            <!-- PERIOD + MODE -->
+            <!-- PERIOD + MODE + VIEW -->
             <div class="filters-row">
               <span class="filters-label">Período</span>
 
@@ -355,7 +355,14 @@
               <button class="btn-small" id="applyCustom">Aplicar</button>
               <button class="btn-small secondary" id="resetCustom">Reset</button>
 
-              <span style="flex:0 0 auto;margin-left:auto;display:flex;gap:6px;">
+              <span style="flex:0 0 auto;margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <span class="filters-label">Visão</span>
+                <button class="btn-small" id="btnViewCategoria">Categoria</button>
+                <button class="btn-small secondary" id="btnViewEstado">Estado</button>
+                <button class="btn-small secondary" id="btnViewCliente">Cliente</button>
+
+                <span style="width:4px;"></span>
+
                 <button class="btn-small" id="btnFaturamento">Faturamento</button>
                 <button class="btn-small secondary" id="btnVolume">Volume</button>
               </span>
@@ -445,6 +452,7 @@
       customTo: null,
       valueMode: "FATURAMENTO",
       valueLabel: "Faturamento",
+      viewMode: "CATEGORIA", // CATEGORIA | ESTADO | CLIENTE
       filterClient: "ALL",
       filterRep: "ALL",
       filterState: "ALL",
@@ -593,8 +601,7 @@
 
         const descKey = normalizeDesc(row["Descricao"]);
         const linha =
-          familiesMap.get(descKey) ||
-          "Sem Linha";
+          familiesMap.get(descKey) || "Sem Linha";
 
         normalized.push({
           key,
@@ -721,7 +728,26 @@
       btnFat.addEventListener("click", () => setMode("FATURAMENTO"));
       btnVol.addEventListener("click", () => setMode("VOLUME"));
 
-      // filters
+      // View buttons
+      const btnViewCat = document.getElementById("btnViewCategoria");
+      const btnViewEst = document.getElementById("btnViewEstado");
+      const btnViewCli = document.getElementById("btnViewCliente");
+
+      function setView(mode) {
+        state.viewMode = mode;
+
+        btnViewCat.classList.toggle("secondary", mode !== "CATEGORIA");
+        btnViewEst.classList.toggle("secondary", mode !== "ESTADO");
+        btnViewCli.classList.toggle("secondary", mode !== "CLIENTE");
+
+        updateAll();
+      }
+
+      btnViewCat.addEventListener("click", () => setView("CATEGORIA"));
+      btnViewEst.addEventListener("click", () => setView("ESTADO"));
+      btnViewCli.addEventListener("click", () => setView("CLIENTE"));
+
+      // Filters
       document
         .getElementById("filterClient")
         .addEventListener("change", (e) => {
@@ -757,8 +783,8 @@
           updateAll();
         });
 
-      // initial filters based on full period
       updateFilterOptions(getFilteredKeys());
+      setView("CATEGORIA");
       setMode("FATURAMENTO");
     }
 
@@ -790,7 +816,6 @@
     function updateFilterOptions(filteredKeys) {
       const rows = state.rows;
       const keySet = new Set(filteredKeys);
-
       const rowsBase = rows.filter((r) => keySet.has(r.key));
 
       // CLIENTE
@@ -897,7 +922,7 @@
 
     function buildSeriesForCurrentFilters(filteredKeys) {
       const keySet = new Set(filteredKeys);
-      const byCat = new Map();
+      const byGroup = new Map();
       const useFaturamento = state.valueMode === "FATURAMENTO";
 
       for (const r of state.rows) {
@@ -908,15 +933,22 @@
         if (state.filterCategory !== "ALL" && r.categoria !== state.filterCategory) continue;
         if (state.filterLinha !== "ALL" && r.linha !== state.filterLinha) continue;
 
-        const cat = r.categoria;
-        const val = useFaturamento ? r.valor : r.quantidade;
+        let group;
+        if (state.viewMode === "ESTADO") {
+          group = r.estado;
+        } else if (state.viewMode === "CLIENTE") {
+          group = r.cliente;
+        } else {
+          group = r.categoria; // default: CATEGORIA
+        }
 
-        if (!byCat.has(cat)) byCat.set(cat, new Map());
-        const m = byCat.get(cat);
+        const val = useFaturamento ? r.valor : r.quantidade;
+        if (!byGroup.has(group)) byGroup.set(group, new Map());
+        const m = byGroup.get(group);
         m.set(r.key, (m.get(r.key) || 0) + (isNaN(val) ? 0 : val));
       }
 
-      return byCat;
+      return byGroup;
     }
 
     function computeMetricsFromTotals(totals) {
@@ -1019,12 +1051,12 @@
       document.getElementById("metricChangeSub").textContent = changeSub;
     }
 
-    function renderChart(filteredKeys, seriesByCategory) {
+    function renderChart(filteredKeys, seriesMap) {
       const labels = filteredKeys.map(
         (k) => state.keyToLabel.get(k) || labelFromKey(k)
       );
 
-      const entries = Array.from(seriesByCategory.entries());
+      const entries = Array.from(seriesMap.entries());
       entries.sort((a, b) => {
         const sumA = filteredKeys.reduce(
           (acc, k) => acc + (a[1].get(k) || 0),
@@ -1049,26 +1081,26 @@
       const chartSeries = [];
       const isFat = state.valueMode === "FATURAMENTO";
 
-      entries.forEach(([cat, map], idx) => {
+      entries.forEach(([groupName, map], idx) => {
         const vals = filteredKeys.map((k) => map.get(k) || 0);
-        chartSeries.push({ name: cat, values: vals });
+        chartSeries.push({ name: groupName, values: vals });
 
         const baseTemplate =
           isFat
-            ? `<b>${cat}</b><br>R$ %{y:,.2f}<extra></extra>`
-            : `<b>${cat}</b><br>%{y:,.0f} un<extra></extra>`;
+            ? `<b>${groupName}</b><br>R$ %{y:,.2f}<extra></extra>`
+            : `<b>${groupName}</b><br>%{y:,.0f} un<extra></extra>`;
 
         const templateWithTotal =
           isFat
-            ? `<b>${cat}</b><br>R$ %{y:,.2f}<br><b>Total:</b> R$ %{customdata:,.2f}<extra></extra>`
-            : `<b>${cat}</b><br>%{y:,.0f} un<br><b>Total:</b> %{customdata:,.0f} un<extra></extra>`;
+            ? `<b>${groupName}</b><br>R$ %{y:,.2f}<br><b>Total:</b> R$ %{customdata:,.2f}<extra></extra>`
+            : `<b>${groupName}</b><br>%{y:,.0f} un<br><b>Total:</b> %{customdata:,.0f} un<extra></extra>`;
 
         traces.push({
           x: labels,
           y: vals,
           type: "scatter",
           mode: "lines+markers",
-          name: cat,
+          name: groupName,
           line: {
             shape: "spline",
             width: 3,
@@ -1162,9 +1194,30 @@
         return;
       }
 
-      const seriesByCategory = buildSeriesForCurrentFilters(filteredKeys);
+      // For Cliente view, require a single rep
+      if (state.viewMode === "CLIENTE" && state.filterRep === "ALL") {
+        statusInfo.textContent =
+          "Selecione um representante para a visão por cliente.";
+        const firstKey = filteredKeys[0];
+        const lastKey = filteredKeys[filteredKeys.length - 1];
+        const labelFrom =
+          state.keyToLabel.get(firstKey) || labelFromKey(firstKey);
+        const labelTo =
+          state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
+        statusRange.textContent = "Período: " + labelFrom + " – " + labelTo;
+        document.getElementById("metricMean").textContent = "—";
+        document.getElementById("metricChange").textContent = "—";
+        document.getElementById("metricVol").textContent = "—";
+        document.getElementById("metricMeanSub").textContent = "—";
+        document.getElementById("metricChangeSub").textContent = "—";
+        document.getElementById("metricVolSub").textContent = "—";
+        Plotly.purge("chart");
+        return;
+      }
 
-      if (!seriesByCategory.size) {
+      const seriesMap = buildSeriesForCurrentFilters(filteredKeys);
+
+      if (!seriesMap.size) {
         statusInfo.textContent = "Nenhum dado para os filtros selecionados.";
         const firstKey = filteredKeys[0];
         const lastKey = filteredKeys[filteredKeys.length - 1];
@@ -1194,7 +1247,7 @@
         state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
       statusRange.textContent = "Período: " + labelFrom + " – " + labelTo;
 
-      renderChart(filteredKeys, seriesByCategory);
+      renderChart(filteredKeys, seriesMap);
     }
 
     document.addEventListener("DOMContentLoaded", () => {
