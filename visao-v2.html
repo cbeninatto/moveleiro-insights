@@ -401,17 +401,17 @@
             <!-- METRICS -->
             <div class="metrics-grid">
               <div class="metric-card">
-                <div class="metric-label">Média móvel (3M)</div>
+                <div class="metric-label">Média mensal</div>
                 <div class="metric-value" id="metricChange">—</div>
                 <div class="metric-sub" id="metricChangeSub">—</div>
               </div>
               <div class="metric-card">
-                <div class="metric-label">Variação sazonal (12M)</div>
+                <div class="metric-label">Total no período</div>
                 <div class="metric-value" id="metricMean">—</div>
                 <div class="metric-sub" id="metricMeanSub">—</div>
               </div>
               <div class="metric-card">
-                <div class="metric-label">Amplitude móvel média</div>
+                <div class="metric-label">Destaques</div>
                 <div class="metric-value" id="metricVol">—</div>
                 <div class="metric-sub" id="metricVolSub">—</div>
               </div>
@@ -951,72 +951,38 @@
       return byGroup;
     }
 
-    function computeAdvancedStats(totals, keys) {
+    function computeBasicStats(totals, keys) {
       const n = totals.length;
       if (!n) {
         return {
-          movingAvg: NaN,
-          movingAvgCount: 0,
-          seasonalChange: NaN,
-          seasonalHasBase: false,
-          movingRange: NaN,
-          movingRangeSteps: 0
+          mean: NaN,
+          total: NaN,
+          bestIdx: -1,
+          worstIdx: -1,
+          count: 0
         };
       }
 
-      // 1) Moving average (3M) on last 1–3 points
-      const lastIdx = n - 1;
-      const window = Math.min(3, n);
-      const startIdx = n - window;
-      let sumMA = 0;
-      for (let i = startIdx; i <= lastIdx; i++) {
+      let total = 0;
+      for (let i = 0; i < n; i++) {
         const v = totals[i];
-        if (!isFinite(v)) continue;
-        sumMA += v;
+        total += isFinite(v) ? v : 0;
       }
-      const movingAvg = sumMA / window;
+      const mean = total / n;
 
-      // 2) Seasonal change: last month vs same calendar month 12M earlier
-      let seasonalChange = NaN;
-      let seasonalHasBase = false;
-      if (keys && keys.length === totals.length) {
-        const lastKey = keys[lastIdx];
-        const [yStr, mStr] = lastKey.split("-");
-        const y = parseInt(yStr, 10);
-        const prevKey = (y - 1).toString() + "-" + mStr;
-        const prevIdx = keys.indexOf(prevKey);
-        if (prevIdx >= 0) {
-          const curr = totals[lastIdx];
-          const prev = totals[prevIdx];
-          if (isFinite(curr) && isFinite(prev) && prev !== 0) {
-            seasonalChange = ((curr - prev) / Math.abs(prev)) * 100;
-            seasonalHasBase = true;
-          }
-        }
-      }
-
-      // 3) Moving range: average |Δ month to month|
-      let movingRange = NaN;
-      let steps = 0;
-      if (n >= 2) {
-        let sumMR = 0;
-        for (let i = 1; i < n; i++) {
-          const v1 = totals[i];
-          const v0 = totals[i - 1];
-          if (!isFinite(v1) || !isFinite(v0)) continue;
-          sumMR += Math.abs(v1 - v0);
-          steps++;
-        }
-        if (steps > 0) movingRange = sumMR / steps;
+      let bestIdx = 0;
+      let worstIdx = 0;
+      for (let i = 1; i < n; i++) {
+        if (totals[i] > totals[bestIdx]) bestIdx = i;
+        if (totals[i] < totals[worstIdx]) worstIdx = i;
       }
 
       return {
-        movingAvg,
-        movingAvgCount: window,
-        seasonalChange,
-        seasonalHasBase,
-        movingRange,
-        movingRangeSteps: steps
+        mean,
+        total,
+        bestIdx,
+        worstIdx,
+        count: n
       };
     }
 
@@ -1055,36 +1021,45 @@
         totals.push(sum);
       }
 
-      const stats = computeAdvancedStats(totals, chart.keys);
+      const stats = computeBasicStats(totals, chart.keys);
       const isFat = state.valueMode === "FATURAMENTO";
       const formatVal = (v) => {
         if (!isFinite(v)) return "—";
         return isFat ? formatCurrencyBRL(v) : formatNumberBR(v) + " un";
       };
 
-      // Card 1: Média móvel (3M)
+      // Card 1: Média mensal
       document.getElementById("metricChange").textContent =
-        formatVal(stats.movingAvg);
+        formatVal(stats.mean);
       document.getElementById("metricChangeSub").textContent =
-        stats.movingAvgCount
-          ? `Média dos últimos ${stats.movingAvgCount} meses`
-          : "Sem dados suficientes";
+        stats.count ? `Em ${stats.count} meses` : "Sem dados suficientes";
 
-      // Card 2: Variação sazonal (12M)
+      // Card 2: Total no período
       document.getElementById("metricMean").textContent =
-        formatPercent(stats.seasonalChange);
+        formatVal(stats.total);
       document.getElementById("metricMeanSub").textContent =
-        stats.seasonalHasBase
-          ? "Comparado a mesmo mês do ano anterior"
-          : "Sem base suficiente para 12M";
+        stats.count ? `Soma de ${stats.count} meses` : "Sem dados suficientes";
 
-      // Card 3: Amplitude móvel média
-      document.getElementById("metricVol").textContent =
-        formatVal(stats.movingRange);
-      document.getElementById("metricVolSub").textContent =
-        stats.movingRangeSteps > 0
-          ? `Média de |Δ mês a mês| em ${stats.movingRangeSteps} passos`
-          : "Sem variação suficiente";
+      // Card 3: Destaques (melhor / pior)
+      if (stats.count && stats.bestIdx >= 0 && stats.worstIdx >= 0) {
+        const bestLabel =
+          state.keyToLabel.get(chart.keys[stats.bestIdx]) ||
+          labelFromKey(chart.keys[stats.bestIdx]);
+        const worstLabel =
+          state.keyToLabel.get(chart.keys[stats.worstIdx]) ||
+          labelFromKey(chart.keys[stats.worstIdx]);
+
+        const bestVal = formatVal(totals[stats.bestIdx]);
+        const worstVal = formatVal(totals[stats.worstIdx]);
+
+        document.getElementById("metricVol").textContent =
+          `Melhor: ${bestLabel} — ${bestVal}`;
+        document.getElementById("metricVolSub").textContent =
+          `Pior: ${worstLabel} — ${worstVal}`;
+      } else {
+        document.getElementById("metricVol").textContent = "—";
+        document.getElementById("metricVolSub").textContent = "—";
+      }
     }
 
     function renderChart(filteredKeys, seriesMap) {
@@ -1092,7 +1067,7 @@
         (k) => state.keyToLabel.get(k) || labelFromKey(k)
       );
 
-      const entries = Array.from(seriesMap.entries());
+      let entries = Array.from(seriesMap.entries());
       entries.sort((a, b) => {
         const sumA = filteredKeys.reduce(
           (acc, k) => acc + (a[1].get(k) || 0),
@@ -1104,6 +1079,11 @@
         );
         return sumB - sumA;
       });
+
+      // In Cliente view, only show top 10 clients
+      if (state.viewMode === "CLIENTE" && entries.length > 10) {
+        entries = entries.slice(0, 10);
+      }
 
       const totalPerKey = filteredKeys.map((key) => {
         let sum = 0;
@@ -1233,7 +1213,7 @@
       // For Cliente view, require a single rep
       if (state.viewMode === "CLIENTE" && state.filterRep === "ALL") {
         statusInfo.textContent =
-          "Selecione um representante para a visão por cliente.";
+          "Selecione um representante para a visão por cliente (top 10).";
         const firstKey = filteredKeys[0];
         const lastKey = filteredKeys[filteredKeys.length - 1];
         const labelFrom =
@@ -1272,8 +1252,16 @@
         return;
       }
 
-      statusInfo.textContent =
-        "Dados carregados • " + filteredKeys.length + " pontos";
+      if (state.viewMode === "CLIENTE") {
+        statusInfo.textContent =
+          "Dados carregados • Top 10 clientes do representante selecionado";
+      } else if (state.viewMode === "ESTADO") {
+        statusInfo.textContent =
+          "Dados carregados • Visão por estado";
+      } else {
+        statusInfo.textContent =
+          "Dados carregados • Visão por categoria";
+      }
 
       const firstKey = filteredKeys[0];
       const lastKey = filteredKeys[filteredKeys.length - 1];
