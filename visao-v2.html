@@ -23,7 +23,6 @@
       --bg-card: #ffffff;
       --text-main: #111827;
       --text-muted: #6b7280;
-      --text-invert: #f9fafb;
       --accent-gold: #f5b95f;
       --accent-gold-border: #e5be74;
       --accent-gold-soft: #f9cf7f;
@@ -297,11 +296,26 @@
     }
 
     /* Rankings */
+    .trend-header {
+      margin-top: 12px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .trend-header-right {
+      margin-left: auto;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      max-width: 260px;
+    }
+
     .ranking-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
-      margin-top: 12px;
+      margin-top: 4px;
     }
     .ranking-card {
       background: #fafafa;
@@ -467,19 +481,33 @@
               <div id="chart" class="chart"></div>
             </div>
 
+            <!-- TREND DIMENSION HEADER -->
+            <div class="trend-header">
+              <span class="filters-label">Tendências</span>
+              <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                <span class="field-label" style="margin-right:4px;">Dimensão</span>
+                <button class="btn-small" id="trendDimRep">Representante</button>
+                <button class="btn-small secondary" id="trendDimCli">Cliente</button>
+                <button class="btn-small secondary" id="trendDimEst">Estado</button>
+              </span>
+              <span class="trend-header-right">
+                Comparando a segunda metade do período selecionado com a primeira metade.
+              </span>
+            </div>
+
             <!-- RANKINGS -->
             <div class="ranking-grid" id="rankingGrid">
               <div class="ranking-card">
-                <h4>Ranking Representantes</h4>
-                <ul class="ranking-list" id="rankingReps"></ul>
+                <h4 id="rankingTopTitle">Maiores no período — Representante</h4>
+                <ul class="ranking-list" id="rankingTop"></ul>
               </div>
               <div class="ranking-card">
-                <h4>Ranking Clientes</h4>
-                <ul class="ranking-list" id="rankingClients"></ul>
+                <h4 id="rankingRisingTitle">Ganhando espaço — Representante</h4>
+                <ul class="ranking-list" id="rankingRising"></ul>
               </div>
               <div class="ranking-card">
-                <h4>Ranking Estados</h4>
-                <ul class="ranking-list" id="rankingStates"></ul>
+                <h4 id="rankingFallingTitle">Perdendo espaço — Representante</h4>
+                <ul class="ranking-list" id="rankingFalling"></ul>
               </div>
             </div>
 
@@ -519,6 +547,7 @@
       filterState: "ALL",
       filterCategory: "ALL",
       filterLinha: "ALL",
+      rankingDimension: "REPRESENTANTE", // REPRESENTANTE | CLIENTE | ESTADO
       currentChart: null
     };
 
@@ -534,6 +563,14 @@
     function formatNumberBR(v) {
       if (!isFinite(v)) return "—";
       return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+    }
+
+    function formatPercent(v) {
+      if (!isFinite(v)) return "—";
+      return v.toLocaleString("pt-BR", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1
+      }) + " %";
     }
 
     function labelFromKey(key) {
@@ -845,9 +882,41 @@
           updateAll();
         });
 
+      // Trend dimension buttons
+      const btnTrendRep = document.getElementById("trendDimRep");
+      const btnTrendCli = document.getElementById("trendDimCli");
+      const btnTrendEst = document.getElementById("trendDimEst");
+
+      function setRankingDimension(dim) {
+        state.rankingDimension = dim;
+
+        btnTrendRep.classList.toggle("secondary", dim !== "REPRESENTANTE");
+        btnTrendCli.classList.toggle("secondary", dim !== "CLIENTE");
+        btnTrendEst.classList.toggle("secondary", dim !== "ESTADO");
+
+        const dimLabel =
+          dim === "CLIENTE" ? "Cliente" :
+          dim === "ESTADO" ? "Estado" : "Representante";
+
+        document.getElementById("rankingTopTitle").textContent =
+          "Maiores no período — " + dimLabel;
+        document.getElementById("rankingRisingTitle").textContent =
+          "Ganhando espaço — " + dimLabel;
+        document.getElementById("rankingFallingTitle").textContent =
+          "Perdendo espaço — " + dimLabel;
+
+        updateAll();
+      }
+
+      btnTrendRep.addEventListener("click", () => setRankingDimension("REPRESENTANTE"));
+      btnTrendCli.addEventListener("click", () => setRankingDimension("CLIENTE"));
+      btnTrendEst.addEventListener("click", () => setRankingDimension("ESTADO"));
+
+      // Initial filter options & defaults
       updateFilterOptions(getFilteredKeys());
       setView("CATEGORIA");
       setMode("FATURAMENTO");
+      setRankingDimension("REPRESENTANTE");
     }
 
     function refillSelect(selectId, values, allLabel, keyName) {
@@ -1121,8 +1190,7 @@
     }
 
     function clearRankings() {
-      const ids = ["rankingReps", "rankingClients", "rankingStates"];
-      ids.forEach((id) => {
+      ["rankingTop","rankingRising","rankingFalling"].forEach((id) => {
         const ul = document.getElementById(id);
         if (!ul) return;
         ul.innerHTML = "";
@@ -1133,19 +1201,19 @@
     }
 
     function updateRankings(filteredKeys) {
-      const ulReps = document.getElementById("rankingReps");
-      const ulClients = document.getElementById("rankingClients");
-      const ulStates = document.getElementById("rankingStates");
-      ulReps.innerHTML = "";
-      ulClients.innerHTML = "";
-      ulStates.innerHTML = "";
+      const ulTop = document.getElementById("rankingTop");
+      const ulRising = document.getElementById("rankingRising");
+      const ulFalling = document.getElementById("rankingFalling");
+      ulTop.innerHTML = "";
+      ulRising.innerHTML = "";
+      ulFalling.innerHTML = "";
 
       const keySet = new Set(filteredKeys);
       const rows = state.rows.filter(
         (r) => keySet.has(r.key) && rowPassesDimensionFilters(r)
       );
 
-      if (!rows.length) {
+      if (!rows.length || filteredKeys.length === 0) {
         clearRankings();
         return;
       }
@@ -1153,50 +1221,138 @@
       const useFat = state.valueMode === "FATURAMENTO";
       const valKey = useFat ? "valor" : "quantidade";
 
-      const repAgg = new Map();
-      const clientAgg = new Map();
-      const stateAgg = new Map();
+      // Build key index map & split point
+      const keyIndex = new Map();
+      filteredKeys.forEach((k, idx) => keyIndex.set(k, idx));
+      const nKeys = filteredKeys.length;
+      const mid = Math.floor(nKeys / 2) || 1; // ensure >0
 
+      // Aggregate per entity
+      const statsMap = new Map();
       rows.forEach((r) => {
+        const idx = keyIndex.get(r.key);
+        if (idx == null) return;
+
+        let dimVal;
+        if (state.rankingDimension === "CLIENTE") dimVal = r.cliente;
+        else if (state.rankingDimension === "ESTADO") dimVal = r.estado;
+        else dimVal = r.representante;
+
         const v = r[valKey] || 0;
-        repAgg.set(r.representante, (repAgg.get(r.representante) || 0) + v);
-        clientAgg.set(r.cliente, (clientAgg.get(r.cliente) || 0) + v);
-        stateAgg.set(r.estado, (stateAgg.get(r.estado) || 0) + v);
+        if (!statsMap.has(dimVal)) {
+          statsMap.set(dimVal, { total: 0, totalA: 0, totalB: 0 });
+        }
+        const st = statsMap.get(dimVal);
+        st.total += v;
+        if (idx < mid) st.totalA += v;
+        else st.totalB += v;
       });
 
-      const maxItems = 10;
-      const makeList = (map, ul) => {
-        const arr = Array.from(map.entries())
-          .filter(([name]) => name && name.toString().trim() !== "")
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, maxItems);
+      const trendFloor = useFat ? 1000 : 50; // noise filter
+      const entities = [];
+      statsMap.forEach((st, name) => {
+        if (!name || !name.toString().trim()) return;
+        const total = st.total;
+        if (!total) return;
 
-        if (!arr.length) {
-          const li = document.createElement("li");
-          li.textContent = "Sem dados";
-          ul.appendChild(li);
-          return;
+        let varPct = null;
+        let varAbs = st.totalB - st.totalA;
+        if ((st.totalA + st.totalB) >= trendFloor && st.totalA > 0) {
+          varPct = varAbs / st.totalA;
         }
 
-        arr.forEach(([name, value], idx) => {
-          const li = document.createElement("li");
-          const spanLabel = document.createElement("span");
-          spanLabel.className = "ranking-label";
-          spanLabel.textContent = `${idx + 1}. ${name}`;
-          const spanVal = document.createElement("span");
-          spanVal.className = "ranking-value";
-          spanVal.textContent = useFat
-            ? formatCurrencyBRL(value)
-            : formatNumberBR(value);
-          li.appendChild(spanLabel);
-          li.appendChild(spanVal);
-          ul.appendChild(li);
-        });
-      };
+        entities.push({ name, total, varPct, varAbs });
+      });
 
-      makeList(repAgg, ulReps);
-      makeList(clientAgg, ulClients);
-      makeList(stateAgg, ulStates);
+      if (!entities.length) {
+        clearRankings();
+        return;
+      }
+
+      const maxItems = 10;
+
+      // Top by level
+      const topArr = [...entities].sort((a, b) => b.total - a.total).slice(0, maxItems);
+      topArr.forEach((e, idx) => {
+        const li = document.createElement("li");
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "ranking-label";
+        labelSpan.textContent = `${idx + 1}. ${e.name}`;
+        const valSpan = document.createElement("span");
+        valSpan.className = "ranking-value";
+        valSpan.textContent = useFat
+          ? formatCurrencyBRL(e.total)
+          : formatNumberBR(e.total);
+        li.appendChild(labelSpan);
+        li.appendChild(valSpan);
+        ulTop.appendChild(li);
+      });
+
+      // Rising
+      const risingArr = entities
+        .filter((e) => e.varPct !== null && e.varPct > 0)
+        .sort((a, b) => {
+          if (b.varPct === a.varPct) return b.varAbs - a.varAbs;
+          return b.varPct - a.varPct;
+        })
+        .slice(0, maxItems);
+
+      if (!risingArr.length) {
+        const li = document.createElement("li");
+        li.textContent = "Sem dados relevantes";
+        ulRising.appendChild(li);
+      } else {
+        risingArr.forEach((e, idx) => {
+          const li = document.createElement("li");
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "ranking-label";
+          labelSpan.textContent = `${idx + 1}. ${e.name}`;
+          const valSpan = document.createElement("span");
+          valSpan.className = "ranking-value";
+
+          const pctTxt = formatPercent(e.varPct * 100);
+          const absTxt = useFat
+            ? formatCurrencyBRL(e.varAbs)
+            : formatNumberBR(e.varAbs) + " un";
+          valSpan.textContent = `+${pctTxt} | +${absTxt}`;
+          li.appendChild(labelSpan);
+          li.appendChild(valSpan);
+          ulRising.appendChild(li);
+        });
+      }
+
+      // Falling
+      const fallingArr = entities
+        .filter((e) => e.varPct !== null && e.varPct < 0)
+        .sort((a, b) => {
+          if (a.varPct === b.varPct) return a.varAbs - b.varAbs;
+          return a.varPct - b.varPct;
+        })
+        .slice(0, maxItems);
+
+      if (!fallingArr.length) {
+        const li = document.createElement("li");
+        li.textContent = "Sem dados relevantes";
+        ulFalling.appendChild(li);
+      } else {
+        fallingArr.forEach((e, idx) => {
+          const li = document.createElement("li");
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "ranking-label";
+          labelSpan.textContent = `${idx + 1}. ${e.name}`;
+          const valSpan = document.createElement("span");
+          valSpan.className = "ranking-value";
+
+          const pctTxt = formatPercent(e.varPct * 100);
+          const absTxt = useFat
+            ? formatCurrencyBRL(Math.abs(e.varAbs))
+            : formatNumberBR(Math.abs(e.varAbs)) + " un";
+          valSpan.textContent = `-${pctTxt} | -${absTxt}`;
+          li.appendChild(labelSpan);
+          li.appendChild(valSpan);
+          ulFalling.appendChild(li);
+        });
+      }
     }
 
     function renderChart(filteredKeys, seriesMap) {
@@ -1245,8 +1401,8 @@
 
         const templateWithTotal =
           isFat
-            ? `<b>%{x} - R$ %{customdata:,.2f}</b><br>${groupName}: R$ %{y:,.2f}<extra></extra>`
-            : `<b>%{x} - %{customdata:,.0f} un</b><br>${groupName}: %{y:,.0f} un<extra></extra>`;
+            ? `<b>Total: R$ %{customdata:,.2f}</b><br>${groupName}: R$ %{y:,.2f}<extra></extra>`
+            : `<b>Total: %{customdata:,.0f} un</b><br>${groupName}: %{y:,.0f} un<extra></extra>`;
 
         traces.push({
           x: labels,
