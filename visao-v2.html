@@ -662,3 +662,2090 @@
               <span class="filters-label">Excluir</span>
 
               <div class="field-group">
+                <label class="field-label" for="excludeClient">Cliente</label>
+                <select id="excludeClient"></select>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="excludeRep">Representante</label>
+                <select id="excludeRep"></select>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="excludeState">Estado</label>
+                <select id="excludeState"></select>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="excludeCategory">Categoria</label>
+                <select id="excludeCategory"></select>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="excludeLinha">Linha</label>
+                <select id="excludeLinha"></select>
+              </div>
+            </div>
+
+            <!-- METRICS -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <div class="metric-label">Média mensal</div>
+                <div class="metric-value" id="metricChange">—</div>
+                <div class="metric-sub" id="metricChangeSub">—</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Total no período</div>
+                <div class="metric-value" id="metricMean">—</div>
+                <div class="metric-sub" id="metricMeanSub">—</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Destaques</div>
+                <div class="metric-value" id="metricVol">—</div>
+                <div class="metric-sub" id="metricVolSub">—</div>
+              </div>
+            </div>
+
+            <!-- CHART -->
+            <div class="chart-wrapper">
+              <div id="chart" class="chart"></div>
+            </div>
+
+            <!-- TENDÊNCIAS HEADER -->
+            <div class="trend-header">
+              <span class="filters-label">Tendências</span>
+
+              <span class="trend-dim-wrap">
+                <button class="btn-small" id="trendDimRep">Representante</button>
+                <button class="btn-small secondary" id="trendDimCli">Cliente</button>
+                <button class="btn-small secondary" id="trendDimEst">Estado</button>
+                <button class="btn-small secondary" id="trendDimCat">Categoria</button>
+                <button class="btn-small secondary" id="trendReset">Reset</button>
+              </span>
+
+              <span class="trend-mode-wrap">
+                <span class="field-label" style="margin-right:4px;">Métrica</span>
+                <button class="btn-small" id="trendModeFat">Faturamento</button>
+                <button class="btn-small secondary" id="trendModeVol">Volume</button>
+              </span>
+            </div>
+            <div class="trend-info">
+              Comparando a soma da segunda metade do período selecionado com a soma da primeira metade para cada dimensão.
+              Clique em um item para focar; clique em um segundo item para comparar no Deep Dive.
+            </div>
+
+            <!-- RANKINGS -->
+            <div class="ranking-grid" id="rankingGrid">
+              <div class="ranking-card">
+                <h4 id="rankingTopTitle">Maiores no período — Representante</h4>
+                <ul class="ranking-list" id="rankingTop"></ul>
+              </div>
+              <div class="ranking-card">
+                <h4 id="rankingRisingTitle">Ganhando espaço — Representante</h4>
+                <ul class="ranking-list" id="rankingRising"></ul>
+              </div>
+              <div class="ranking-card">
+                <h4 id="rankingFallingTitle">Perdendo espaço — Representante</h4>
+                <ul class="ranking-list" id="rankingFalling"></ul>
+              </div>
+            </div>
+
+            <div class="status-line">
+              <div id="statusInfo">Carregando dados...</div>
+              <div class="status-pill" id="statusRange">Período: --</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- DEEP DIVE SECTION -->
+        <section class="section">
+          <div class="titlebar">
+            <span>🔎 Deep Dive</span>
+          </div>
+          <div class="card">
+            <p style="font-size:0.8rem;color:#4b5563;margin:0 0 6px;">
+              Clique em qualquer item das listas de Tendências para explorar os detalhes deste representante, cliente, estado ou categoria.
+              Clique em um segundo item para comparar (KPIs + linha de tendência). Comportamento interno (clientes / categorias) é sempre do foco principal.
+            </p>
+            <div class="deep-dive-layout">
+              <div class="deep-dive-left">
+                <div class="deep-dive-kpis" id="deepDiveKpis"></div>
+
+                <div class="deep-dive-trend-wrapper">
+                  <div id="deepDiveTrend" class="deep-dive-trend"></div>
+                </div>
+
+                <div class="deep-dive-chart-wrapper">
+                  <div id="deepDiveChart" class="deep-dive-chart"></div>
+                </div>
+
+                <div class="deep-dive-tables">
+                  <div class="deep-dive-table" id="deepDiveTableClientes"></div>
+                  <div class="deep-dive-table" id="deepDiveTableCategorias"></div>
+                </div>
+              </div>
+              <div class="deep-dive-info" id="deepDiveInfo">
+                <div><strong>Nenhum item selecionado.</strong></div>
+                <small>
+                  Use as listas de Tendências acima para escolher um foco.
+                  O gráfico de linha mostrará a evolução do foco ao longo do tempo (e, opcionalmente, um segundo item para comparação).
+                  O gráfico de pizza e as tabelas mostram a composição interna (clientes / categorias) do foco principal.
+                </small>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const CSV_MAIN = "data/relatorio_faturamento.csv";
+    const CSV_FAMILIAS = "data/produtos_categorias_familias.csv";
+
+    const ARIZONA_PALETTE = [
+      "#264653","#2a9d8f","#e9c46a","#f4a261","#e76f51",
+      "#1d3557","#457b9d","#a8dadc","#606c38","#dda15e",
+      "#fb8500","#8ecae6","#ffb703","#219ebc","#023047",
+      "#ff595e","#ffca3a","#8ac926","#1982c4","#6a4c93",
+      "#ff7f51","#ff9f1c","#2ec4b6","#5c6ac4","#cb997e",
+      "#6d597a","#355070","#b56576","#003f5c","#ffa600"
+    ];
+
+    const familiesMap = new Map();
+    const colorMap = new Map();
+    let colorIndex = 0;
+
+    function getColorForName(name) {
+      if (!colorMap.has(name)) {
+        const c = ARIZONA_PALETTE[colorIndex % ARIZONA_PALETTE.length];
+        colorMap.set(name, c);
+        colorIndex++;
+      }
+      return colorMap.get(name);
+    }
+
+    const state = {
+      rows: [],
+      allKeysSorted: [],
+      keyToLabel: new Map(),
+      range: "ALL",
+      customFrom: null,
+      customTo: null,
+      valueMode: "FATURAMENTO",
+      valueLabel: "Faturamento",
+      viewMode: "CATEGORIA",
+      filterClient: "ALL",
+      filterRep: "ALL",
+      filterState: "ALL",
+      filterCategory: "ALL",
+      filterLinha: "ALL",
+      // NEW EXCLUDE FILTERS
+      excludeClient: "NONE",
+      excludeRep: "NONE",
+      excludeState: "NONE",
+      excludeCategory: "NONE",
+      excludeLinha: "NONE",
+      rankingDimension: "REPRESENTANTE",
+      currentChart: null,
+      deepDivePrimary: null,
+      deepDiveSecondary: null
+    };
+
+    function normalizeDesc(str) {
+      return (str || "").toString().trim().toUpperCase();
+    }
+
+    function formatCurrencyBRL(v) {
+      if (!isFinite(v)) return "—";
+      return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    }
+
+    function formatNumberBR(v) {
+      if (!isFinite(v)) return "—";
+      return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+    }
+
+    function labelFromKey(key) {
+      const [y, mStr] = key.split("-");
+      const m = parseInt(mStr, 10);
+      const shortYear = y.slice(-2);
+      const months = [
+        "JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
+        "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"
+      ];
+      return (months[m - 1] || mStr) + " " + shortYear;
+    }
+
+    function detectDelimiter(text) {
+      const sample = text.slice(0, 1000);
+      const commas = (sample.match(/,/g) || []).length;
+      const semis = (sample.match(/;/g) || []).length;
+      return semis > commas ? ";" : ",";
+    }
+
+    function uniqueSorted(values) {
+      return Array.from(new Set(values)).sort((a, b) =>
+        a.localeCompare(b, "pt-BR")
+      );
+    }
+
+    function loadFamilies() {
+      return fetch(CSV_FAMILIAS, { cache: "no-cache" })
+        .then((res) => {
+          if (!res.ok) throw new Error("familias CSV not found");
+          return res.text();
+        })
+        .then((text) => {
+          const delimiter = detectDelimiter(text);
+          Papa.parse(text, {
+            header: true,
+            skipEmptyLines: true,
+            delimiter,
+            complete: (results) => {
+              (results.data || []).forEach((row) => {
+                const descKey = normalizeDesc(row["Descricao"]);
+                if (!descKey) return;
+                const fam =
+                  (row["FAMILIA_PRODUTO"] || "").toString().trim() ||
+                  "Sem Linha";
+                familiesMap.set(descKey, fam);
+              });
+            }
+          });
+        })
+        .catch((err) => {
+          console.warn("Falha ao carregar familias:", err);
+        });
+    }
+
+    function loadMainCSV() {
+      fetch(CSV_MAIN, { cache: "no-cache" })
+        .then((res) => {
+          if (!res.ok) throw new Error("Erro ao carregar CSV principal");
+          return res.text();
+        })
+        .then((text) => {
+          const delimiter = detectDelimiter(text);
+          Papa.parse(text, {
+            header: true,
+            skipEmptyLines: true,
+            delimiter,
+            complete: (results) => processData(results.data || []),
+            error: (err) => {
+              console.error(err);
+              document.getElementById("statusInfo").textContent =
+                "Erro ao processar o CSV.";
+            }
+          });
+        })
+        .catch((err) => {
+          console.error(err);
+          document.getElementById("statusInfo").textContent =
+            "Erro ao carregar o arquivo de dados.";
+        });
+    }
+
+    function processData(rows) {
+      if (!rows.length) {
+        document.getElementById("statusInfo").textContent =
+          "Nenhum dado encontrado.";
+        return;
+      }
+
+      const keySet = new Set();
+      const keyToLabel = new Map();
+      const normalized = [];
+
+      for (const row of rows) {
+        const ano = parseInt(row["Ano"], 10);
+        const mes = parseInt(row["Mes"], 10);
+        if (!ano || !mes) continue;
+
+        const key = `${ano}-${String(mes).padStart(2, "0")}`;
+        const label = labelFromKey(key);
+        keySet.add(key);
+        if (!keyToLabel.has(key)) keyToLabel.set(key, label);
+
+        const rawValor = (row["Valor"] ?? "0").toString().replace(",", ".");
+        const rawQtd = (row["Quantidade"] ?? "0").toString().replace(",", ".");
+        const valor = parseFloat(rawValor);
+        const quantidade = parseFloat(rawQtd);
+
+        const categoria =
+          (row["Categoria"] || "").toString().trim() || "Sem Categoria";
+        const cliente =
+          (row["Cliente"] || "").toString().trim() || "Sem Cliente";
+        const representante =
+          (row["Representante"] || "").toString().trim() ||
+          "Sem Representante";
+        const estado =
+          (row["Estado"] || "").toString().trim() || "Sem Estado";
+
+        const descKey = normalizeDesc(row["Descricao"]);
+        const linha =
+          familiesMap.get(descKey) || "Sem Linha";
+
+        normalized.push({
+          key,
+          label,
+          ano,
+          mes,
+          categoria,
+          cliente,
+          representante,
+          estado,
+          linha,
+          valor: isNaN(valor) ? 0 : valor,
+          quantidade: isNaN(quantidade) ? 0 : quantidade
+        });
+      }
+
+      const allKeysSorted = Array.from(keySet).sort();
+      if (!allKeysSorted.length) {
+        document.getElementById("statusInfo").textContent =
+          "Nenhum dado válido para exibir.";
+        return;
+      }
+
+      state.rows = normalized;
+      state.allKeysSorted = allKeysSorted;
+      state.keyToLabel = keyToLabel;
+
+      initUI();
+      updateAll();
+    }
+
+    function rowPassesDimensionFilters(r) {
+      // include filters
+      if (state.filterClient !== "ALL" && r.cliente !== state.filterClient) return false;
+      if (state.filterRep !== "ALL" && r.representante !== state.filterRep) return false;
+      if (state.filterState !== "ALL" && r.estado !== state.filterState) return false;
+      if (state.filterCategory !== "ALL" && r.categoria !== state.filterCategory) return false;
+      if (state.filterLinha !== "ALL" && r.linha !== state.filterLinha) return false;
+      // exclude filters
+      if (state.excludeClient !== "NONE" && r.cliente === state.excludeClient) return false;
+      if (state.excludeRep !== "NONE" && r.representante === state.excludeRep) return false;
+      if (state.excludeState !== "NONE" && r.estado === state.excludeState) return false;
+      if (state.excludeCategory !== "NONE" && r.categoria === state.excludeCategory) return false;
+      if (state.excludeLinha !== "NONE" && r.linha === state.excludeLinha) return false;
+      return true;
+    }
+
+    function matchesDim(r, dimType, name) {
+      if (dimType === "REPRESENTANTE") return r.representante === name;
+      if (dimType === "CLIENTE") return r.cliente === name;
+      if (dimType === "ESTADO") return r.estado === name;
+      if (dimType === "CATEGORIA") return r.categoria === name;
+      return false;
+    }
+
+    function initUI() {
+      const fromInput = document.getElementById("fromPeriod");
+      const toInput = document.getElementById("toPeriod");
+
+      const firstKey = state.allKeysSorted[0];
+      const lastKey =
+        state.allKeysSorted[state.allKeysSorted.length - 1];
+
+      fromInput.min = firstKey;
+      fromInput.max = lastKey;
+      toInput.min = firstKey;
+      toInput.max = lastKey;
+
+      fromInput.value = firstKey;
+      toInput.value = lastKey;
+
+      state.customFrom = firstKey;
+      state.customTo = lastKey;
+
+      const lastLabel =
+        state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
+      document.getElementById("updatedAt").textContent = lastLabel;
+
+      const rangeButtons = document.querySelectorAll(
+        "#rangeButtons .range-btn"
+      );
+      rangeButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          rangeButtons.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          state.range = btn.dataset.range || "ALL";
+          updateAll();
+        });
+      });
+
+      document
+        .getElementById("applyCustom")
+        .addEventListener("click", () => {
+          const fromVal = fromInput.value;
+          const toVal = toInput.value;
+          if (!fromVal || !toVal) return;
+
+          const all = state.allKeysSorted;
+          const fromIdx = all.indexOf(fromVal);
+          const toIdx = all.indexOf(toVal);
+          if (fromIdx === -1 || toIdx === -1 || fromIdx > toIdx) {
+            alert("Selecione um intervalo De/Até válido.");
+            return;
+          }
+          state.customFrom = fromVal;
+          state.customTo = toVal;
+          state.range = "CUSTOM";
+
+          rangeButtons.forEach((b) => b.classList.remove("active"));
+          updateAll();
+        });
+
+      document
+        .getElementById("resetCustom")
+        .addEventListener("click", () => {
+          fromInput.value = firstKey;
+          toInput.value = lastKey;
+          state.customFrom = firstKey;
+          state.customTo = lastKey;
+          state.range = "ALL";
+
+          rangeButtons.forEach((b) => {
+            b.classList.toggle("active", b.dataset.range === "ALL");
+          });
+
+          updateAll();
+        });
+
+      const btnFat = document.getElementById("btnFaturamento");
+      const btnVol = document.getElementById("btnVolume");
+      const btnFat2 = document.getElementById("trendModeFat");
+      const btnVol2 = document.getElementById("trendModeVol");
+
+      function setMode(mode) {
+        state.valueMode = mode;
+        state.valueLabel =
+          mode === "FATURAMENTO" ? "Faturamento" : "Volume";
+
+        const isFat = mode === "FATURAMENTO";
+
+        [btnFat, btnFat2].forEach((b) => {
+          if (!b) return;
+          b.classList.toggle("secondary", !isFat);
+        });
+        [btnVol, btnVol2].forEach((b) => {
+          if (!b) return;
+          b.classList.toggle("secondary", isFat);
+        });
+
+        updateAll();
+      }
+
+      btnFat.addEventListener("click", () => setMode("FATURAMENTO"));
+      btnVol.addEventListener("click", () => setMode("VOLUME"));
+      btnFat2.addEventListener("click", () => setMode("FATURAMENTO"));
+      btnVol2.addEventListener("click", () => setMode("VOLUME"));
+
+      const btnViewCat = document.getElementById("btnViewCategoria");
+      const btnViewEst = document.getElementById("btnViewEstado");
+      const btnViewCli = document.getElementById("btnViewCliente");
+      const btnViewRep = document.getElementById("btnViewRep");
+
+      function setView(mode) {
+        state.viewMode = mode;
+
+        btnViewCat.classList.toggle("secondary", mode !== "CATEGORIA");
+        btnViewEst.classList.toggle("secondary", mode !== "ESTADO");
+        btnViewCli.classList.toggle("secondary", mode !== "CLIENTE");
+        btnViewRep.classList.toggle("secondary", mode !== "REPRESENTANTE");
+
+        updateAll();
+      }
+
+      btnViewCat.addEventListener("click", () => setView("CATEGORIA"));
+      btnViewEst.addEventListener("click", () => setView("ESTADO"));
+      btnViewCli.addEventListener("click", () => setView("CLIENTE"));
+      btnViewRep.addEventListener("click", () => setView("REPRESENTANTE"));
+
+      document
+        .getElementById("filterClient")
+        .addEventListener("change", (e) => {
+          state.filterClient = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("filterRep")
+        .addEventListener("change", (e) => {
+          state.filterRep = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("filterState")
+        .addEventListener("change", (e) => {
+          state.filterState = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("filterCategory")
+        .addEventListener("change", (e) => {
+          state.filterCategory = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("filterLinha")
+        .addEventListener("change", (e) => {
+          state.filterLinha = e.target.value;
+          updateAll();
+        });
+
+      // EXCLUDE filters listeners
+      document
+        .getElementById("excludeClient")
+        .addEventListener("change", (e) => {
+          state.excludeClient = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("excludeRep")
+        .addEventListener("change", (e) => {
+          state.excludeRep = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("excludeState")
+        .addEventListener("change", (e) => {
+          state.excludeState = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("excludeCategory")
+        .addEventListener("change", (e) => {
+          state.excludeCategory = e.target.value;
+          updateAll();
+        });
+
+      document
+        .getElementById("excludeLinha")
+        .addEventListener("change", (e) => {
+          state.excludeLinha = e.target.value;
+          updateAll();
+        });
+
+      const btnTrendRep = document.getElementById("trendDimRep");
+      const btnTrendCli = document.getElementById("trendDimCli");
+      const btnTrendEst = document.getElementById("trendDimEst");
+      const btnTrendCat = document.getElementById("trendDimCat");
+      const btnTrendReset = document.getElementById("trendReset");
+
+      function setRankingDimension(dim) {
+        state.rankingDimension = dim;
+
+        btnTrendRep.classList.toggle("secondary", dim !== "REPRESENTANTE");
+        btnTrendCli.classList.toggle("secondary", dim !== "CLIENTE");
+        btnTrendEst.classList.toggle("secondary", dim !== "ESTADO");
+        btnTrendCat.classList.toggle("secondary", dim !== "CATEGORIA");
+
+        const dimLabel =
+          dim === "CLIENTE"
+            ? "Cliente"
+            : dim === "ESTADO"
+            ? "Estado"
+            : dim === "CATEGORIA"
+            ? "Categoria"
+            : "Representante";
+
+        document.getElementById("rankingTopTitle").textContent =
+          "Maiores no período — " + dimLabel;
+        document.getElementById("rankingRisingTitle").textContent =
+          "Ganhando espaço — " + dimLabel;
+        document.getElementById("rankingFallingTitle").textContent =
+          "Perdendo espaço — " + dimLabel;
+
+        state.deepDivePrimary = null;
+        state.deepDiveSecondary = null;
+        renderDeepDive();
+
+        updateAll();
+      }
+
+      btnTrendRep.addEventListener("click", () =>
+        setRankingDimension("REPRESENTANTE")
+      );
+      btnTrendCli.addEventListener("click", () =>
+        setRankingDimension("CLIENTE")
+      );
+      btnTrendEst.addEventListener("click", () =>
+        setRankingDimension("ESTADO")
+      );
+      btnTrendCat.addEventListener("click", () =>
+        setRankingDimension("CATEGORIA")
+      );
+
+      btnTrendReset.addEventListener("click", () => {
+        state.deepDivePrimary = null;
+        state.deepDiveSecondary = null;
+        setRankingDimension("REPRESENTANTE");
+        renderDeepDive();
+      });
+
+      updateFilterOptions(getFilteredKeys());
+      setView("CATEGORIA");
+      setMode("FATURAMENTO");
+      setRankingDimension("REPRESENTANTE");
+    }
+
+    // Reusable for include & exclude selects
+    function refillSelect(selectId, values, allLabel, keyName, allValue = "ALL") {
+      const select = document.getElementById(selectId);
+      const currentValue = state[keyName];
+      select.innerHTML = "";
+
+      const optAll = document.createElement("option");
+      optAll.value = allValue;
+      optAll.textContent = allLabel;
+      select.appendChild(optAll);
+
+      values.forEach((v) => {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        select.appendChild(opt);
+      });
+
+      if (currentValue !== allValue && values.includes(currentValue)) {
+        select.value = currentValue;
+      } else {
+        select.value = allValue;
+        state[keyName] = allValue;
+      }
+    }
+
+    function updateFilterOptions(filteredKeys) {
+      const rows = state.rows;
+      const keySet = new Set(filteredKeys);
+      const rowsBase = rows.filter((r) => keySet.has(r.key));
+
+      const rowsForClients = rowsBase.filter(
+        (r) =>
+          (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+          (state.filterState === "ALL" || r.estado === state.filterState) &&
+          (state.filterCategory === "ALL" || r.categoria === state.filterCategory) &&
+          (state.filterLinha === "ALL" || r.linha === state.filterLinha)
+      );
+      const clientValues = uniqueSorted(rowsForClients.map((r) => r.cliente));
+      refillSelect(
+        "filterClient",
+        clientValues,
+        "Todos os clientes",
+        "filterClient",
+        "ALL"
+      );
+
+      const rowsForReps = rowsBase.filter(
+        (r) =>
+          (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+          (state.filterState === "ALL" || r.estado === state.filterState) &&
+          (state.filterCategory === "ALL" || r.categoria === state.filterCategory) &&
+          (state.filterLinha === "ALL" || r.linha === state.filterLinha)
+      );
+      const repValues = uniqueSorted(rowsForReps.map((r) => r.representante));
+      refillSelect(
+        "filterRep",
+        repValues,
+        "Todos os representantes",
+        "filterRep",
+        "ALL"
+      );
+
+      const rowsForStates = rowsBase.filter(
+        (r) =>
+          (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+          (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+          (state.filterCategory === "ALL" || r.categoria === state.filterCategory) &&
+          (state.filterLinha === "ALL" || r.linha === state.filterLinha)
+      );
+      const stateValues = uniqueSorted(rowsForStates.map((r) => r.estado));
+      refillSelect(
+        "filterState",
+        stateValues,
+        "Todos os estados",
+        "filterState",
+        "ALL"
+      );
+
+      const rowsForCats = rowsBase.filter(
+        (r) =>
+          (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+          (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+          (state.filterState === "ALL" || r.estado === state.filterState) &&
+          (state.filterLinha === "ALL" || r.linha === state.filterLinha)
+      );
+      const catValues = uniqueSorted(rowsForCats.map((r) => r.categoria));
+      refillSelect(
+        "filterCategory",
+        catValues,
+        "Todas as categorias",
+        "filterCategory",
+        "ALL"
+      );
+
+      const rowsForLinha = rowsBase.filter(
+        (r) =>
+          (state.filterClient === "ALL" || r.cliente === state.filterClient) &&
+          (state.filterRep === "ALL" || r.representante === state.filterRep) &&
+          (state.filterState === "ALL" || r.estado === state.filterState) &&
+          (state.filterCategory === "ALL" || r.categoria === state.filterCategory)
+      );
+      const linhaValues = uniqueSorted(rowsForLinha.map((r) => r.linha));
+      refillSelect(
+        "filterLinha",
+        linhaValues,
+        "Todas as linhas",
+        "filterLinha",
+        "ALL"
+      );
+
+      // EXCLUDE options use same universe, but "Nenhum" with value "NONE"
+      refillSelect(
+        "excludeClient",
+        clientValues,
+        "Nenhum cliente",
+        "excludeClient",
+        "NONE"
+      );
+      refillSelect(
+        "excludeRep",
+        repValues,
+        "Nenhum representante",
+        "excludeRep",
+        "NONE"
+      );
+      refillSelect(
+        "excludeState",
+        stateValues,
+        "Nenhum estado",
+        "excludeState",
+        "NONE"
+      );
+      refillSelect(
+        "excludeCategory",
+        catValues,
+        "Nenhuma categoria",
+        "excludeCategory",
+        "NONE"
+      );
+      refillSelect(
+        "excludeLinha",
+        linhaValues,
+        "Nenhuma linha",
+        "excludeLinha",
+        "NONE"
+      );
+    }
+
+    function getFilteredKeys() {
+      const keys = state.allKeysSorted;
+      if (!keys.length) return [];
+
+      if (state.range === "CUSTOM") {
+        const from = state.customFrom || keys[0];
+        const to = state.customTo || keys[keys.length - 1];
+        const fi = keys.indexOf(from);
+        const ti = keys.indexOf(to);
+        if (fi === -1 || ti === -1 || fi > ti) return [];
+        return keys.slice(fi, ti + 1);
+      }
+
+      if (
+        ["3M", "6M", "9M", "1A", "2A", "3A", "5A"].includes(state.range)
+      ) {
+        let n = 0;
+        if (state.range === "3M") n = 3;
+        else if (state.range === "6M") n = 6;
+        else if (state.range === "9M") n = 9;
+        else if (state.range === "1A") n = 12;
+        else if (state.range === "2A") n = 24;
+        else if (state.range === "3A") n = 36;
+        else if (state.range === "5A") n = 60;
+
+        if (keys.length <= n) return keys.slice();
+        return keys.slice(keys.length - n);
+      }
+
+      return keys.slice();
+    }
+
+    function buildSeriesForCurrentFilters(filteredKeys) {
+      const keySet = new Set(filteredKeys);
+      const byGroup = new Map();
+      const useFaturamento = state.valueMode === "FATURAMENTO";
+
+      for (const r of state.rows) {
+        if (!keySet.has(r.key)) continue;
+        if (!rowPassesDimensionFilters(r)) continue;
+
+        let group;
+        if (state.viewMode === "ESTADO") {
+          group = r.estado;
+        } else if (state.viewMode === "CLIENTE") {
+          group = r.cliente;
+        } else if (state.viewMode === "REPRESENTANTE") {
+          group = r.representante;
+        } else {
+          group = r.categoria;
+        }
+
+        const val = useFaturamento ? r.valor : r.quantidade;
+        if (!byGroup.has(group)) byGroup.set(group, new Map());
+        const m = byGroup.get(group);
+        m.set(r.key, (m.get(r.key) || 0) + (isNaN(val) ? 0 : val));
+      }
+
+      return byGroup;
+    }
+
+    function computeBasicStats(totals) {
+      const n = totals.length;
+      if (!n) {
+        return {
+          mean: NaN,
+          total: NaN,
+          bestIdx: -1,
+          worstIdx: -1,
+          count: 0
+        };
+      }
+
+      let total = 0;
+      for (let i = 0; i < n; i++) {
+        const v = totals[i];
+        total += isFinite(v) ? v : 0;
+      }
+      const mean = total / n;
+
+      let bestIdx = 0;
+      let worstIdx = 0;
+      for (let i = 1; i < n; i++) {
+        if (totals[i] > totals[bestIdx]) bestIdx = i;
+        if (totals[i] < totals[worstIdx]) worstIdx = i;
+      }
+
+      return {
+        mean,
+        total,
+        bestIdx,
+        worstIdx,
+        count: n
+      };
+    }
+
+    function recalcMetricsFromLegend() {
+      const chart = state.currentChart;
+      if (!chart || !chart.keys.length) return;
+
+      const gd = document.getElementById("chart");
+      const visibleNames = new Set();
+
+      if (gd && gd.data && gd.data.length) {
+        gd.data.forEach((trace) => {
+          if (trace.visible === "legendonly") return;
+          if (!trace.name || trace.name === "Total") return;
+          visibleNames.add(trace.name);
+        });
+      }
+
+      if (!visibleNames.size) {
+        document.getElementById("metricMean").textContent = "—";
+        document.getElementById("metricChange").textContent = "—";
+        document.getElementById("metricVol").textContent = "—";
+        document.getElementById("metricMeanSub").textContent = "—";
+        document.getElementById("metricChangeSub").textContent = "—";
+        document.getElementById("metricVolSub").textContent = "—";
+        return;
+      }
+
+      const totals = [];
+      for (let i = 0; i < chart.keys.length; i++) {
+        let sum = 0;
+        chart.series.forEach((s) => {
+          if (visibleNames.has(s.name)) {
+            sum += s.values[i] || 0;
+          }
+        });
+        totals.push(sum);
+      }
+
+      const stats = computeBasicStats(totals);
+      const isFat = state.valueMode === "FATURAMENTO";
+      const formatVal = (v) => {
+        if (!isFinite(v)) return "—";
+        return isFat ? formatCurrencyBRL(v) : formatNumberBR(v) + " un";
+      };
+
+      document.getElementById("metricChange").textContent =
+        formatVal(stats.mean);
+      document.getElementById("metricChangeSub").textContent =
+        stats.count ? `Em ${stats.count} meses` : "Sem dados suficientes";
+
+      document.getElementById("metricMean").textContent =
+        formatVal(stats.total);
+      document.getElementById("metricMeanSub").textContent =
+        stats.count ? `Soma de ${stats.count} meses` : "Sem dados suficientes";
+
+      if (stats.count && stats.bestIdx >= 0 && stats.worstIdx >= 0) {
+        const bestLabel =
+          state.keyToLabel.get(chart.keys[stats.bestIdx]) ||
+          labelFromKey(chart.keys[stats.bestIdx]);
+        const worstLabel =
+          state.keyToLabel.get(chart.keys[stats.worstIdx]) ||
+          labelFromKey(chart.keys[stats.worstIdx]);
+
+        const bestVal = formatVal(totals[stats.bestIdx]);
+        const worstVal = formatVal(totals[stats.worstIdx]);
+
+        document.getElementById("metricVol").textContent =
+          `Melhor: ${bestLabel} — ${bestVal}`;
+        document.getElementById("metricVolSub").textContent =
+          `Pior: ${worstLabel} — ${worstVal}`;
+      } else {
+        document.getElementById("metricVol").textContent = "—";
+        document.getElementById("metricVolSub").textContent = "—";
+      }
+    }
+
+    function clearRankings() {
+      ["rankingTop", "rankingRising", "rankingFalling"].forEach((id) => {
+        const ul = document.getElementById(id);
+        if (!ul) return;
+        ul.innerHTML = "";
+        const li = document.createElement("li");
+        li.textContent = "Sem dados";
+        li.classList.add("disabled");
+        ul.appendChild(li);
+      });
+    }
+
+    function setDeepDive(dimType, name) {
+      const currentPrimary = state.deepDivePrimary;
+      const currentSecondary = state.deepDiveSecondary;
+
+      if (!currentPrimary) {
+        state.deepDivePrimary = { dimType, name };
+        state.deepDiveSecondary = null;
+      } else if (
+        currentPrimary.dimType === dimType &&
+        currentPrimary.name === name
+      ) {
+        if (currentSecondary) {
+          state.deepDiveSecondary = null;
+        } else {
+          state.deepDivePrimary = { dimType, name };
+        }
+      } else if (!currentSecondary) {
+        state.deepDiveSecondary = { dimType, name };
+      } else {
+        state.deepDivePrimary = { dimType, name };
+        state.deepDiveSecondary = null;
+      }
+
+      renderDeepDive();
+    }
+
+    function updateRankings(filteredKeys) {
+      const ulTop = document.getElementById("rankingTop");
+      const ulRising = document.getElementById("rankingRising");
+      const ulFalling = document.getElementById("rankingFalling");
+      ulTop.innerHTML = "";
+      ulRising.innerHTML = "";
+      ulFalling.innerHTML = "";
+
+      const keySet = new Set(filteredKeys);
+      const rows = state.rows.filter(
+        (r) => keySet.has(r.key) && rowPassesDimensionFilters(r)
+      );
+
+      if (!rows.length || filteredKeys.length === 0) {
+        clearRankings();
+        return;
+      }
+
+      const useFat = state.valueMode === "FATURAMENTO";
+      const valKey = useFat ? "valor" : "quantidade";
+
+      const keyIndex = new Map();
+      filteredKeys.forEach((k, idx) => keyIndex.set(k, idx));
+      const nKeys = filteredKeys.length;
+      const mid = Math.floor(nKeys / 2) || 1;
+
+      const statsMap = new Map();
+      rows.forEach((r) => {
+        const idx = keyIndex.get(r.key);
+        if (idx == null) return;
+
+        let dimVal;
+        if (state.rankingDimension === "CLIENTE") {
+          dimVal = r.cliente;
+        } else if (state.rankingDimension === "ESTADO") {
+          dimVal = r.estado;
+        } else if (state.rankingDimension === "CATEGORIA") {
+          dimVal = r.categoria;
+        } else {
+          dimVal = r.representante;
+        }
+
+        const v = r[valKey] || 0;
+        if (!statsMap.has(dimVal)) {
+          statsMap.set(dimVal, {
+            total: 0,
+            totalA: 0,
+            totalB: 0,
+            clients: new Set()
+          });
+        }
+        const st = statsMap.get(dimVal);
+        st.total += v;
+        if (idx < mid) st.totalA += v;
+        else st.totalB += v;
+        st.clients.add(r.cliente);
+      });
+
+      const trendFloor = useFat ? 1000 : 50;
+      const entities = [];
+      statsMap.forEach((st, name) => {
+        if (!name || !name.toString().trim()) return;
+        const total = st.total;
+        if (!total) return;
+
+        const varAbs = st.totalB - st.totalA;
+        const clientsCount = st.clients.size;
+        if (st.totalA + st.totalB < trendFloor) {
+          entities.push({
+            name,
+            total,
+            totalA: st.totalA,
+            totalB: st.totalB,
+            varAbs: 0,
+            clientsCount
+          });
+        } else {
+          entities.push({
+            name,
+            total,
+            totalA: st.totalA,
+            totalB: st.totalB,
+            varAbs,
+            clientsCount
+          });
+        }
+      });
+
+      if (!entities.length) {
+        clearRankings();
+        return;
+      }
+
+      const maxItems = state.rankingDimension === "CLIENTE" ? 20 : 10;
+
+      const grandTotal = entities.reduce((acc, e) => acc + e.total, 0);
+      const topArr = [...entities]
+        .sort((a, b) => b.total - a.total)
+        .slice(0, maxItems);
+
+      const dimLabelTop =
+        state.rankingDimension === "CLIENTE"
+          ? "Cliente"
+          : state.rankingDimension === "ESTADO"
+          ? "Estado"
+          : state.rankingDimension === "CATEGORIA"
+          ? "Categoria"
+          : "Representante";
+
+      if (state.rankingDimension === "CLIENTE") {
+        document.getElementById("rankingTopTitle").textContent =
+          `Maiores no período — Cliente (${topArr.length} / ${entities.length})`;
+      } else {
+        document.getElementById("rankingTopTitle").textContent =
+          `Maiores no período — ${dimLabelTop}`;
+      }
+
+      topArr.forEach((e, idx) => {
+        const li = document.createElement("li");
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "ranking-label";
+        labelSpan.textContent =
+          state.rankingDimension === "REPRESENTANTE"
+            ? `${idx + 1}. ${e.name} (${e.clientsCount} clientes)`
+            : `${idx + 1}. ${e.name}`;
+        const valSpan = document.createElement("span");
+        valSpan.className = "ranking-value";
+
+        const valueText = useFat
+          ? formatCurrencyBRL(e.total)
+          : formatNumberBR(e.total) + " un";
+
+        const pct = grandTotal > 0 ? Math.round((e.total / grandTotal) * 100) : 0;
+        valSpan.textContent = `${valueText}  • ${pct}%`;
+
+        li.appendChild(labelSpan);
+        li.appendChild(valSpan);
+
+        li.addEventListener("click", () => {
+          setDeepDive(state.rankingDimension, e.name);
+        });
+
+        ulTop.appendChild(li);
+      });
+
+      const risingArr = entities
+        .filter((e) => e.varAbs > 0)
+        .sort((a, b) => b.varAbs - a.varAbs)
+        .slice(0, maxItems);
+
+      if (!risingArr.length) {
+        const li = document.createElement("li");
+        li.textContent = "Sem dados relevantes";
+        li.classList.add("disabled");
+        ulRising.appendChild(li);
+      } else {
+        risingArr.forEach((e, idx) => {
+          const li = document.createElement("li");
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "ranking-label";
+          labelSpan.textContent = `${idx + 1}. ${e.name}`;
+          const valSpan = document.createElement("span");
+          valSpan.className = "ranking-value";
+
+          const deltaVal = Math.abs(e.varAbs);
+          const valueText = useFat
+            ? formatCurrencyBRL(deltaVal)
+            : formatNumberBR(deltaVal) + " un";
+          const pctNum =
+            e.totalA ? (e.varAbs / Math.abs(e.totalA)) * 100 : 0;
+          const pctTxt = `${Math.round(pctNum)}%`;
+
+          valSpan.textContent = `+${valueText}  • +${pctTxt}`;
+
+          li.appendChild(labelSpan);
+          li.appendChild(valSpan);
+
+          li.addEventListener("click", () => {
+            setDeepDive(state.rankingDimension, e.name);
+          });
+
+          ulRising.appendChild(li);
+        });
+      }
+
+      const fallingArr = entities
+        .filter((e) => e.varAbs < 0)
+        .sort((a, b) => a.varAbs - b.varAbs)
+        .slice(0, maxItems);
+
+      if (!fallingArr.length) {
+        const li = document.createElement("li");
+        li.textContent = "Sem dados relevantes";
+        li.classList.add("disabled");
+        ulFalling.appendChild(li);
+      } else {
+        fallingArr.forEach((e, idx) => {
+          const li = document.createElement("li");
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "ranking-label";
+          labelSpan.textContent = `${idx + 1}. ${e.name}`;
+          const valSpan = document.createElement("span");
+          valSpan.className = "ranking-value";
+
+          const deltaVal = Math.abs(e.varAbs);
+          const valueText = useFat
+            ? formatCurrencyBRL(deltaVal)
+            : formatNumberBR(deltaVal) + " un";
+          const pctNum =
+            e.totalA ? (e.varAbs / Math.abs(e.totalA)) * 100 : 0;
+          const pctTxt = `${Math.round(Math.abs(pctNum))}%`;
+
+          valSpan.textContent = `-${valueText}  • -${pctTxt}`;
+
+          li.appendChild(labelSpan);
+          li.appendChild(valSpan);
+
+          li.addEventListener("click", () => {
+            setDeepDive(state.rankingDimension, e.name);
+          });
+
+          ulFalling.appendChild(li);
+        });
+      }
+    }
+
+    function renderChart(filteredKeys, seriesMap) {
+      const labels = filteredKeys.map(
+        (k) => state.keyToLabel.get(k) || labelFromKey(k)
+      );
+
+      let entries = Array.from(seriesMap.entries());
+      entries.sort((a, b) => {
+        const sumA = filteredKeys.reduce(
+          (acc, k) => acc + (a[1].get(k) || 0),
+          0
+        );
+        const sumB = filteredKeys.reduce(
+          (acc, k) => acc + (b[1].get(k) || 0),
+          0
+        );
+        return sumB - sumA;
+      });
+
+      if (state.viewMode === "CLIENTE" && entries.length > 10) {
+        entries = entries.slice(0, 10);
+      }
+
+      const totalPerKey = filteredKeys.map((key) => {
+        let sum = 0;
+        entries.forEach(([_, map]) => {
+          sum += map.get(key) || 0;
+        });
+        return sum;
+      });
+
+      const traces = [];
+      const chartSeries = [];
+      const isFat = state.valueMode === "FATURAMENTO";
+
+      entries.forEach(([groupName, map]) => {
+        const vals = filteredKeys.map((k) => map.get(k) || 0);
+        const legendName = isFat
+          ? `${groupName} (R$)`
+          : `${groupName} (un)`;
+
+        chartSeries.push({ name: legendName, values: vals });
+
+        const baseTemplate = isFat
+          ? `<b>${groupName}</b><br>R$ %{y:,.2f}<extra></extra>`
+          : `<b>${groupName}</b><br>%{y:,.0f} un<extra></extra>`;
+
+        traces.push({
+          x: labels,
+          y: vals,
+          type: "scatter",
+          mode: "lines+markers",
+          name: legendName,
+          line: {
+            shape: "spline",
+            width: 3,
+            color: getColorForName(groupName)
+          },
+          marker: {
+            size: 7,
+            line: { width: 1, color: "#ffffff" }
+          },
+          hovertemplate: baseTemplate
+        });
+      });
+
+      if (filteredKeys.length) {
+        traces.push({
+          x: labels,
+          y: totalPerKey,
+          type: "scatter",
+          mode: "lines",
+          name: "Total",
+          line: { width: 0 },
+          marker: { size: 0 },
+          opacity: 0,
+          showlegend: false,
+          hovertemplate: isFat
+            ? `<br><b>Total: R$ %{y:,.2f}</b><extra></extra>`
+            : `<br><b>Total: %{y:,.0f} un</b><extra></extra>`
+        });
+      }
+
+      state.currentChart = {
+        keys: filteredKeys.slice(),
+        series: chartSeries
+      };
+
+      let tickVals = labels.slice();
+      let tickText = labels.slice();
+      if (labels.length > 18) {
+        const step = labels.length > 36 ? 3 : 2;
+        tickVals = [];
+        tickText = [];
+        for (let i = 0; i < labels.length; i += step) {
+          tickVals.push(labels[i]);
+          tickText.push(labels[i]);
+        }
+      }
+
+      const layout = {
+        margin: { l: 60, r: 30, t: 30, b: 80 },
+        paper_bgcolor: "#ffffff",
+        plot_bgcolor: "#ffffff",
+        showlegend: true,
+        legend: {
+          orientation: "h",
+          yanchor: "bottom",
+          y: 1.1,
+          xanchor: "center",
+          x: 0.5,
+          font: { size: 10 }
+        },
+        hovermode: "x unified",
+        xaxis: {
+          type: "category",
+          categoryorder: "array",
+          categoryarray: labels,
+          tickvals: tickVals,
+          ticktext: tickText,
+          tickangle: -35,
+          tickfont: { size: 11 },
+          showgrid: false,
+          zeroline: false
+        },
+        yaxis: {
+          title: "",
+          tickformat: ",.0f",
+          gridcolor: "#e9ecef",
+          zeroline: false,
+          automargin: true,
+          tickfont: { size: 11 },
+          autorange: true,
+          rangemode: "normal"
+        }
+      };
+
+      const chartDiv = document.getElementById("chart");
+
+      Plotly.react(chartDiv, traces, layout, {
+        responsive: true
+      });
+
+      Plotly.relayout(chartDiv, { "yaxis.autorange": true });
+
+      if (!chartDiv._metricsHooked) {
+        chartDiv.on("plotly_restyle", () => {
+          recalcMetricsFromLegend();
+        });
+        chartDiv.on("plotly_legendclick", () => {
+          setTimeout(recalcMetricsFromLegend, 0);
+        });
+        chartDiv._metricsHooked = true;
+      }
+
+      recalcMetricsFromLegend();
+    }
+
+    function computeClientHealthForRep(name, filteredKeys) {
+      const keyIndex = new Map();
+      filteredKeys.forEach((k, i) => keyIndex.set(k, i));
+      const nKeys = filteredKeys.length;
+      if (!nKeys) return null;
+
+      const mid = Math.floor(nKeys / 2) || 1;
+      const valKey = state.valueMode === "FATURAMENTO" ? "valor" : "quantidade";
+
+      const rows = state.rows.filter(
+        (r) =>
+          keyIndex.has(r.key) &&
+          rowPassesDimensionFilters(r) &&
+          r.representante === name
+      );
+
+      const clients = new Map();
+      rows.forEach((r) => {
+        const idx = keyIndex.get(r.key);
+        const v = r[valKey] || 0;
+        const cli = (r.cliente || "Sem Cliente").toString().trim() || "Sem Cliente";
+        if (!clients.has(cli)) clients.set(cli, { A: 0, B: 0 });
+        const st = clients.get(cli);
+        if (idx < mid) st.A += v;
+        else st.B += v;
+      });
+
+      let novos = 0;
+      let perdidos = 0;
+      let crescendo = 0;
+      let caindo = 0;
+      let estaveis = 0;
+      const threshold = 0.15;
+
+      clients.forEach((st) => {
+        const A = st.A;
+        const B = st.B;
+        if (A === 0 && B > 0) {
+          novos++;
+        } else if (A > 0 && B === 0) {
+          perdidos++;
+        } else if (A > 0 && B > 0) {
+          if (B > A * (1 + threshold)) crescendo++;
+          else if (B < A * (1 - threshold)) caindo++;
+          else estaveis++;
+        }
+      });
+
+      return {
+        novos,
+        perdidos,
+        crescendo,
+        caindo,
+        estaveis,
+        total: clients.size
+      };
+    }
+
+    function buildEntitySeries(dimType, name, filteredKeys) {
+      const keyIndex = new Map();
+      filteredKeys.forEach((k, i) => keyIndex.set(k, i));
+      const n = filteredKeys.length;
+      const vals = new Array(n).fill(0);
+      const valKey = state.valueMode === "FATURAMENTO" ? "valor" : "quantidade";
+
+      const keySet = new Set(filteredKeys);
+      const rows = state.rows.filter(
+        (r) =>
+          keySet.has(r.key) &&
+          rowPassesDimensionFilters(r) &&
+          matchesDim(r, dimType, name)
+      );
+
+      rows.forEach((r) => {
+        const idx = keyIndex.get(r.key);
+        if (idx == null) return;
+        const v = r[valKey] || 0;
+        vals[idx] += v;
+      });
+
+      return vals;
+    }
+
+    function computeSeriesKpis(vals, filteredKeys) {
+      const n = vals.length;
+      if (!n) return { total: 0, mean: 0, active: 0 };
+
+      let total = 0;
+      let active = 0;
+      for (let i = 0; i < n; i++) {
+        const v = vals[i] || 0;
+        total += v;
+        if (v > 0) active++;
+      }
+      const mean = total / n;
+      return { total, mean, active, months: n };
+    }
+
+    function renderDeepDive() {
+      const info = document.getElementById("deepDiveInfo");
+      const chartDiv = document.getElementById("deepDiveChart");
+      const trendDiv = document.getElementById("deepDiveTrend");
+      const kpiDiv = document.getElementById("deepDiveKpis");
+      const tblCli = document.getElementById("deepDiveTableClientes");
+      const tblCat = document.getElementById("deepDiveTableCategorias");
+
+      kpiDiv.innerHTML = "";
+      tblCli.innerHTML = "";
+      tblCat.innerHTML = "";
+
+      const primary = state.deepDivePrimary;
+      const secondary = state.deepDiveSecondary;
+
+      const filteredKeys = getFilteredKeys();
+      if (!primary || !primary.name || !filteredKeys.length) {
+        info.innerHTML = `
+          <div><strong>Nenhum item selecionado.</strong></div>
+          <small>
+            Use as listas de Tendências acima para escolher um foco.
+            O gráfico de linha mostrará a evolução do foco ao longo do tempo (e, opcionalmente, um segundo item para comparação).
+            O gráfico de pizza e as tabelas mostram a composição interna (clientes / categorias) do foco principal.
+          </small>
+        `;
+        Plotly.purge(chartDiv);
+        Plotly.purge(trendDiv);
+        return;
+      }
+
+      const keySet = new Set(filteredKeys);
+      const useFat = state.valueMode === "FATURAMENTO";
+      const valKey = useFat ? "valor" : "quantidade";
+
+      const companyRows = state.rows.filter(
+        (r) => keySet.has(r.key) && rowPassesDimensionFilters(r)
+      );
+      let companyTotal = 0;
+      companyRows.forEach((r) => {
+        companyTotal += r[valKey] || 0;
+      });
+
+      const seriesPrimary = buildEntitySeries(
+        primary.dimType,
+        primary.name,
+        filteredKeys
+      );
+      const statsPrimary = computeSeriesKpis(
+        seriesPrimary,
+        filteredKeys
+      );
+
+      let seriesSecondary = null;
+      let statsSecondary = null;
+      if (secondary && secondary.name) {
+        seriesSecondary = buildEntitySeries(
+          secondary.dimType,
+          secondary.name,
+          filteredKeys
+        );
+        statsSecondary = computeSeriesKpis(
+          seriesSecondary,
+          filteredKeys
+        );
+      }
+
+      const dimLabel = (dimType) =>
+        dimType === "REPRESENTANTE"
+          ? "Representante"
+          : dimType === "CLIENTE"
+          ? "Cliente"
+          : dimType === "ESTADO"
+          ? "Estado"
+          : "Categoria";
+
+      const formatVal = (v) =>
+        useFat ? formatCurrencyBRL(v) : formatNumberBR(v) + " un";
+
+      const kpiCards = [];
+
+      const primaryShare =
+        companyTotal > 0
+          ? ((statsPrimary.total / companyTotal) * 100).toFixed(1).replace(".", ",") +
+            "%"
+          : "—";
+
+      kpiCards.push(`
+        <div class="deep-dive-kpi-item">
+          <div class="deep-dive-kpi-title">${dimLabel(
+            primary.dimType
+          )}: ${primary.name}</div>
+          <div class="deep-dive-kpi-line">
+            <span class="deep-dive-kpi-label">Total período</span>
+            <span class="deep-dive-kpi-value">${formatVal(
+              statsPrimary.total
+            )}</span>
+          </div>
+          <div class="deep-dive-kpi-line">
+            <span class="deep-dive-kpi-label">Média mensal</span>
+            <span class="deep-dive-kpi-value">${formatVal(
+              statsPrimary.mean
+            )}</span>
+          </div>
+          <div class="deep-dive-kpi-line">
+            <span class="deep-dive-kpi-label">Meses com venda</span>
+            <span class="deep-dive-kpi-value">${statsPrimary.active} / ${
+        statsPrimary.months
+      }</span>
+          </div>
+          <div class="deep-dive-kpi-line">
+            <span class="deep-dive-kpi-label">Participação</span>
+            <span class="deep-dive-kpi-value">${primaryShare}</span>
+          </div>
+        </div>
+      `);
+
+      if (seriesSecondary && statsSecondary) {
+        const secShare =
+          companyTotal > 0
+            ? (
+                (statsSecondary.total / companyTotal) *
+                100
+              )
+                .toFixed(1)
+                .replace(".", ",") + "%"
+            : "—";
+        kpiCards.push(`
+          <div class="deep-dive-kpi-item">
+            <div class="deep-dive-kpi-title">${dimLabel(
+              secondary.dimType
+            )}: ${secondary.name}</div>
+            <div class="deep-dive-kpi-line">
+              <span class="deep-dive-kpi-label">Total período</span>
+              <span class="deep-dive-kpi-value">${formatVal(
+                statsSecondary.total
+              )}</span>
+            </div>
+            <div class="deep-dive-kpi-line">
+              <span class="deep-dive-kpi-label">Média mensal</span>
+              <span class="deep-dive-kpi-value">${formatVal(
+                statsSecondary.mean
+              )}</span>
+            </div>
+            <div class="deep-dive-kpi-line">
+              <span class="deep-dive-kpi-label">Meses com venda</span>
+              <span class="deep-dive-kpi-value">${
+                statsSecondary.active
+              } / ${statsSecondary.months}</span>
+            </div>
+            <div class="deep-dive-kpi-line">
+              <span class="deep-dive-kpi-label">Participação</span>
+              <span class="deep-dive-kpi-value">${secShare}</span>
+            </div>
+          </div>
+        `);
+      }
+
+      kpiDiv.innerHTML = kpiCards.join("");
+
+      const labels = filteredKeys.map(
+        (k) => state.keyToLabel.get(k) || labelFromKey(k)
+      );
+      const tracesTrend = [
+        {
+          x: labels,
+          y: seriesPrimary,
+          type: "scatter",
+          mode: "lines+markers",
+          name: `${dimLabel(primary.dimType)} ${primary.name}`,
+          line: {
+            shape: "spline",
+            width: 3,
+            color: getColorForName(
+              `DD:${primary.dimType}:${primary.name}`
+            )
+          },
+          marker: {
+            size: 6,
+            line: { width: 1, color: "#ffffff" }
+          },
+          hovertemplate: useFat
+            ? "<b>%{x}</b><br>R$ %{y:,.2f}<extra></extra>"
+            : "<b>%{x}</b><br>%{y:,.0f} un<extra></extra>"
+        }
+      ];
+
+      if (seriesSecondary && statsSecondary) {
+        tracesTrend.push({
+          x: labels,
+          y: seriesSecondary,
+          type: "scatter",
+          mode: "lines+markers",
+          name: `${dimLabel(secondary.dimType)} ${secondary.name}`,
+          line: {
+            shape: "spline",
+            width: 3,
+            dash: "dot",
+            color: getColorForName(
+              `DD:${secondary.dimType}:${secondary.name}`
+            )
+          },
+          marker: {
+            size: 6,
+            line: { width: 1, color: "#ffffff" }
+          },
+          hovertemplate: useFat
+            ? "<b>%{x}</b><br>R$ %{y:,.2f}<extra></extra>"
+            : "<b>%{x}</b><br>%{y:,.0f} un<extra></extra>"
+        });
+      }
+
+      Plotly.react(
+        trendDiv,
+        tracesTrend,
+        {
+          margin: { l: 50, r: 20, t: 20, b: 50 },
+          paper_bgcolor: "#ffffff",
+          plot_bgcolor: "#ffffff",
+          showlegend: true,
+          legend: {
+            orientation: "h",
+            yanchor: "bottom",
+            y: 1.02,
+            xanchor: "center",
+            x: 0.5,
+            font: { size: 10 }
+          },
+          hovermode: "x unified",
+          xaxis: {
+            type: "category",
+            categoryorder: "array",
+            categoryarray: labels,
+            showgrid: false,
+            tickangle: -30,
+            tickfont: { size: 10 }
+          },
+          yaxis: {
+            title: "",
+            gridcolor: "#e9ecef",
+            zeroline: false,
+            automargin: true,
+            autorange: true
+          }
+        },
+        { responsive: true }
+      );
+      Plotly.relayout(trendDiv, { "yaxis.autorange": true });
+
+      let infoHtml = `
+        <div><strong>${dimLabel(primary.dimType)}: ${
+        primary.name
+      }</strong></div>
+        <div>Total no período (foco principal): <strong>${formatVal(
+          statsPrimary.total
+        )}</strong></div>
+      `;
+      if (secondary && statsSecondary) {
+        infoHtml += `<div>Comparando com: <strong>${dimLabel(
+          secondary.dimType
+        )} ${secondary.name}</strong> — ${formatVal(
+          statsSecondary.total
+        )}</div>`;
+      }
+
+      if (primary.dimType === "REPRESENTANTE") {
+        const ch = computeClientHealthForRep(primary.name, filteredKeys);
+        if (ch) {
+          infoHtml += `<div>Saúde da carteira: <strong>Novos ${ch.novos}</strong> • <strong>Perdidos ${ch.perdidos}</strong> • <strong>Crescendo ${ch.crescendo}</strong> • <strong>Caindo ${ch.caindo}</strong> • <strong>Estáveis ${ch.estaveis}</strong> (total de ${ch.total} clientes)</div>`;
+        }
+      }
+
+      infoHtml += `
+        <small>
+          Distribuição interna considera o mesmo período e filtros da Nova Visão.
+          O gráfico de pizza e as tabelas abaixo sempre usam o foco principal (primeiro selecionado).
+        </small>
+      `;
+      info.innerHTML = infoHtml;
+
+      const rows = state.rows.filter(
+        (r) =>
+          keySet.has(r.key) &&
+          rowPassesDimensionFilters(r) &&
+          matchesDim(r, primary.dimType, primary.name)
+      );
+
+      if (!rows.length) {
+        tblCli.innerHTML = "<em>Sem dados para os filtros atuais.</em>";
+        tblCat.innerHTML = "<em>Sem dados para os filtros atuais.</em>";
+        Plotly.purge(chartDiv);
+        return;
+      }
+
+      let groupField, groupLabel;
+      if (primary.dimType === "REPRESENTANTE") {
+        groupField = "cliente";
+        groupLabel = "clientes";
+      } else if (primary.dimType === "CLIENTE") {
+        groupField = "categoria";
+        groupLabel = "categorias";
+      } else if (primary.dimType === "ESTADO") {
+        groupField = "categoria";
+        groupLabel = "categorias";
+      } else {
+        groupField = "cliente";
+        groupLabel = "clientes";
+      }
+
+      const groupMap = new Map();
+      let totalVal = 0;
+
+      rows.forEach((r) => {
+        const keyG =
+          (r[groupField] || "Outros").toString().trim() || "Outros";
+        const v = r[valKey] || 0;
+        totalVal += v;
+        groupMap.set(keyG, (groupMap.get(keyG) || 0) + v);
+      });
+
+      const groups = Array.from(groupMap.entries()).sort(
+        (a, b) => b[1] - a[1]
+      );
+
+      const maxSlices = 15;
+      const labelsPie = [];
+      const valuesPie = [];
+      let othersTotal = 0;
+
+      groups.forEach(([gName, gVal], idx) => {
+        if (idx < maxSlices) {
+          labelsPie.push(gName);
+          valuesPie.push(gVal);
+        } else {
+          othersTotal += gVal;
+        }
+      });
+
+      if (othersTotal > 0) {
+        labelsPie.push("Outros");
+        valuesPie.push(othersTotal);
+      }
+
+      const pieColors = labelsPie.map((lab) =>
+        getColorForName(
+          `DDpie:${primary.dimType}:${primary.name}:${lab}`
+        )
+      );
+
+      Plotly.react(
+        chartDiv,
+        [
+          {
+            type: "pie",
+            labels: labelsPie,
+            values: valuesPie,
+            textinfo: "label+percent",
+            insidetextorientation: "radial",
+            hovertemplate: useFat
+              ? "<b>%{label}</b><br>R$ %{value:,.2f} (%{percent})<extra></extra>"
+              : "<b>%{label}</b><br>%{value:,.0f} un (%{percent})<extra></extra>",
+            marker: {
+              colors: pieColors
+            }
+          }
+        ],
+        {
+          margin: { t: 30, l: 20, r: 20, b: 20 },
+          paper_bgcolor: "#ffffff",
+          plot_bgcolor: "#ffffff",
+          showlegend: false,
+          title: {
+            text: `Distribuição por ${groupLabel}`,
+            font: { size: 14 }
+          }
+        },
+        { responsive: true }
+      );
+
+      function renderTableClientes() {
+        if (primary.dimType === "REPRESENTANTE") {
+          const cliMap = new Map();
+          rows.forEach((r) => {
+            const c =
+              (r.cliente || "Sem Cliente").toString().trim() ||
+              "Sem Cliente";
+            const v = r[valKey] || 0;
+            cliMap.set(c, (cliMap.get(c) || 0) + v);
+          });
+          const arr = Array.from(cliMap.entries()).sort(
+            (a, b) => b[1] - a[1]
+          );
+          if (!arr.length) {
+            tblCli.innerHTML = "<em>Sem clientes neste período.</em>";
+            return;
+          }
+          let html = `<h5>Clientes do representante</h5><table><thead><tr><th>Cliente</th><th>Valor</th><th>%</th></tr></thead><tbody>`;
+          arr.forEach(([cName, v]) => {
+            const pct = totalVal > 0 ? (v / totalVal) * 100 : 0;
+            const vt = useFat
+              ? formatCurrencyBRL(v)
+              : formatNumberBR(v) + " un";
+            html += `<tr><td>${cName}</td><td>${vt}</td><td>${pct
+              .toFixed(1)
+              .replace(".", ",")}%</td></tr>`;
+          });
+          html += "</tbody></table>";
+          tblCli.innerHTML = html;
+        } else if (primary.dimType === "CLIENTE") {
+          tblCli.innerHTML = `<h5>Cliente selecionado</h5><table><tbody><tr><td>${primary.name}</td></tr></tbody></table>`;
+        } else if (primary.dimType === "ESTADO") {
+          tblCli.innerHTML = `<h5>Estado selecionado</h5><table><tbody><tr><td>${primary.name}</td></tr></tbody></table>`;
+        } else {
+          tblCli.innerHTML = `<h5>Categoria selecionada</h5><table><tbody><tr><td>${primary.name}</td></tr></tbody></table>`;
+        }
+      }
+
+      function renderTableCategorias() {
+        if (primary.dimType === "REPRESENTANTE") {
+          const catMap = new Map();
+          rows.forEach((r) => {
+            const c =
+              (r.categoria || "Sem Categoria").toString().trim() ||
+              "Sem Categoria";
+            const v = r[valKey] || 0;
+            catMap.set(c, (catMap.get(c) || 0) + v);
+          });
+          const arr = Array.from(catMap.entries()).sort(
+            (a, b) => b[1] - a[1]
+          );
+          if (!arr.length) {
+            tblCat.innerHTML = "<em>Sem categorias neste período.</em>";
+            return;
+          }
+          let html = `<h5>Categorias (todos os clientes)</h5><table><thead><tr><th>Categoria</th><th>Valor</th><th>%</th></tr></thead><tbody>`;
+          arr.forEach(([cName, v]) => {
+            const pct = totalVal > 0 ? (v / totalVal) * 100 : 0;
+            const vt = useFat
+              ? formatCurrencyBRL(v)
+              : formatNumberBR(v) + " un";
+            html += `<tr><td>${cName}</td><td>${vt}</td><td>${pct
+              .toFixed(1)
+              .replace(".", ",")}%</td></tr>`;
+          });
+          html += "</tbody></table>";
+          tblCat.innerHTML = html;
+        } else if (primary.dimType === "CLIENTE") {
+          const catMap = new Map();
+          rows.forEach((r) => {
+            const c =
+              (r.categoria || "Sem Categoria").toString().trim() ||
+              "Sem Categoria";
+            const v = r[valKey] || 0;
+            catMap.set(c, (catMap.get(c) || 0) + v);
+          });
+          const arr = Array.from(catMap.entries()).sort(
+            (a, b) => b[1] - a[1]
+          );
+          if (!arr.length) {
+            tblCat.innerHTML = "<em>Sem categorias neste período.</em>";
+            return;
+          }
+          let html = `<h5>Categorias deste cliente</h5><table><thead><tr><th>Categoria</th><th>Valor</th><th>%</th></tr></thead><tbody>`;
+          arr.forEach(([cName, v]) => {
+            const pct = totalVal > 0 ? (v / totalVal) * 100 : 0;
+            const vt = useFat
+              ? formatCurrencyBRL(v)
+              : formatNumberBR(v) + " un";
+            html += `<tr><td>${cName}</td><td>${vt}</td><td>${pct
+              .toFixed(1)
+              .replace(".", ",")}%</td></tr>`;
+          });
+          html += "</tbody></table>";
+          tblCat.innerHTML = html;
+        } else if (primary.dimType === "ESTADO") {
+          const catMap = new Map();
+          rows.forEach((r) => {
+            const c =
+              (r.categoria || "Sem Categoria").toString().trim() ||
+              "Sem Categoria";
+            const v = r[valKey] || 0;
+            catMap.set(c, (catMap.get(c) || 0) + v);
+          });
+          const arr = Array.from(catMap.entries()).sort(
+            (a, b) => b[1] - a[1]
+          );
+          if (!arr.length) {
+            tblCat.innerHTML = "<em>Sem categorias neste período.</em>";
+            return;
+          }
+          let html = `<h5>Categorias neste estado</h5><table><thead><tr><th>Categoria</th><th>Valor</th><th>%</th></tr></thead><tbody>`;
+          arr.forEach(([cName, v]) => {
+            const pct = totalVal > 0 ? (v / totalVal) * 100 : 0;
+            const vt = useFat
+              ? formatCurrencyBRL(v)
+              : formatNumberBR(v) + " un";
+            html += `<tr><td>${cName}</td><td>${vt}</td><td>${pct
+              .toFixed(1)
+              .replace(".", ",")}%</td></tr>`;
+          });
+          html += "</tbody></table>";
+          tblCat.innerHTML = html;
+        } else {
+          const cliMap = new Map();
+          rows.forEach((r) => {
+            const c =
+              (r.cliente || "Sem Cliente").toString().trim() ||
+              "Sem Cliente";
+            const v = r[valKey] || 0;
+            cliMap.set(c, (cliMap.get(c) || 0) + v);
+          });
+          const arr = Array.from(cliMap.entries()).sort(
+            (a, b) => b[1] - a[1]
+          );
+          if (!arr.length) {
+            tblCat.innerHTML = "<em>Sem clientes nesta categoria.</em>";
+            return;
+          }
+          let html = `<h5>Clientes desta categoria</h5><table><thead><tr><th>Cliente</th><th>Valor</th><th>%</th></tr></thead><tbody>`;
+          arr.forEach(([cName, v]) => {
+            const pct = totalVal > 0 ? (v / totalVal) * 100 : 0;
+            const vt = useFat
+              ? formatCurrencyBRL(v)
+              : formatNumberBR(v) + " un";
+            html += `<tr><td>${cName}</td><td>${vt}</td><td>${pct
+              .toFixed(1)
+              .replace(".", ",")}%</td></tr>`;
+          });
+          html += "</tbody></table>";
+          tblCat.innerHTML = html;
+        }
+      }
+
+      renderTableClientes();
+      renderTableCategorias();
+    }
+
+    function updateAll() {
+      const filteredKeys = getFilteredKeys();
+      updateFilterOptions(filteredKeys);
+
+      const statusInfo = document.getElementById("statusInfo");
+      const statusRange = document.getElementById("statusRange");
+
+      if (!filteredKeys.length) {
+        statusInfo.textContent = "Nenhum dado para o período selecionado.";
+        statusRange.textContent = "Período: --";
+        document.getElementById("metricMean").textContent = "—";
+        document.getElementById("metricChange").textContent = "—";
+        document.getElementById("metricVol").textContent = "—";
+        document.getElementById("metricMeanSub").textContent = "—";
+        document.getElementById("metricChangeSub").textContent = "—";
+        document.getElementById("metricVolSub").textContent = "—";
+        clearRankings();
+        Plotly.purge("chart");
+        renderDeepDive();
+        return;
+      }
+
+      const seriesMap = buildSeriesForCurrentFilters(filteredKeys);
+
+      if (!seriesMap.size) {
+        statusInfo.textContent = "Nenhum dado para os filtros selecionados.";
+        const firstKey = filteredKeys[0];
+        const lastKey = filteredKeys[filteredKeys.length - 1];
+        const labelFrom =
+          state.keyToLabel.get(firstKey) || labelFromKey(firstKey);
+        const labelTo =
+          state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
+        statusRange.textContent = "Período: " + labelFrom + " – " + labelTo;
+        document.getElementById("metricMean").textContent = "—";
+        document.getElementById("metricChange").textContent = "—";
+        document.getElementById("metricVol").textContent = "—";
+        document.getElementById("metricMeanSub").textContent = "—";
+        document.getElementById("metricChangeSub").textContent = "—";
+        document.getElementById("metricVolSub").textContent = "—";
+        clearRankings();
+        Plotly.purge("chart");
+        renderDeepDive();
+        return;
+      }
+
+      if (state.viewMode === "CLIENTE") {
+        statusInfo.textContent =
+          "Dados carregados • Top 10 clientes no período";
+      } else if (state.viewMode === "ESTADO") {
+        statusInfo.textContent = "Dados carregados • Visão por estado";
+      } else if (state.viewMode === "REPRESENTANTE") {
+        statusInfo.textContent =
+          "Dados carregados • Visão por representante";
+      } else {
+        statusInfo.textContent =
+          "Dados carregados • Visão por categoria";
+      }
+
+      const firstKey = filteredKeys[0];
+      const lastKey = filteredKeys[filteredKeys.length - 1];
+      const labelFrom =
+        state.keyToLabel.get(firstKey) || labelFromKey(firstKey);
+      const labelTo =
+        state.keyToLabel.get(lastKey) || labelFromKey(lastKey);
+      statusRange.textContent = "Período: " + labelFrom + " – " + labelTo;
+
+      updateRankings(filteredKeys);
+      renderChart(filteredKeys, seriesMap);
+      renderDeepDive();
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      loadFamilies().then(loadMainCSV).catch(loadMainCSV);
+    });
+  </script>
+</body>
+</html>
