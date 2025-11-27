@@ -40,7 +40,7 @@
       margin: 0;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
         "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top, #0b1120 0, #020617 50%, #000 100%);
+      background: radial-gradient(circle at top, #0b1120 0, #020617 55%, #000 100%);
       color: var(--text-main);
     }
 
@@ -52,9 +52,14 @@
       align-items: flex-start;
     }
 
+    .dashboard-shell {
+      width: 100%;
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
     .card {
       width: 100%;
-      max-width: 1200px;
       background: linear-gradient(
         145deg,
         rgba(15, 23, 42, 0.98),
@@ -148,13 +153,13 @@
 
     .card-filters {
       display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, 0.9fr);
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.6fr) minmax(0, 1.1fr);
       gap: 16px;
       padding: 16px 0 18px;
       border-bottom: 1px solid rgba(31, 41, 55, 0.75);
     }
 
-    @media (max-width: 960px) {
+    @media (max-width: 1100px) {
       .card-filters {
         grid-template-columns: 1fr;
       }
@@ -188,7 +193,7 @@
       gap: 6px;
     }
 
-    .period-btn {
+    .pill-btn {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(55, 65, 81, 0.95);
       background: radial-gradient(circle at top left, #020617, #020617);
@@ -199,13 +204,13 @@
       transition: all 0.15s ease;
     }
 
-    .period-btn:hover {
+    .pill-btn:hover {
       border-color: var(--accent);
       color: #e5e7eb;
       background: radial-gradient(circle at top left, #020617, #0b1120);
     }
 
-    .period-btn.active {
+    .pill-btn.active {
       border-color: var(--accent-strong);
       background: radial-gradient(circle at top left, #0ea5e9, #0369a1);
       color: #f9fafb;
@@ -306,11 +311,35 @@
       color: var(--text-main);
       font-size: 0.8rem;
       outline: none;
+      width: 100%;
     }
 
     select:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.8);
+    }
+
+    .filter-row-two {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    @media (max-width: 600px) {
+      .filter-row-two {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .warning {
+      margin-top: 6px;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .warning strong {
+      color: var(--accent);
+      font-weight: 500;
     }
 
     .card-body {
@@ -368,106 +397,108 @@
     .leaflet-container {
       background: #020617;
     }
-
-    .warning {
-      margin-top: 6px;
-      font-size: 0.72rem;
-      color: var(--text-muted);
-    }
-
-    .warning strong {
-      color: var(--accent);
-      font-weight: 500;
-    }
   </style>
 </head>
 <body>
   <div class="page">
-    <div class="card">
-      <div class="card-header">
-        <div class="card-header-titles">
-          <h1>Deep Dive · Mapa de Cidades</h1>
-          <p>Mesmos dados da Nova Visão Temporal (relatorio_faturamento.csv), agora projetados em mapa.</p>
-        </div>
-
-        <div class="metric-toggle">
-          <div class="metric-toggle-label">Métrica</div>
-          <div class="metric-toggle-group">
-            <button class="metric-btn active" data-metric="valor">
-              Faturamento
-            </button>
-            <button class="metric-btn" data-metric="quantidade">
-              Volume
-            </button>
+    <div class="dashboard-shell">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-titles">
+            <h1>Deep Dive · Mapa de Cidades</h1>
+            <p>
+              Mesmos dados da Nova Visão Temporal (<code>relatorio_faturamento.csv</code>),
+              agora em mapa por cidade e representante.
+            </p>
           </div>
-        </div>
-      </div>
 
-      <div class="card-filters">
-        <!-- Período rápido -->
-        <div class="filter-group">
-          <div class="filter-label">Período</div>
-          <div class="pill-group">
-            <button class="period-btn" data-period="3M">3M</button>
-            <button class="period-btn" data-period="6M">6M</button>
-            <button class="period-btn" data-period="9M">9M</button>
-            <button class="period-btn" data-period="1A">1A</button>
-            <button class="period-btn" data-period="2A">2A</button>
-            <button class="period-btn" data-period="3A">3A</button>
-            <button class="period-btn" data-period="5A">5A</button>
-            <button class="period-btn" data-period="TUDO">Tudo</button>
+          <div class="metric-toggle">
+            <div class="metric-toggle-label">Métrica</div>
+            <div class="metric-toggle-group">
+              <button class="metric-btn active" data-metric="valor">Faturamento</button>
+              <button class="metric-btn" data-metric="quantidade">Volume</button>
+            </div>
           </div>
         </div>
 
-        <!-- Intervalo personalizado -->
-        <div class="filter-group">
-          <div class="filter-label">Intervalo personalizado</div>
-          <div class="date-range">
-            <div class="date-range-block">
-              <span class="date-range-label">De / Até</span>
-              <div class="date-range-inputs">
-                <input type="month" id="from-month" />
-                <span>até</span>
-                <input type="month" id="to-month" />
+        <div class="card-filters">
+          <!-- Período rápido -->
+          <div class="filter-group">
+            <div class="filter-label">Período</div>
+            <div class="pill-group">
+              <button class="pill-btn" data-period="3M">3M</button>
+              <button class="pill-btn" data-period="6M">6M</button>
+              <button class="pill-btn" data-period="9M">9M</button>
+              <button class="pill-btn" data-period="1A">1A</button>
+              <button class="pill-btn" data-period="2A">2A</button>
+              <button class="pill-btn" data-period="3A">3A</button>
+              <button class="pill-btn" data-period="5A">5A</button>
+              <button class="pill-btn" data-period="TUDO">Tudo</button>
+            </div>
+          </div>
+
+          <!-- Intervalo personalizado -->
+          <div class="filter-group">
+            <div class="filter-label">Intervalo personalizado</div>
+            <div class="date-range">
+              <div class="date-range-block">
+                <span class="date-range-label">De / Até</span>
+                <div class="date-range-inputs">
+                  <input type="month" id="from-month" />
+                  <span>até</span>
+                  <input type="month" id="to-month" />
+                </div>
+              </div>
+
+              <div class="range-actions">
+                <button id="apply-range" class="btn btn-primary">Aplicar</button>
+                <button id="reset-range" class="btn btn-muted">Reset</button>
               </div>
             </div>
+          </div>
 
-            <div class="range-actions">
-              <button id="apply-range" class="btn btn-primary">Aplicar</button>
-              <button id="reset-range" class="btn btn-muted">Reset</button>
+          <!-- Estado + Representante -->
+          <div class="filter-group">
+            <div class="filter-label">Segmentação</div>
+            <div class="filter-row-two">
+              <div>
+                <span class="date-range-label">Estado</span>
+                <select id="estado-filter">
+                  <option value="">Todos</option>
+                </select>
+              </div>
+              <div>
+                <span class="date-range-label">Representante</span>
+                <select id="rep-filter">
+                  <option value="">Todos</option>
+                </select>
+              </div>
+            </div>
+            <div class="warning">
+              Estes filtros são independentes, mas seguem a mesma lógica de período/métrica da
+              <strong>Nova Visão Temporal</strong>.
             </div>
           </div>
         </div>
 
-        <!-- Estado (opcional, independente do Nova Visão, mas útil no mapa) -->
-        <div class="filter-group">
-          <div class="filter-label">Estado</div>
-          <select id="estado-filter">
-            <option value="">Todos</option>
-          </select>
-          <div class="warning">
-            Filtros de período e métrica são os mesmos da <strong>Nova Visão Temporal</strong>.
+        <div class="card-body">
+          <div class="summary-row">
+            <div class="summary-item">
+              <span class="summary-label">Total da métrica</span>
+              <span class="summary-value" id="total-metric">R$ 0,00</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Cidades atendidas</span>
+              <span class="summary-value" id="total-cities">0</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Clientes únicos</span>
+              <span class="summary-value" id="total-clients">0</span>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div class="card-body">
-        <div class="summary-row">
-          <div class="summary-item">
-            <span class="summary-label">Total da métrica</span>
-            <span class="summary-value" id="total-metric">R$ 0,00</span>
-          </div>
-          <div class="summary-item">
-            <span class="summary-label">Cidades atendidas</span>
-            <span class="summary-value" id="total-cities">0</span>
-          </div>
-          <div class="summary-item">
-            <span class="summary-label">Clientes únicos</span>
-            <span class="summary-value" id="total-clients">0</span>
-          </div>
+          <div id="sales-map"></div>
         </div>
-
-        <div id="sales-map"></div>
       </div>
     </div>
   </div>
@@ -487,7 +518,6 @@
     const SALES_CSV_PATH = "data/relatorio_faturamento.csv";
     const CITY_GEO_CSV_PATH = "data/cidades_br_geo.csv";
 
-    // Columns from relatorio_faturamento.csv
     const COL_ESTADO = "Estado";
     const COL_CIDADE = "Cidade";
     const COL_CLIENTE_CODIGO = "ClienteCodigo";
@@ -496,13 +526,14 @@
     const COL_VALOR = "Valor";
     const COL_MES = "Mes";
     const COL_ANO = "Ano";
-    // Se quiser mais filtros depois: Representante, Categoria, etc.
+    const COL_REP = "Representante";
+    const COL_REP_CODIGO = "RepresentanteCodigo";
 
     // ------------------------------
     // Global state
     // ------------------------------
     let rawSales = [];
-    let geoByKey = new Map(); // key = "ESTADO|CIDADE" -> {lat, lon}
+    let geoByKey = new Map(); // "ESTADO|CIDADE" -> {lat, lon}
 
     let map = null;
     let cityLayer = null;
@@ -526,7 +557,7 @@
       const valor = Number(d[COL_VALOR] || 0);
 
       const ano = d[COL_ANO] ? Number(d[COL_ANO]) : null;
-      const mes = d[COL_MES] ? Number(d[COL_MES]) : null;
+      const mes = d[COL_MES] ? Number(d[COL_MES] || d[COL_MES.toLowerCase()]) : Number(d[COL_MES]);
 
       let date = null;
       if (ano && mes) {
@@ -543,6 +574,8 @@
         ano,
         mes,
         date,
+        representante: d[COL_REP],
+        representanteCodigo: d[COL_REP_CODIGO],
         lat: null,
         lon: null
       };
@@ -554,9 +587,7 @@
       const lat = d.lat ? Number(d.lat) : Number(d.Lat) || Number(d.latitude);
       const lon = d.lon ? Number(d.lon) : Number(d.Lon) || Number(d.longitude);
 
-      if (!estado || !cidade || isNaN(lat) || isNaN(lon)) {
-        return null;
-      }
+      if (!estado || !cidade || isNaN(lat) || isNaN(lon)) return null;
 
       return {
         key: cityKey(estado, cidade),
@@ -655,6 +686,7 @@
     // ------------------------------
     function filterAndAggregate() {
       const estadoFilter = document.getElementById("estado-filter").value || "";
+      const repFilter = document.getElementById("rep-filter").value || "";
       const start = currentStartDate;
       const end = currentEndDate;
 
@@ -666,6 +698,7 @@
         if (start && row.date < start) continue;
         if (end && row.date > end) continue;
         if (estadoFilter && row.estado !== estadoFilter) continue;
+        if (repFilter && row.representante !== repFilter) continue;
         if (row.lat == null || row.lon == null) continue;
 
         const key = cityKey(row.estado, row.cidade);
@@ -724,8 +757,7 @@
             maximumFractionDigits: 2
           });
       } else {
-        totalMetricEl.textContent =
-          totalMetric.toLocaleString("pt-BR");
+        totalMetricEl.textContent = totalMetric.toLocaleString("pt-BR");
       }
 
       totalCitiesEl.textContent = totalCities.toLocaleString("pt-BR");
@@ -799,11 +831,7 @@
       currentStartDate = fromDate;
       currentEndDate = toDate;
 
-      // Clear quick period selection
-      document
-        .querySelectorAll(".period-btn")
-        .forEach((b) => b.classList.remove("active"));
-
+      document.querySelectorAll(".pill-btn").forEach((b) => b.classList.remove("active"));
       updateAll();
     }
 
@@ -812,11 +840,9 @@
       currentEndDate = availableMaxDate;
       syncMonthInputs();
 
-      document
-        .querySelectorAll(".period-btn")
-        .forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".pill-btn").forEach((b) => b.classList.remove("active"));
 
-      const tudoBtn = document.querySelector('.period-btn[data-period="TUDO"]');
+      const tudoBtn = document.querySelector('.pill-btn[data-period="TUDO"]');
       if (tudoBtn) tudoBtn.classList.add("active");
 
       updateAll();
@@ -829,23 +855,18 @@
       // Métrica
       document.querySelectorAll(".metric-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
-          document
-            .querySelectorAll(".metric-btn")
-            .forEach((b) => b.classList.remove("active"));
+          document.querySelectorAll(".metric-btn").forEach((b) => b.classList.remove("active"));
           btn.classList.add("active");
-          currentMetric =
-            btn.dataset.metric === "quantidade" ? "quantidade" : "valor";
+          currentMetric = btn.dataset.metric === "quantidade" ? "quantidade" : "valor";
           updateAll();
         });
       });
 
       // Período rápido
-      document.querySelectorAll(".period-btn").forEach((btn) => {
+      document.querySelectorAll(".pill-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           const code = btn.dataset.period;
-          document
-            .querySelectorAll(".period-btn")
-            .forEach((b) => b.classList.remove("active"));
+          document.querySelectorAll(".pill-btn").forEach((b) => b.classList.remove("active"));
           btn.classList.add("active");
           applyQuickPeriod(code);
           syncMonthInputs();
@@ -854,19 +875,12 @@
       });
 
       // Aplicar / Reset
-      document
-        .getElementById("apply-range")
-        .addEventListener("click", applyCustomRange);
-      document
-        .getElementById("reset-range")
-        .addEventListener("click", resetRange);
+      document.getElementById("apply-range").addEventListener("click", applyCustomRange);
+      document.getElementById("reset-range").addEventListener("click", resetRange);
 
-      // Estado
-      document
-        .getElementById("estado-filter")
-        .addEventListener("change", () => {
-          updateAll();
-        });
+      // Estado & Representante
+      document.getElementById("estado-filter").addEventListener("change", updateAll);
+      document.getElementById("rep-filter").addEventListener("change", updateAll);
     }
 
     // ------------------------------
@@ -875,19 +889,31 @@
     function populateEstadoFilter() {
       const select = document.getElementById("estado-filter");
       const estados = new Set(
-        rawSales
-          .map((r) => r.estado)
-          .filter((v) => v != null && v !== "")
+        rawSales.map((r) => r.estado).filter((v) => v != null && v !== "")
       );
 
-      const sorted = Array.from(estados).sort((a, b) =>
-        a.localeCompare(b, "pt-BR")
-      );
+      const sorted = Array.from(estados).sort((a, b) => a.localeCompare(b, "pt-BR"));
 
       sorted.forEach((estado) => {
         const opt = document.createElement("option");
         opt.value = estado;
         opt.textContent = estado;
+        select.appendChild(opt);
+      });
+    }
+
+    function populateRepFilter() {
+      const select = document.getElementById("rep-filter");
+      const reps = new Set(
+        rawSales.map((r) => r.representante).filter((v) => v != null && v !== "")
+      );
+
+      const sorted = Array.from(reps).sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+      sorted.forEach((rep) => {
+        const opt = document.createElement("option");
+        opt.value = rep;
+        opt.textContent = rep;
         select.appendChild(opt);
       });
     }
@@ -933,6 +959,7 @@
       ]);
 
       rawSales = salesRaw;
+
       geoRaw.forEach((d) => {
         const parsed = parseGeoRow(d);
         if (!parsed) return;
@@ -942,9 +969,9 @@
       attachGeoToSales();
       computeDateRange();
       populateEstadoFilter();
+      populateRepFilter();
 
-      // Default: Tudo
-      const tudoBtn = document.querySelector('.period-btn[data-period="TUDO"]');
+      const tudoBtn = document.querySelector('.pill-btn[data-period="TUDO"]');
       if (tudoBtn) tudoBtn.classList.add("active");
       syncMonthInputs();
 
