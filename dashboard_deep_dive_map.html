@@ -5,6 +5,14 @@
   <title>Deep Dive · Mapa de Cidades</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+  <!-- Olympus-ish font (same sporty vibe) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
   <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
@@ -15,30 +23,39 @@
 
   <style>
     :root {
-      --bg-body: #020617;
-      --bg-card: #020617;
-      --bg-elevated: #030712;
-      --border-subtle: #1f2937;
-      --border-strong: #4b5563;
+      /* Olympus-style palette */
+      --bg-body: #050816;
+      --bg-shell: radial-gradient(circle at top, #0b1120 0, #020617 55%, #000 100%);
+      --bg-card: radial-gradient(circle at top left, #020617 0, #020617 40%, #020617 100%);
+      --bg-elevated: #020617;
+      --border-subtle: rgba(148, 163, 184, 0.25);
+      --border-strong: rgba(148, 163, 184, 0.5);
       --accent: #38bdf8;
-      --accent-soft: rgba(56, 189, 248, 0.15);
+      --accent-alt: #a855f7;
+      --accent-soft: rgba(56, 189, 248, 0.1);
       --accent-strong: #0ea5e9;
       --text-main: #e5e7eb;
-      --text-soft: #9ca3af;
-      --text-muted: #6b7280;
+      --text-soft: #cbd5f5;
+      --text-muted: #64748b;
       --danger: #f97373;
-      --radius-lg: 16px;
+      --radius-card: 24px;
+      --radius-lg: 18px;
+      --radius-md: 12px;
       --radius-pill: 9999px;
-      --shadow-strong: 0 22px 55px rgba(15, 23, 42, 0.85);
+      --shadow-strong: 0 30px 80px rgba(15, 23, 42, 0.9);
+      --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.75);
+      --glass: rgba(15, 23, 42, 0.9);
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     body {
       margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-        "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top, #0b1120 0, #020617 55%, #000 100%);
+      font-family: "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont,
+        "SF Pro Text", "Segoe UI", sans-serif;
+      background: var(--bg-shell);
       color: var(--text-main);
     }
 
@@ -58,17 +75,33 @@
 
     .card {
       width: 100%;
-      background: linear-gradient(
-        145deg,
-        rgba(15, 23, 42, 0.98),
-        rgba(15, 23, 42, 0.96),
-        rgba(3, 7, 18, 0.98)
-      );
-      border-radius: 24px;
+      background: var(--bg-card);
+      border-radius: var(--radius-card);
       padding: 20px 24px 24px;
       box-shadow: var(--shadow-strong);
-      border: 1px solid rgba(55, 65, 81, 0.9);
-      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      backdrop-filter: blur(22px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Subtle top gradient strip like Olympus */
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(
+        circle at top left,
+        rgba(56, 189, 248, 0.18),
+        transparent 55%
+      );
+      opacity: 0.8;
+      pointer-events: none;
+    }
+
+    .card > * {
+      position: relative;
+      z-index: 1;
     }
 
     .card-header {
@@ -77,31 +110,42 @@
       align-items: flex-start;
       gap: 16px;
       padding-bottom: 16px;
-      border-bottom: 1px solid rgba(31, 41, 55, 0.8);
+      border-bottom: 1px solid rgba(15, 23, 42, 0.9);
     }
 
     .card-header-titles h1 {
       margin: 0;
-      font-size: 1.25rem;
-      letter-spacing: 0.02em;
+      font-size: 1.35rem;
+      letter-spacing: 0.04em;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      text-transform: uppercase;
     }
 
     .card-header-titles h1::before {
       content: "";
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #22c55e 0, #16a34a 40%, #16a34a00 70%);
-      box-shadow: 0 0 20px rgba(34, 197, 94, 0.95);
+      width: 11px;
+      height: 11px;
+      border-radius: 999px;
+      background: radial-gradient(circle, #22c55e 0, #16a34a 45%, transparent 75%);
+      box-shadow: 0 0 22px rgba(34, 197, 94, 0.95);
     }
 
     .card-header-titles p {
       margin: 4px 0 0;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       color: var(--text-soft);
+      max-width: 520px;
+    }
+
+    .card-header-titles code {
+      font-size: 0.8rem;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      color: var(--accent);
     }
 
     .metric-toggle {
@@ -111,102 +155,119 @@
     }
 
     .metric-toggle-label {
-      font-size: 0.8rem;
+      font-size: 0.72rem;
       color: var(--text-muted);
       text-transform: uppercase;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.16em;
     }
 
     .metric-toggle-group {
       display: inline-flex;
       padding: 3px;
-      border-radius: 999px;
-      background: radial-gradient(circle at top left, #0f172a, #020617);
-      border: 1px solid rgba(55, 65, 81, 0.9);
+      border-radius: var(--radius-pill);
+      background: radial-gradient(circle at top left, #020617, #020617);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.85), 0 12px 30px rgba(15, 23, 42, 0.85);
     }
 
     .metric-btn {
       border: none;
-      padding: 6px 12px;
-      border-radius: 999px;
+      padding: 7px 14px;
+      border-radius: var(--radius-pill);
       font-size: 0.8rem;
       color: var(--text-soft);
       background: transparent;
       cursor: pointer;
-      transition: all 0.15s ease;
-      min-width: 90px;
+      transition: all 0.16s ease;
+      min-width: 96px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
     }
 
     .metric-btn.active {
       color: #f9fafb;
-      background: radial-gradient(circle at top left, #0ea5e9, #0369a1);
-      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.7),
-        0 12px 30px rgba(8, 47, 73, 0.9);
+      background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.9),
+        0 18px 45px rgba(15, 23, 42, 0.95);
     }
 
     .metric-btn:not(.active):hover {
       color: #e5e7eb;
-      background: rgba(31, 41, 55, 0.8);
+      background: radial-gradient(circle at top left, #020617, #020617);
     }
 
     .card-filters {
       display: grid;
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.6fr) minmax(0, 1.1fr);
-      gap: 16px;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.5fr) minmax(0, 1.1fr);
+      gap: 18px;
       padding: 16px 0 18px;
-      border-bottom: 1px solid rgba(31, 41, 55, 0.75);
+      border-bottom: 1px solid rgba(15, 23, 42, 0.95);
     }
 
     @media (max-width: 1100px) {
-      .card-filters { grid-template-columns: 1fr; }
-      .card-header { flex-direction: column; }
-      .metric-toggle { justify-content: space-between; width: 100%; }
+      .card-filters {
+        grid-template-columns: 1fr;
+      }
+      .card-header {
+        flex-direction: column;
+      }
+      .metric-toggle {
+        justify-content: flex-start;
+        width: 100%;
+      }
     }
 
-    .filter-group { display: flex; flex-direction: column; gap: 8px; }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
 
     .filter-label {
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
+      letter-spacing: 0.18em;
       color: var(--text-muted);
     }
 
     .pill-group {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 7px;
     }
 
     .pill-btn {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(55, 65, 81, 0.95);
-      background: radial-gradient(circle at top left, #020617, #020617);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(15, 23, 42, 0.95);
       color: var(--text-soft);
       font-size: 0.78rem;
-      padding: 6px 10px;
+      padding: 6px 11px;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.16s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
     }
 
     .pill-btn:hover {
       border-color: var(--accent);
       color: #e5e7eb;
-      background: radial-gradient(circle at top left, #020617, #0b1120);
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.5),
+        0 14px 35px rgba(15, 23, 42, 0.9);
     }
 
     .pill-btn.active {
       border-color: var(--accent-strong);
-      background: radial-gradient(circle at top left, #0ea5e9, #0369a1);
+      background: linear-gradient(135deg, var(--accent), var(--accent-alt));
       color: #f9fafb;
-      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.7),
-        0 12px 35px rgba(8, 47, 73, 0.9);
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.9),
+        0 20px 45px rgba(15, 23, 42, 0.95);
     }
 
     .date-range {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
       align-items: center;
     }
 
@@ -219,6 +280,8 @@
     .date-range-label {
       font-size: 0.7rem;
       color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
     }
 
     .date-range-inputs {
@@ -228,24 +291,28 @@
     }
 
     .date-range-inputs span {
-      font-size: 0.75rem;
+      font-size: 0.8rem;
       color: var(--text-muted);
     }
 
-    input[type="month"] {
+    input[type="month"],
+    select {
       background: radial-gradient(circle at top left, #020617, #020617);
-      border-radius: 999px;
-      border: 1px solid rgba(55, 65, 81, 0.95);
-      padding: 6px 10px;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      padding: 6px 11px;
       color: var(--text-main);
       font-size: 0.8rem;
       outline: none;
       min-width: 130px;
+      transition: all 0.16s ease;
     }
 
-    input[type="month"]:focus {
+    input[type="month"]:focus,
+    select:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.8);
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.85),
+        0 16px 40px rgba(15, 23, 42, 0.9);
     }
 
     .range-actions {
@@ -256,50 +323,38 @@
     }
 
     .btn {
-      border-radius: 999px;
-      border: 1px solid rgba(55, 65, 81, 0.9);
-      background: radial-gradient(circle at top left, #020617, #020617);
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(15, 23, 42, 0.95);
       color: var(--text-soft);
       font-size: 0.78rem;
-      padding: 6px 10px;
+      padding: 6px 11px;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.16s ease;
       white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
     }
 
     .btn-primary {
       border-color: var(--accent-strong);
       color: #f9fafb;
-      background: radial-gradient(circle at top left, #0ea5e9, #0369a1);
-      box-shadow: 0 12px 30px rgba(8, 47, 73, 0.85);
+      background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.95);
     }
 
-    .btn-primary:hover { filter: brightness(1.05); }
+    .btn-primary:hover {
+      filter: brightness(1.06);
+    }
 
     .btn-muted {
-      border-color: rgba(55, 65, 81, 0.9);
+      border-color: rgba(148, 163, 184, 0.35);
       color: var(--text-muted);
     }
 
     .btn-muted:hover {
-      border-color: rgba(107, 114, 128, 0.9);
-      color: var(--text-main);
-    }
-
-    select {
-      background: radial-gradient(circle at top left, #020617, #020617);
-      border-radius: 999px;
-      border: 1px solid rgba(55, 65, 81, 0.95);
-      padding: 6px 10px;
-      color: var(--text-main);
-      font-size: 0.8rem;
-      outline: none;
-      width: 100%;
-    }
-
-    select:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.8);
+      border-color: rgba(148, 163, 184, 0.6);
+      color: #e5e7eb;
     }
 
     .filter-row-two {
@@ -309,7 +364,9 @@
     }
 
     @media (max-width: 600px) {
-      .filter-row-two { grid-template-columns: 1fr; }
+      .filter-row-two {
+        grid-template-columns: 1fr;
+      }
     }
 
     .warning {
@@ -337,29 +394,31 @@
     }
 
     @media (max-width: 900px) {
-      .summary-row { grid-template-columns: 1fr; }
+      .summary-row {
+        grid-template-columns: 1fr;
+      }
     }
 
     .summary-item {
       padding: 10px 12px;
-      border-radius: 18px;
-      background: radial-gradient(circle at top left, #020617, #020617);
-      border: 1px solid rgba(31, 41, 55, 0.9);
-      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.9);
+      border-radius: var(--radius-lg);
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: var(--shadow-soft);
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
     }
 
     .summary-label {
       font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.15em;
+      letter-spacing: 0.18em;
       color: var(--text-muted);
     }
 
     .summary-value {
-      font-size: 1.05rem;
+      font-size: 1.08rem;
       font-weight: 600;
       color: #f9fafb;
     }
@@ -367,23 +426,36 @@
     #sales-map {
       margin-top: 4px;
       height: 480px;
-      border-radius: 18px;
+      border-radius: var(--radius-lg);
       overflow: hidden;
-      border: 1px solid rgba(31, 41, 55, 0.9);
-      box-shadow: 0 22px 45px rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: var(--shadow-soft);
     }
 
-    .leaflet-container { background: #020617; }
+    .leaflet-container {
+      background: #020617;
+    }
 
     /* Legend */
     #map-legend {
-      margin-top: 8px;
+      margin-top: 10px;
       font-size: 0.75rem;
       color: #9ca3af;
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
       align-items: center;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+    }
+
+    #map-legend span.label {
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.7rem;
+      color: var(--text-muted);
     }
 
     #map-legend span.bin {
@@ -396,16 +468,17 @@
       width: 10px;
       height: 10px;
       border-radius: 999px;
+      box-shadow: 0 0 10px rgba(148, 163, 184, 0.35);
     }
 
     /* Clients card */
     .clients-card {
       margin-top: 12px;
       padding: 12px 14px;
-      border-radius: 18px;
-      background: radial-gradient(circle at top left, #020617, #020617);
-      border: 1px solid rgba(31, 41, 55, 0.9);
-      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.9);
+      border-radius: var(--radius-lg);
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: var(--shadow-soft);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -419,16 +492,16 @@
     }
 
     .clients-title {
-      font-size: 0.85rem;
+      font-size: 0.76rem;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
+      letter-spacing: 0.18em;
       color: var(--text-muted);
     }
 
     .clients-subtitle {
-      font-size: 0.88rem;
+      font-size: 0.9rem;
       color: var(--text-soft);
-      margin-top: 2px;
+      margin-top: 3px;
     }
 
     .clients-meta {
@@ -441,9 +514,9 @@
     .clients-table-wrapper {
       margin-top: 4px;
       border-radius: 14px;
-      border: 1px solid rgba(31, 41, 55, 0.9);
+      border: 1px solid rgba(30, 64, 175, 0.6);
       overflow: hidden;
-      background: radial-gradient(circle at top left, #020617, #020617);
+      background: radial-gradient(circle at top left, #020617, #020617 60%, #020617);
       max-height: 260px;
       overflow-y: auto;
     }
@@ -457,23 +530,23 @@
     table.clients-table thead {
       position: sticky;
       top: 0;
-      background: radial-gradient(circle at top left, #020617, #020617);
+      background: radial-gradient(circle at top, #020617, #020617);
       z-index: 1;
     }
 
     table.clients-table th,
     table.clients-table td {
       padding: 6px 10px;
-      border-bottom: 1px solid rgba(31, 41, 55, 0.8);
+      border-bottom: 1px solid rgba(30, 41, 59, 0.9);
     }
 
     table.clients-table th {
       text-align: left;
       font-weight: 500;
       color: var(--text-muted);
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.16em;
     }
 
     table.clients-table td {
@@ -609,7 +682,7 @@
 
           <!-- Legend -->
           <div id="map-legend">
-            <span style="text-transform:uppercase; letter-spacing:0.12em;">Faixas de cor</span>
+            <span class="label">Faixas de cor</span>
             <span class="bin">
               <span class="dot" id="legend-dot-0" style="background:#22c55e;"></span>
               <span id="legend-bin-0"></span>
@@ -1052,7 +1125,7 @@
       updateLegend();
       updateSummary(totalMetric, totalCities, totalClients);
       updateMapMarkers(aggregated);
-      updateClientListFromSelected(); // mantém cidade selecionada atualizada
+      updateClientListFromSelected();
     }
 
     // ------------------------------
