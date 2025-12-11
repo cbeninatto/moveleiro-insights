@@ -13,8 +13,8 @@
     rel="stylesheet"
   />
 
-  <!-- Plotly & PapaParse -->
-  <script src="https://cdn.plot.ly/2.32.0/plotly.min.js"></script>
+  <!-- Plotly (FIXED URL) & PapaParse -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <style>
@@ -1277,6 +1277,7 @@
           if (!b) return;
           b.classList.toggle("secondary", !isFat);
         });
+
         [btnVol, btnVol2, btnVol3].forEach((b) => {
           if (!b) return;
           b.classList.toggle("secondary", isFat);
@@ -3123,7 +3124,7 @@
 
     /* ========= STARTUP ========= */
 
-    // Direct init (no DOMContentLoaded wrapper) – matches your working pattern
+    // Direct init (no DOMContentLoaded wrapper)
     loadFamilies()
       .then(() => {
         loadMainCSV();
