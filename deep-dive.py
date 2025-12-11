@@ -36,6 +36,21 @@ def format_brl(value: float) -> str:
     return "R$ " + f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def format_brl_compact(value: float) -> str:
+    """Formato mais curto para cards (evita cortar número)."""
+    if pd.isna(value):
+        return "R$ 0"
+    v = float(value)
+    av = abs(v)
+    if av >= 1_000_000_000:
+        return "R$ " + f"{v/1_000_000_000:.1f} bi".replace(".", ",")
+    if av >= 1_000_000:
+        return "R$ " + f"{v/1_000_000:.1f} mi".replace(".", ",")
+    if av >= 1_000:
+        return "R$ " + f"{v/1_000:.1f} mil".replace(".", ",")
+    return format_brl(v)
+
+
 @st.cache_data(show_spinner=True)
 def load_data() -> pd.DataFrame:
     """
@@ -136,9 +151,6 @@ def build_carteira_status(df_all: pd.DataFrame,
     """
     Calcula StatusCarteira (Novos / Perdidos / Crescendo / Caindo / Estáveis)
     comparando o período selecionado com a JANELA ANTERIOR de mesmo tamanho.
-
-    Retorna um DF com colunas:
-    Cliente, Estado, Cidade, ValorAtual, ValorAnterior, StatusCarteira
     """
     df_rep_all = df_all[df_all["Representante"] == rep].copy()
     if df_rep_all.empty:
@@ -147,10 +159,8 @@ def build_carteira_status(df_all: pd.DataFrame,
             "ValorAtual", "ValorAnterior", STATUS_COL
         ])
 
-    # Quantidade de meses no período atual
     months_span = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
 
-    # Período anterior de mesmo tamanho
     prev_end = start_comp - pd.DateOffset(months=1)
     prev_start = prev_end - pd.DateOffset(months=months_span - 1)
 
@@ -160,7 +170,6 @@ def build_carteira_status(df_all: pd.DataFrame,
     df_curr = df_rep_all.loc[mask_curr].copy()
     df_prev = df_rep_all.loc[mask_prev].copy()
 
-    # Agrega por cliente (atual)
     curr_agg = (
         df_curr
         .groupby("Cliente", as_index=False)
@@ -172,7 +181,6 @@ def build_carteira_status(df_all: pd.DataFrame,
         .rename(columns={"Valor": "ValorAtual"})
     )
 
-    # Agrega por cliente (anterior)
     prev_agg = (
         df_prev
         .groupby("Cliente", as_index=False)["Valor"]
@@ -180,10 +188,8 @@ def build_carteira_status(df_all: pd.DataFrame,
         .rename(columns={"Valor": "ValorAnterior"})
     )
 
-    # Junta tudo
     clientes = pd.merge(curr_agg, prev_agg, on="Cliente", how="outer")
 
-    # Preenche NaNs
     clientes["ValorAtual"] = clientes["ValorAtual"].fillna(0.0)
     clientes["ValorAnterior"] = clientes["ValorAnterior"].fillna(0.0)
     clientes["Estado"] = clientes["Estado"].fillna("")
@@ -192,13 +198,11 @@ def build_carteira_status(df_all: pd.DataFrame,
     def classify(row):
         va = row["ValorAtual"]
         vp = row["ValorAnterior"]
-
         if va > 0 and vp == 0:
             return "Novos"
         if va == 0 and vp > 0:
             return "Perdidos"
         if va > 0 and vp > 0:
-            # Relação crescimento / queda
             ratio = va / vp if vp != 0 else 0
             if ratio >= 1.2:
                 return "Crescendo"
@@ -206,14 +210,10 @@ def build_carteira_status(df_all: pd.DataFrame,
                 return "Caindo"
             else:
                 return "Estáveis"
-        # Sem movimento relevante nos dois períodos
         return "Estáveis"
 
     clientes[STATUS_COL] = clientes.apply(classify, axis=1)
-
-    # Remove clientes totalmente "mortos" (sem movimento em nenhum dos dois períodos)
     clientes = clientes[(clientes["ValorAtual"] > 0) | (clientes["ValorAnterior"] > 0)]
-
     return clientes
 
 
@@ -222,14 +222,9 @@ def load_geo() -> pd.DataFrame:
     """
     Carrega o CSV de coordenadas de cidades (cidades_br_geo.csv) do GitHub
     e normaliza colunas de Estado, Cidade, lat, lon.
-
-    - Detecta automaticamente separador (; ou ,)
-    - Aceita nomes de coluna como Estado/UF, Cidade/Municipio, Lat/Latitude, Lon/Longitude
     """
-    # Auto-detecta separador
     df_geo = pd.read_csv(CITY_GEO_CSV_URL, sep=None, engine="python")
 
-    # Guardar nomes originais para debug
     original_cols = list(df_geo.columns)
     df_geo.columns = [str(c).strip() for c in df_geo.columns]
 
@@ -302,14 +297,12 @@ if df.empty:
 # ==========================
 st.sidebar.title("Filtros – Deep Dive")
 
-# Representantes
 reps = sorted(df["Representante"].dropna().unique())
 if not reps:
     st.error("Não foram encontrados representantes na base de dados.")
     st.stop()
 rep_selected = st.sidebar.selectbox("Representante", reps)
 
-# ----- Filtro de período: dropdowns de mês e ano -----
 st.sidebar.markdown("### Período")
 
 anos_disponiveis = sorted(df["Ano"].dropna().unique())
@@ -329,9 +322,8 @@ else:
     default_start_month_num = 1
     default_end_month_num = 12
 
-month_names = [MONTH_MAP_NUM_TO_NAME[m] for m in range(1, 12 + 1)]
+month_names = [MONTH_MAP_NUM_TO_NAME[m] for m in range(1, 13)]
 
-# Mês / Ano inicial
 st.sidebar.caption("Período inicial")
 col_mi, col_ai = st.sidebar.columns(2)
 with col_mi:
@@ -349,7 +341,6 @@ with col_ai:
         key="start_year",
     )
 
-# Mês / Ano final
 st.sidebar.caption("Período final")
 col_mf, col_af = st.sidebar.columns(2)
 with col_mf:
@@ -377,7 +368,6 @@ if start_comp > end_comp:
     st.sidebar.error("Período inicial não pode ser maior que o período final.")
     st.stop()
 
-# Aplica período
 mask_period = (df["Competencia"] >= start_comp) & (df["Competencia"] <= end_comp)
 df_period = df.loc[mask_period].copy()
 
@@ -406,9 +396,9 @@ st.caption(
 st.markdown("---")
 
 # ==========================
-# MÉTRICAS PRINCIPAIS
+# MÉTRICAS PRINCIPAIS (KPI row)
 # ==========================
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4 = st.columns(4)
 
 total_rep = df_rep["Valor"].sum()
 
@@ -429,12 +419,9 @@ meses_periodo = (
 )
 total_meses_periodo = len(meses_periodo)
 
-if meses_com_venda > 0:
-    media_mensal = total_rep / meses_com_venda
-else:
-    media_mensal = 0.0
+media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
 
-# Distribuição por clientes: N80 (clientes que fazem 80% do faturamento) e HHI
+# Distribuição por clientes: N80, HHI, top shares (para seção própria)
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = (
         df_rep.groupby("Cliente", as_index=False)["Valor"]
@@ -443,11 +430,9 @@ if not df_rep.empty and total_rep > 0:
     )
     num_clientes_rep = df_clientes_tot["Cliente"].nunique()
 
-    # Shares por cliente
     shares = df_clientes_tot["Valor"] / total_rep
     df_clientes_tot["Share"] = shares
 
-    # N80: quantos clientes são necessários para chegar em 80% do faturamento
     cum_share = shares.cumsum()
     n80_count = 0
     for i, val in enumerate(cum_share, start=1):
@@ -456,7 +441,6 @@ if not df_rep.empty and total_rep > 0:
             break
     n80_ratio = n80_count / num_clientes_rep if num_clientes_rep > 0 else 0.0
 
-    # HHI (Herfindahl-Hirschman Index)
     hhi_value = float((shares ** 2).sum())
     if hhi_value < 0.10:
         hhi_label = "Baixa concentração"
@@ -465,7 +449,6 @@ if not df_rep.empty and total_rep > 0:
     else:
         hhi_label = "Alta concentração"
 
-    # Shares para Top 1 / Top 3 / Top 10 (para uso na seção de distribuição)
     top1_share = shares.iloc[:1].sum()
     top3_share = shares.iloc[:3].sum()
     top10_share = shares.iloc[:10].sum()
@@ -479,7 +462,6 @@ else:
     top3_share = 0.0
     top10_share = 0.0
 
-# Cobertura de carteira (clientes / cidades / estados)
 clientes_atendidos = num_clientes_rep
 cidades_atendidas = (
     df_rep[["Estado", "Cidade"]]
@@ -489,7 +471,6 @@ cidades_atendidas = (
 )
 estados_atendidos = df_rep["Estado"].dropna().nunique()
 
-# Saúde da carteira usando o DF calculado
 if not clientes_carteira.empty:
     status_counts_series = (
         clientes_carteira.groupby(STATUS_COL)["Cliente"].nunique()
@@ -498,26 +479,12 @@ if not clientes_carteira.empty:
 else:
     carteira_score, carteira_label = 50.0, "Neutra"
 
-# KPI row
-col1.metric("Total período", format_brl(total_rep))
-col2.metric("Média mensal", format_brl(media_mensal))
+col1.metric("Total período", format_brl_compact(total_rep))
+col2.metric("Média mensal", format_brl_compact(media_mensal))
 col3.metric("Meses com venda", f"{meses_com_venda} / {total_meses_periodo}")
+col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
 
-if clientes_atendidos > 0:
-    dist_metric_value = f"N80: {n80_count} clientes"
-    dist_metric_delta = hhi_label  # Baixa / Moderada / Alta
-else:
-    dist_metric_value = "Sem dados"
-    dist_metric_delta = ""
-
-col4.metric(
-    "Distribuição por clientes",
-    dist_metric_value,
-    dist_metric_delta,
-)
-col5.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
-
-# Linha extra com cobertura
+# Linha extra de cobertura (simples, embaixo dos KPIs)
 cov1, cov2, cov3 = st.columns(3)
 cov1.metric("Clientes atendidos", f"{clientes_atendidos}")
 cov2.metric("Cidades atendidas", f"{cidades_atendidas}")
@@ -583,7 +550,6 @@ else:
     try:
         df_geo = load_geo()
 
-        # agrega faturamento/volume por cidade
         df_cities = (
             df_rep.groupby(["Estado", "Cidade"], as_index=False)
             .agg(
@@ -593,25 +559,22 @@ else:
             )
         )
 
-        # chave de junção Estado|Cidade
         df_cities["key"] = (
             df_cities["Estado"].astype(str).str.strip().str.upper()
             + "|"
             + df_cities["Cidade"].astype(str).str.strip().str.upper()
         )
 
-        # usa sufixos para evitar conflito de nomes (Cidade/Estado)
         df_map = df_cities.merge(
             df_geo,
             on="key",
             how="inner",
-            suffixes=("_fat", "_geo"),  # fat = faturamento, geo = base geográfica
+            suffixes=("_fat", "_geo"),
         )
 
         if df_map.empty:
             st.info("Não há coordenadas de cidades para exibir no mapa.")
         else:
-            # Escolha de métrica
             metric_choice = st.radio(
                 "Métrica do mapa",
                 ["Faturamento", "Volume"],
@@ -627,7 +590,6 @@ else:
             if df_map[metric_col].max() <= 0:
                 st.info("Sem dados para exibir no mapa nesse período.")
             else:
-                # Bins em 4 quantis, com fallback
                 values = df_map[metric_col]
                 try:
                     df_map["bin"], bins = pd.qcut(
@@ -639,13 +601,11 @@ else:
 
                 colors = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
 
-                # Métricas de cobertura (reforço aqui)
                 cov1, cov2, cov3 = st.columns(3)
                 cov1.metric("Cidades atendidas", f"{cidades_atendidas}")
                 cov2.metric("Estados atendidos", f"{estados_atendidos}")
                 cov3.metric("Clientes atendidos", f"{clientes_atendidos}")
 
-                # centro do mapa
                 center = [df_map["lat"].mean(), df_map["lon"].mean()]
                 m = folium.Map(location=center, zoom_start=4, tiles="cartodbpositron")
 
@@ -658,7 +618,6 @@ else:
                     else:
                         metric_val_str = f"{int(row['Quantidade']):,}".replace(",", ".")
 
-                    # usa nomes da base de faturamento (Estado_fat / Cidade_fat)
                     popup_html = (
                         f"<b>{row['Cidade_fat']} - {row['Estado_fat']}</b><br>"
                         f"{metric_label}: {metric_val_str}<br>"
@@ -682,7 +641,7 @@ else:
 st.markdown("---")
 
 # ==========================
-# COMBO CHART – BARRAS (FATURAMENTO) + LINHA (VOLUME)
+# EVOLUÇÃO – BARRAS + LINHA
 # ==========================
 st.subheader("Evolução – Faturamento (barras) e Volume (linha)")
 
@@ -738,7 +697,7 @@ else:
 st.markdown("---")
 
 # ==========================
-# DISTRIBUIÇÃO POR CLIENTES
+# DISTRIBUIÇÃO POR CLIENTES – SEÇÃO PRÓPRIA
 # ==========================
 st.subheader("Distribuição por clientes")
 
@@ -751,12 +710,16 @@ else:
         .sort_values("Valor", ascending=False)
     )
 
-    # Texto de resumo usando N80 e HHI calculados lá em cima
+    # Pequenos KPIs só dessa seção
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("N80", f"{n80_count}", f"{n80_ratio:.0%} da carteira")
+    k2.metric("Índice de concentração", hhi_label, f"HHI {hhi_value:.3f}")
+    k3.metric("Top 1 cliente", f"{top1_share:.1%}")
+    k4.metric("Top 3 clientes", f"{top3_share:.1%}")
+
     st.caption(
         f"{clientes_atendidos} clientes no período selecionado. "
-        f"N80: **{n80_count} clientes** "
-        f"({n80_ratio:.0%} da carteira). "
-        f"Índice de concentração: **{hhi_label}**."
+        f"Top 10 respondem por {top10_share:.1%} do faturamento."
     )
 
     col_dc1, col_dc2 = st.columns([1.3, 1])
@@ -780,13 +743,10 @@ else:
         st.altair_chart(chart_clients, use_container_width=True)
 
     with col_dc2:
-        st.caption("Concentração da carteira")
-
-        # Usa os shares já calculados lá em cima (top1_share, top3_share, top10_share)
-        st.metric("Top 1 cliente", f"{top1_share:.1%}")
-        st.metric("Top 3 clientes", f"{top3_share:.1%}")
+        st.caption("Resumo da carteira")
         st.metric("Top 10 clientes", f"{top10_share:.1%}")
-        st.metric("N80", f"{n80_count} clientes", f"{n80_ratio:.0%} da carteira")
+        st.metric("Clientes atendidos", f"{clientes_atendidos}")
+        st.metric("Cidades atendidas", f"{cidades_atendidas}")
 
 st.markdown("---")
 
@@ -809,7 +769,6 @@ else:
         status_counts["QtdClientes"] / total_clientes if total_clientes > 0 else 0
     )
 
-    # Resumo em texto: "Novos X • Perdidos Y • Crescendo Z..."
     resumo_text = " • ".join(
         f"{row.Status} {int(row.QtdClientes)}"
         for _, row in status_counts.iterrows()
