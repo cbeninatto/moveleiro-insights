@@ -543,6 +543,7 @@ else:
     try:
         df_geo = load_geo()
 
+        # agrega faturamento/volume por cidade
         df_cities = (
             df_rep.groupby(["Estado", "Cidade"], as_index=False)
             .agg(
@@ -551,12 +552,21 @@ else:
                 Clientes=("Cliente", "nunique"),
             )
         )
+
+        # chave de junção Estado|Cidade
         df_cities["key"] = (
             df_cities["Estado"].astype(str).str.strip().str.upper()
             + "|"
             + df_cities["Cidade"].astype(str).str.strip().str.upper()
         )
-        df_map = df_cities.merge(df_geo, on="key", how="inner")
+
+        # usa sufixos para evitar conflito de nomes (Cidade/Estado)
+        df_map = df_cities.merge(
+            df_geo,
+            on="key",
+            how="inner",
+            suffixes=("_fat", "_geo"),  # fat = faturamento, geo = base geográfica
+        )
 
         if df_map.empty:
             st.info("Não há coordenadas de cidades para exibir no mapa.")
@@ -595,6 +605,7 @@ else:
                 cov2.metric("Estados atendidos", f"{estados_atendidos}")
                 cov3.metric("Clientes atendidos", f"{clientes_atendidos}")
 
+                # centro do mapa
                 center = [df_map["lat"].mean(), df_map["lon"].mean()]
                 m = folium.Map(location=center, zoom_start=4, tiles="cartodbpositron")
 
@@ -607,8 +618,9 @@ else:
                     else:
                         metric_val_str = f"{int(row['Quantidade']):,}".replace(",", ".")
 
+                    # usa nomes da base de faturamento (Estado_fat / Cidade_fat)
                     popup_html = (
-                        f"<b>{row['Cidade']} - {row['Estado']}</b><br>"
+                        f"<b>{row['Cidade_fat']} - {row['Estado_fat']}</b><br>"
                         f"{metric_label}: {metric_val_str}<br>"
                         f"Clientes: {int(row['Clientes'])}"
                     )
