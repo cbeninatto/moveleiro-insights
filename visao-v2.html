@@ -13,7 +13,7 @@
     rel="stylesheet"
   />
 
-  <!-- Plotly (FIXED URL) & PapaParse -->
+  <!-- Plotly & PapaParse -->
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
@@ -184,8 +184,8 @@
     }
 
     .compare-select {
-      min-width: 220px;
-      max-width: 360px;
+      min-width: 180px;
+      max-width: 270px;
     }
 
     input[type="month"] {
@@ -478,7 +478,7 @@
       padding: 8px 10px;
       font-size: 0.78rem;
       margin-bottom: 8px;
-      max-height: 320px;
+      max-height: 360px;
       overflow: auto;
     }
     .deep-dive-health h5 {
@@ -488,10 +488,17 @@
       letter-spacing: 0.08em;
       color: #4b5563;
     }
+    .deep-dive-health h6 {
+      margin: 6px 0 2px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      color: #374151;
+    }
     .deep-dive-health table {
       width: 100%;
       border-collapse: collapse;
       font-size: 0.78rem;
+      margin-bottom: 4px;
     }
     .deep-dive-health th,
     .deep-dive-health td {
@@ -502,7 +509,7 @@
     }
     .deep-dive-health th:nth-child(1),
     .deep-dive-health td:nth-child(1) {
-      max-width: 240px;
+      max-width: 260px;
       overflow: hidden;
       text-overflow: ellipsis;
     }
@@ -512,8 +519,8 @@
       border: 1px solid rgba(148, 163, 184, 0.3);
       background: #fff;
       padding: 6px;
-      min-height: 380px;
-      max-height: 460px;
+      min-height: 520px;   /* taller for better labels */
+      max-height: 640px;
       margin-bottom: 8px;
     }
     .deep-dive-chart {
@@ -573,8 +580,8 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .deep-dive-chart-wrapper {
-        min-height: 340px;
-        max-height: 420px;
+        min-height: 480px;
+        max-height: 580px;
       }
       .deep-dive-trend-wrapper {
         min-height: 260px;
@@ -663,7 +670,7 @@
               </div>
             </div>
 
-            <!-- VISÃO BUTTONS (inclui GERAL) -->
+            <!-- VISÃO BUTTONS -->
             <div class="filters-row">
               <span class="filters-label">Visão</span>
               <button class="btn-small secondary" id="btnViewGeral">Geral</button>
@@ -777,7 +784,7 @@
             </div>
             <div class="trend-info">
               Comparando a soma da segunda metade do período selecionado com a soma da primeira metade para cada dimensão.
-              Clique em um item para focar. Use o seletor de comparação no Deep Dive para comparar até 3 outros itens.
+              Clique em um item para focar. Use o seletor de comparação no Deep Dive para comparar até 2 outros itens.
             </div>
 
             <!-- RANKINGS -->
@@ -838,18 +845,22 @@
               </div>
             </div>
 
-            <!-- Deep Dive compare selector -->
+            <!-- Deep Dive compare selector: 2 dropdowns -->
             <div class="filters-row filters-row-secondary">
               <span class="filters-label">Comparar</span>
               <div class="field-group">
-                <label class="field-label" for="deepDiveCompare">Comparar com (máx. 3)</label>
-                <select id="deepDiveCompare" class="compare-select" multiple></select>
+                <label class="field-label" for="deepDiveCompare1">Comparar 1</label>
+                <select id="deepDiveCompare1" class="compare-select"></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="deepDiveCompare2">Comparar 2</label>
+                <select id="deepDiveCompare2" class="compare-select"></select>
               </div>
             </div>
 
             <p style="font-size:0.8rem;color:#4b5563;margin:0 0 6px;">
               Selecione um item nas listas de Tendências para definir o foco principal.
-              Use o seletor acima para comparar até 3 outros itens da mesma dimensão (Representante, Cliente, Estado ou Categoria).
+              Use os seletores acima para comparar até 2 outros itens da mesma dimensão (Representante, Cliente, Estado ou Categoria).
             </p>
 
             <div class="deep-dive-kpis" id="deepDiveKpis"></div>
@@ -924,7 +935,7 @@
       customTo: null,
       valueMode: "FATURAMENTO",
       valueLabel: "Faturamento",
-      viewMode: "CATEGORIA", // GERAL, CATEGORIA, ESTADO, CLIENTE, REPRESENTANTE
+      viewMode: "CATEGORIA",
       filterClient: "ALL",
       filterRep: "ALL",
       filterState: "ALL",
@@ -1442,27 +1453,28 @@
         renderDeepDive();
       });
 
-      const ddCompareSelect = document.getElementById("deepDiveCompare");
-      ddCompareSelect.addEventListener("change", (e) => {
-        const options = Array.from(e.target.options);
-        let selected = options.filter((o) => o.selected).map((o) => o.value);
+      const ddCompare1 = document.getElementById("deepDiveCompare1");
+      const ddCompare2 = document.getElementById("deepDiveCompare2");
 
-        if (selected.length > 3) {
-          alert("Selecione no máximo 3 itens para comparação.");
-          selected = selected.slice(0, 3);
-          options.forEach((o) => {
-            o.selected = selected.includes(o.value);
-          });
+      function handleDDCompareChange() {
+        const focus = state.deepDiveFocus;
+        const v1 = ddCompare1.value || "NONE";
+        const v2 = ddCompare2.value || "NONE";
+
+        let comps = [];
+        if (v1 !== "NONE") comps.push(v1);
+        if (v2 !== "NONE" && v2 !== v1) comps.push(v2);
+
+        if (focus) {
+          comps = comps.filter((n) => n !== focus.name);
         }
 
-        if (state.deepDiveFocus) {
-          const focusName = state.deepDiveFocus.name;
-          selected = selected.filter((n) => n !== focusName);
-        }
-
-        state.deepDiveComparisons = selected.slice(0, 3);
+        state.deepDiveComparisons = comps.slice(0, 2);
         renderDeepDive();
-      });
+      }
+
+      ddCompare1.addEventListener("change", handleDDCompareChange);
+      ddCompare2.addEventListener("change", handleDDCompareChange);
 
       setView("CATEGORIA");
       setMode("FATURAMENTO");
@@ -1729,7 +1741,7 @@
       if (gd && gd.data && gd.data.length) {
         gd.data.forEach((trace) => {
           if (trace.visible === "legendonly") return;
-          if (!trace.name || trace.name === "Total") return;
+          if (trace.name === "Total") return;
           visibleNames.add(trace.name);
         });
       }
@@ -1811,10 +1823,10 @@
       state.deepDiveFocus = { dimType, name };
       state.deepDiveComparisons = [];
 
-      const select = document.getElementById("deepDiveCompare");
-      if (select) {
-        Array.from(select.options).forEach((o) => (o.selected = false));
-      }
+      const select1 = document.getElementById("deepDiveCompare1");
+      const select2 = document.getElementById("deepDiveCompare2");
+      if (select1) select1.value = "NONE";
+      if (select2) select2.value = "NONE";
 
       renderDeepDive();
     }
@@ -1842,27 +1854,38 @@
     }
 
     function updateDeepDiveCompareSelect(filteredKeys) {
-      const select = document.getElementById("deepDiveCompare");
-      if (!select) return;
+      const select1 = document.getElementById("deepDiveCompare1");
+      const select2 = document.getElementById("deepDiveCompare2");
+      if (!select1 || !select2) return;
 
       const dim = state.rankingDimension;
       const names = computeEntitiesList(filteredKeys, dim);
       const focus = state.deepDiveFocus;
-      const selected = new Set(state.deepDiveComparisons);
+      const comps = state.deepDiveComparisons || [];
 
-      select.innerHTML = "";
-      names.forEach((name) => {
-        if (!name) return;
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        if (focus && name === focus.name) {
-          opt.selected = false;
-        } else {
-          opt.selected = selected.has(name);
+      function fillSelect(select, currentVal) {
+        select.innerHTML = "";
+        const optNone = document.createElement("option");
+        optNone.value = "NONE";
+        optNone.textContent = "Nenhum";
+        select.appendChild(optNone);
+
+        names.forEach((name) => {
+          if (focus && name === focus.name) return;
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          if (currentVal && currentVal === name) opt.selected = true;
+          select.appendChild(opt);
+        });
+
+        if (!currentVal) {
+          select.value = "NONE";
         }
-        select.appendChild(opt);
-      });
+      }
+
+      fillSelect(select1, comps[0] || null);
+      fillSelect(select2, comps[1] || null);
     }
 
     function updateRankings(filteredKeys) {
@@ -2348,12 +2371,14 @@
       };
     }
 
-    function buildEntitySeries(dimType, name, filteredKeys) {
+    function buildEntitySeries(dimType, name, filteredKeys, metricOverride) {
       const keyIndex = new Map();
       filteredKeys.forEach((k, i) => keyIndex.set(k, i));
       const n = filteredKeys.length;
       const vals = new Array(n).fill(0);
-      const valKey = state.valueMode === "FATURAMENTO" ? "valor" : "quantidade";
+      const valKey =
+        metricOverride ||
+        (state.valueMode === "FATURAMENTO" ? "valor" : "quantidade");
 
       const keySet = new Set(filteredKeys);
       const rows = state.rows.filter(
@@ -2399,45 +2424,65 @@
       const fmtVal = (v) =>
         useFat ? formatCurrencyBRL(v) : formatNumberBR(v) + " un";
 
+      const summary = health.summary;
+      const details = health.details || [];
+      const totalRep = details.reduce((acc, d) => acc + d.total, 0);
+
+      const byStatus = {
+        Novo: [],
+        Perdido: [],
+        Crescendo: [],
+        Caindo: [],
+        Estável: []
+      };
+
+      details.forEach((d) => {
+        if (!byStatus[d.status]) byStatus[d.status] = [];
+        byStatus[d.status].push(d);
+      });
+
       let html = `<h5>Saúde da carteira — ${repName}</h5>`;
       html += `<p style="margin:0 0 4px;font-size:0.78rem;">
-        Novos: <strong>${health.summary.novos}</strong> • 
-        Perdidos: <strong>${health.summary.perdidos}</strong> • 
-        Crescendo: <strong>${health.summary.crescendo}</strong> • 
-        Caindo: <strong>${health.summary.caindo}</strong> • 
-        Estáveis: <strong>${health.summary.estaveis}</strong> 
-        (total de ${health.summary.total} clientes)
+        Novos ${summary.novos} • Perdidos ${summary.perdidos} • Crescendo ${summary.crescendo} • Caindo ${summary.caindo} • Estáveis ${summary.estaveis} (${summary.total} clientes)
       </p>`;
 
-      if (!health.details.length) {
+      const statusOrder = [
+        { key: "Novo", label: "Novos" },
+        { key: "Perdido", label: "Perdidos" },
+        { key: "Crescendo", label: "Crescendo" },
+        { key: "Caindo", label: "Caindo" },
+        { key: "Estável", label: "Estáveis" }
+      ];
+
+      if (!details.length) {
         html += "<em>Sem clientes para detalhar neste período.</em>";
       } else {
-        html += `<table><thead>
-          <tr>
-            <th>Cliente</th>
-            <th>Status</th>
-            <th>Período A</th>
-            <th>Período B</th>
-            <th>Total</th>
-          </tr>
-        </thead><tbody>`;
-        const totalRep = health.details.reduce((acc, d) => acc + d.total, 0);
-        health.details.forEach((d) => {
-          const pct =
-            totalRep > 0
-              ? (d.total / totalRep) * 100
-              : 0;
-          html += `<tr>
-            <td>${d.cliente}</td>
-            <td>${d.status}</td>
-            <td>${fmtVal(d.A)}</td>
-            <td>${fmtVal(d.B)}</td>
-            <td>${fmtVal(d.total)} (${pct
-            .toFixed(1)
-            .replace(".", ",")}%)</td>
-          </tr>`;
+        statusOrder.forEach((st) => {
+          const arr = byStatus[st.key] || [];
+          if (!arr.length) return;
+          html += `<h6>${st.label} (${arr.length})</h6>`;
+          html += `<table><thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Período A</th>
+              <th>Período B</th>
+              <th>Total</th>
+            </tr>
+          </thead><tbody>`;
+          arr.forEach((d) => {
+            const pct =
+              totalRep > 0 ? (d.total / totalRep) * 100 : 0;
+            html += `<tr>
+              <td>${d.cliente}</td>
+              <td>${fmtVal(d.A)}</td>
+              <td>${fmtVal(d.B)}</td>
+              <td>${fmtVal(d.total)} (${pct
+              .toFixed(1)
+              .replace(".", ",")}%)</td>
+            </tr>`;
+          });
+          html += "</tbody></table>";
         });
-        html += "</tbody></table>";
       }
 
       healthDiv.innerHTML = html;
@@ -2490,30 +2535,51 @@
         companyTotal += r[valKey] || 0;
       });
 
-      const seriesPrimary = buildEntitySeries(
+      const seriesPrimaryActive = buildEntitySeries(
         focus.dimType,
         focus.name,
         filteredKeys
       );
       const statsPrimary = computeSeriesKpis(
-        seriesPrimary,
+        seriesPrimaryActive,
         filteredKeys
+      );
+
+      const seriesPrimaryFat = buildEntitySeries(
+        focus.dimType,
+        focus.name,
+        filteredKeys,
+        "valor"
+      );
+      const seriesPrimaryVol = buildEntitySeries(
+        focus.dimType,
+        focus.name,
+        filteredKeys,
+        "quantidade"
       );
 
       const compNames = (state.deepDiveComparisons || []).filter(
         (n) => n && n !== focus.name
       );
-      const compSeries = [];
+      const compSeriesActive = [];
+      const compSeriesFat = [];
       const compStats = [];
 
       compNames.forEach((name) => {
-        const sVals = buildEntitySeries(
+        const sActive = buildEntitySeries(
           focus.dimType,
           name,
           filteredKeys
         );
-        compSeries.push(sVals);
-        compStats.push(computeSeriesKpis(sVals, filteredKeys));
+        const sFat = buildEntitySeries(
+          focus.dimType,
+          name,
+          filteredKeys,
+          "valor"
+        );
+        compSeriesActive.push(sActive);
+        compSeriesFat.push(sFat);
+        compStats.push(computeSeriesKpis(sActive, filteredKeys));
       });
 
       const dimLabel = (dimType) =>
@@ -2655,12 +2721,10 @@
         focus.name
       }</strong></div>
         <small>
-          O gráfico de linha acima mostra a evolução deste ${
-            dimLabel(focus.dimType).toLowerCase()
-          } ao longo do tempo (e dos itens selecionados em “Comparar”).
-          O gráfico de pizza e as tabelas abaixo mostram a composição interna
-          (clientes / categorias) para o foco principal, respeitando o mesmo período
-          e filtros da Nova Visão.
+          O gráfico abaixo mostra Faturamento (barras) e Volume (linha) para o foco principal,
+          além das linhas de faturamento para os itens em “Comparar”. O gráfico de pizza e
+          as tabelas mostram a composição interna (clientes / categorias) para o foco principal,
+          respeitando o mesmo período e filtros da Nova Visão.
         </small>
       `;
 
@@ -2690,48 +2754,59 @@
 
       tracesTrend.push({
         x: labels,
-        y: seriesPrimary,
+        y: seriesPrimaryFat,
+        type: "bar",
+        name: "Faturamento (R$)",
+        marker: {
+          color: getColorForName(
+            `DD:FAT:${focus.dimType}:${focus.name}`
+          )
+        },
+        hovertemplate: "<b>%{x}</b><br>R$ %{y:,.2f}<extra></extra>"
+      });
+
+      tracesTrend.push({
+        x: labels,
+        y: seriesPrimaryVol,
         type: "scatter",
         mode: "lines+markers",
-        name: `${dimLabel(focus.dimType)} ${focus.name}`,
+        name: "Volume (un)",
         line: {
           shape: "spline",
           width: 3,
           color: getColorForName(
-            `DD:${focus.dimType}:${focus.name}`
+            `DD:VOL:${focus.dimType}:${focus.name}`
           )
         },
         marker: {
           size: 6,
           line: { width: 1, color: "#ffffff" }
         },
-        hovertemplate: useFat
-          ? "<b>%{x}</b><br>R$ %{y:,.2f}<extra></extra>"
-          : "<b>%{x}</b><br>%{y:,.0f} un<extra></extra>"
+        hovertemplate:
+          "<b>%{x}</b><br>%{y:,.0f} un<extra></extra>"
       });
 
       compNames.forEach((name, idx) => {
-        const vals = compSeries[idx];
+        const valsFat = compSeriesFat[idx];
         tracesTrend.push({
           x: labels,
-          y: vals,
+          y: valsFat,
           type: "scatter",
           mode: "lines+markers",
-          name: `Comparar: ${name}`,
+          name: `Comparar: ${name} (R$)`,
           line: {
             shape: "spline",
-            width: 3,
+            width: 2,
             color: getColorForName(
-              `DD:${focus.dimType}:${name}`
+              `DD:COMP:${focus.dimType}:${name}`
             )
           },
           marker: {
-            size: 6,
+            size: 5,
             line: { width: 1, color: "#ffffff" }
           },
-          hovertemplate: useFat
-            ? "<b>%{x}</b><br>R$ %{y:,.2f}<extra></extra>"
-            : "<b>%{x}</b><br>%{y:,.0f} un<extra></extra>"
+          hovertemplate:
+            "<b>%{x}</b><br>R$ %{y:,.2f}<extra></extra>"
         });
       });
 
@@ -2755,6 +2830,7 @@
           paper_bgcolor: "#ffffff",
           plot_bgcolor: "#ffffff",
           showlegend: true,
+          barmode: "group",
           legend: {
             orientation: "h",
             yanchor: "bottom",
@@ -2869,11 +2945,12 @@
               : "<b>%{label}</b><br>%{value:,.0f} un (%{percent})<extra></extra>",
             marker: {
               colors: pieColors
-            }
+            },
+            domain: { x: [0, 1], y: [0.15, 0.85] }
           }
         ],
         {
-          margin: { t: 30, l: 20, r: 20, b: 20 },
+          margin: { t: 40, l: 20, r: 20, b: 40 },
           paper_bgcolor: "#ffffff",
           plot_bgcolor: "#ffffff",
           showlegend: false,
@@ -3124,13 +3201,11 @@
 
     /* ========= STARTUP ========= */
 
-    // Direct init (no DOMContentLoaded wrapper)
     loadFamilies()
       .then(() => {
         loadMainCSV();
       })
       .catch(() => {
-        // even if familias fail, still load main CSV
         loadMainCSV();
       });
   </script>
