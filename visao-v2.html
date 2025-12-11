@@ -441,18 +441,17 @@
       margin-left: 4px;
     }
 
+    /* UPDATED: Deep Dive trend wrapper & chart */
     .deep-dive-trend-wrapper {
       border-radius: 10px;
       border: 1px solid rgba(148, 163, 184, 0.3);
       background: #fff;
       padding: 4px;
-      min-height: 280px;
-      max-height: 340px;
-      margin-bottom: 8px;
+      margin-bottom: 18px;  /* more space below the chart */
     }
     .deep-dive-trend {
       width: 100%;
-      height: 100%;
+      height: 280px;        /* fixed chart height */
     }
 
     .deep-dive-info {
@@ -477,6 +476,7 @@
       border: 1px solid #eee;
       padding: 8px 10px;
       font-size: 0.78rem;
+      margin-top: 4px;      /* small gap from chart above */
       margin-bottom: 8px;
       max-height: 360px;
       overflow: auto;
@@ -582,10 +582,6 @@
       .deep-dive-chart-wrapper {
         min-height: 480px;
         max-height: 580px;
-      }
-      .deep-dive-trend-wrapper {
-        min-height: 260px;
-        max-height: 320px;
       }
     }
     @media (max-width: 720px) {
