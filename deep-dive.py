@@ -434,7 +434,7 @@ if meses_com_venda > 0:
 else:
     media_mensal = 0.0
 
-# Distribuição por clientes: participação do Top 10
+# Distribuição por clientes: N80 (clientes que fazem 80% do faturamento) e HHI
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = (
         df_rep.groupby("Cliente", as_index=False)["Valor"]
@@ -442,10 +442,41 @@ if not df_rep.empty and total_rep > 0:
         .sort_values("Valor", ascending=False)
     )
     num_clientes_rep = df_clientes_tot["Cliente"].nunique()
-    top10_valor = df_clientes_tot["Valor"].iloc[:10].sum()
-    top10_share = top10_valor / total_rep
+
+    # Shares por cliente
+    shares = df_clientes_tot["Valor"] / total_rep
+    df_clientes_tot["Share"] = shares
+
+    # N80: quantos clientes são necessários para chegar em 80% do faturamento
+    cum_share = shares.cumsum()
+    n80_count = 0
+    for i, val in enumerate(cum_share, start=1):
+        n80_count = i
+        if val >= 0.8:
+            break
+    n80_ratio = n80_count / num_clientes_rep if num_clientes_rep > 0 else 0.0
+
+    # HHI (Herfindahl-Hirschman Index)
+    hhi_value = float((shares ** 2).sum())
+    if hhi_value < 0.10:
+        hhi_label = "Baixa concentração"
+    elif hhi_value < 0.20:
+        hhi_label = "Concentração moderada"
+    else:
+        hhi_label = "Alta concentração"
+
+    # Shares para Top 1 / Top 3 / Top 10 (para uso na seção de distribuição)
+    top1_share = shares.iloc[:1].sum()
+    top3_share = shares.iloc[:3].sum()
+    top10_share = shares.iloc[:10].sum()
 else:
     num_clientes_rep = 0
+    n80_count = 0
+    n80_ratio = 0.0
+    hhi_value = 0.0
+    hhi_label = "Sem dados"
+    top1_share = 0.0
+    top3_share = 0.0
     top10_share = 0.0
 
 # Cobertura de carteira (clientes / cidades / estados)
@@ -467,13 +498,22 @@ if not clientes_carteira.empty:
 else:
     carteira_score, carteira_label = 50.0, "Neutra"
 
+# KPI row
 col1.metric("Total período", format_brl(total_rep))
 col2.metric("Média mensal", format_brl(media_mensal))
 col3.metric("Meses com venda", f"{meses_com_venda} / {total_meses_periodo}")
+
+if clientes_atendidos > 0:
+    dist_metric_value = f"N80: {n80_count} clientes"
+    dist_metric_delta = hhi_label  # Baixa / Moderada / Alta
+else:
+    dist_metric_value = "Sem dados"
+    dist_metric_delta = ""
+
 col4.metric(
     "Distribuição por clientes",
-    f"Top 10: {top10_share:.0%}",
-    f"{clientes_atendidos} clientes",
+    dist_metric_value,
+    dist_metric_delta,
 )
 col5.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
 
@@ -698,7 +738,7 @@ else:
 st.markdown("---")
 
 # ==========================
-# DISTRIBUIÇÃO POR CLIENTES (SEÇÃO NOVA)
+# DISTRIBUIÇÃO POR CLIENTES
 # ==========================
 st.subheader("Distribuição por clientes")
 
@@ -711,26 +751,12 @@ else:
         .sort_values("Valor", ascending=False)
     )
 
-    top1_share = (
-        df_clientes["Valor"].iloc[:1].sum() / total_rep if total_rep > 0 else 0.0
-    )
-    top5_share = (
-        df_clientes["Valor"].iloc[:5].sum() / total_rep if total_rep > 0 else 0.0
-    )
-    top10_share_sec = (
-        df_clientes["Valor"].iloc[:10].sum() / total_rep if total_rep > 0 else 0.0
-    )
-
-    if top10_share_sec >= 0.7:
-        dist_label = "Alta concentração (carteira concentrada)"
-    elif top10_share_sec >= 0.5:
-        dist_label = "Concentração moderada"
-    else:
-        dist_label = "Bem distribuída"
-
+    # Texto de resumo usando N80 e HHI calculados lá em cima
     st.caption(
         f"{clientes_atendidos} clientes no período selecionado. "
-        f"A carteira está **{dist_label}**."
+        f"N80: **{n80_count} clientes** "
+        f"({n80_ratio:.0%} da carteira). "
+        f"Índice de concentração: **{hhi_label}**."
     )
 
     col_dc1, col_dc2 = st.columns([1.3, 1])
@@ -755,9 +781,12 @@ else:
 
     with col_dc2:
         st.caption("Concentração da carteira")
+
+        # Usa os shares já calculados lá em cima (top1_share, top3_share, top10_share)
         st.metric("Top 1 cliente", f"{top1_share:.1%}")
-        st.metric("Top 5 clientes", f"{top5_share:.1%}")
-        st.metric("Top 10 clientes", f"{top10_share_sec:.1%}")
+        st.metric("Top 3 clientes", f"{top3_share:.1%}")
+        st.metric("Top 10 clientes", f"{top10_share:.1%}")
+        st.metric("N80", f"{n80_count} clientes", f"{n80_ratio:.0%} da carteira")
 
 st.markdown("---")
 
