@@ -821,38 +821,49 @@ else:
         st.altair_chart(chart_clients, use_container_width=True)
 
     # Pizza com todos os clientes, Top 10 destacados
+        # Pizza com todos os clientes, Top 10 destacados
     with col_dc2:
         st.caption("Participação dos clientes (Top 10 destacados)")
 
         df_pie = df_clientes.copy()
         df_pie["Rank"] = df_pie["Valor"].rank(method="first", ascending=False)
 
+        # Top 10 por nome, resto vira "Outros"
         df_pie["Grupo"] = df_pie.apply(
             lambda r: r["Cliente"] if r["Rank"] <= 10 else "Outros",
             axis=1,
         )
 
+        # Agrega por grupo e calcula share
         dist_df = (
             df_pie.groupby("Grupo", as_index=False)["Valor"]
             .sum()
-            .sort_values("Valor", ascending=False)
         )
         dist_df["Share"] = dist_df["Valor"] / total_rep_safe
 
-        # label interno: nome + percentual em 2 linhas (para fatias ≥ 7%)
-        dist_df["LabelText"] = dist_df.apply(
-            lambda r: f"{r['Grupo']}\n{r['Share']*100:.1f}%"
-            if r["Share"] >= 0.07
-            else "",
+        # Label do LEGEND: nome + percentual (ordenado de maior para menor)
+        dist_df["GrupoLabel"] = dist_df.apply(
+            lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%",
             axis=1,
         )
 
-        base_pie = alt.Chart(dist_df)
+        # Texto DENTRO da fatia: nome + percentual, só para fatias ≥ 7%
+        dist_df["LabelText"] = dist_df.apply(
+            lambda r: f"{r['Grupo']}\n{r['Share']*100:.1f}%"
+            if r["Share"] >= 0.07 else "",
+            axis=1,
+        )
 
+        # Base: mesmo theta para arco e texto (centro da fatia)
+        base_pie = alt.Chart(dist_df).encode(
+            theta=alt.Theta("Share:Q", stack=True)
+        )
+
+        # Arcos
         pie = base_pie.mark_arc().encode(
-            theta=alt.Theta("Share:Q"),
             color=alt.Color(
-                "Grupo:N",
+                "GrupoLabel:N",
+                sort=alt.SortField(field="Share", order="descending"),
                 legend=alt.Legend(title="Cliente (Top 10) / Outros"),
             ),
             tooltip=[
@@ -861,14 +872,20 @@ else:
             ],
         )
 
-        text = base_pie.mark_text(radius=110, size=11).encode(
-            theta=alt.Theta("Share:Q"),
+        # Texto no MEIO da fatia (radius menor que o raio do círculo)
+        text = base_pie.mark_text(
+            radius=70,        # puxa o texto para dentro da fatia
+            size=11,
+            align="center",
+            baseline="middle",
+        ).encode(
             text="LabelText:N",
         )
 
         chart_pie = (pie + text).properties(height=320)
 
         st.altair_chart(chart_pie, use_container_width=True)
+
 
 st.markdown("---")
 
