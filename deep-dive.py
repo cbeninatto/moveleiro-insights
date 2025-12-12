@@ -588,6 +588,10 @@ st.markdown("---")
 # ==========================
 st.subheader("Mapa de Clientes")
 
+# session_state para lembrar a última cidade clicada
+if "selected_city_tooltip" not in st.session_state:
+    st.session_state["selected_city_tooltip"] = None
+
 if df_rep.empty:
     st.info("Este representante não possui vendas no período selecionado.")
 else:
@@ -619,6 +623,13 @@ else:
         if df_map.empty:
             st.info("Não há coordenadas de cidades para exibir no mapa.")
         else:
+            # Texto de tooltip para cada cidade
+            df_map["Tooltip"] = (
+                df_map["Cidade_fat"].astype(str)
+                + " - "
+                + df_map["Estado_fat"].astype(str)
+            )
+
             metric_choice = st.radio(
                 "Métrica do mapa",
                 ["Faturamento", "Volume"],
@@ -646,8 +657,25 @@ else:
 
                 colors = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
 
+                # monta legenda das cores (quartis)
+                legend_entries = []
+                if len(bins) > 1:
+                    for i in range(len(bins) - 1):
+                        low = bins[i]
+                        high = bins[i + 1]
+                        if metric_col == "Valor":
+                            label_range = f"{format_brl(low)} – {format_brl(high)}"
+                        else:
+                            low_i = int(round(low))
+                            high_i = int(round(high))
+                            label_range = (
+                                f"{low_i:,} – {high_i:,}".replace(",", ".")
+                            )
+                        legend_entries.append((colors[i % len(colors)], label_range))
+
                 col_map, col_stats = st.columns([0.8, 1.2])
 
+                # ---------- MAPA ----------
                 with col_map:
                     center = [df_map["lat"].mean(), df_map["lon"].mean()]
                     m = folium.Map(location=center, zoom_start=5, tiles="cartodbpositron")
@@ -675,9 +703,35 @@ else:
                             fill_color=color,
                             fill_opacity=0.8,
                             popup=folium.Popup(popup_html, max_width=300),
+                            tooltip=row["Tooltip"],  # usado para identificar a cidade clicada
                         ).add_to(m)
 
-                    st_folium(m, width=None, height=800)
+                    map_data = st_folium(m, width=None, height=800)
+
+                    # legenda embaixo do mapa
+                    if legend_entries:
+                        legend_html = "<div style='font-size:0.8rem; margin-top:0.5rem;'>"
+                        legend_html += f"<b>Legenda – {metric_label}</b><br>"
+                        for color, label_range in legend_entries:
+                            legend_html += (
+                                f"<span style='display:inline-block;width:12px;"
+                                f"height:12px;background:{color};"
+                                f"margin-right:4px;border-radius:2px;'></span>"
+                                f"{label_range}<br>"
+                            )
+                        legend_html += "</div>"
+                        st.markdown(legend_html, unsafe_allow_html=True)
+
+                # ---------- COBERTURA + PRINCIPAIS CLIENTES + TABELA DA CIDADE ----------
+                # descobre qual cidade foi clicada (tooltip do último objeto clicado)
+                selected_label = None
+                if isinstance(map_data, dict):
+                    selected_label = map_data.get("last_object_clicked_tooltip")
+
+                if selected_label:
+                    st.session_state["selected_city_tooltip"] = selected_label
+                else:
+                    selected_label = st.session_state.get("selected_city_tooltip")
 
                 with col_stats:
                     st.markdown("**Cobertura**")
@@ -721,15 +775,48 @@ else:
                     """
                     st.markdown(clientes_table_css, unsafe_allow_html=True)
 
-                    cols = list(df_top_display.columns)
-                    html = "<table class='clientes-table'><thead><tr>"
-                    html += "".join(f"<th>{c}</th>" for c in cols)
-                    html += "</tr></thead><tbody>"
+                    cols_top = list(df_top_display.columns)
+                    html_top = "<table class='clientes-table'><thead><tr>"
+                    html_top += "".join(f"<th>{c}</th>" for c in cols_top)
+                    html_top += "</tr></thead><tbody>"
                     for _, row in df_top_display.iterrows():
-                        html += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols) + "</tr>"
-                    html += "</tbody></table>"
+                        html_top += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_top) + "</tr>"
+                    html_top += "</tbody></table>"
 
-                    st.markdown(html, unsafe_allow_html=True)
+                    st.markdown(html_top, unsafe_allow_html=True)
+
+                    # ---- TABELA DE CLIENTES DA CIDADE CLICADA ----
+                    if selected_label:
+                        row_city = df_map[df_map["Tooltip"] == selected_label].head(1)
+                        if not row_city.empty:
+                            cidade_sel = row_city["Cidade_fat"].iloc[0]
+                            estado_sel = row_city["Estado_fat"].iloc[0]
+
+                            df_city_clients = df_rep[
+                                (df_rep["Cidade"] == cidade_sel)
+                                & (df_rep["Estado"] == estado_sel)
+                            ].copy()
+
+                            if not df_city_clients.empty:
+                                df_city_agg = (
+                                    df_city_clients
+                                    .groupby("Cliente", as_index=False)
+                                    .agg(
+                                        Valor=("Valor", "sum"),
+                                        Quantidade=("Quantidade", "sum"),
+                                    )
+                                    .sort_values("Valor", ascending=False)
+                                )
+                                df_city_agg["Faturamento"] = df_city_agg["Valor"].map(format_brl)
+                                display_city = df_city_agg[
+                                    ["Cliente", "Quantidade", "Faturamento"]
+                                ]
+
+                                st.markdown(
+                                    f"**Clientes em {cidade_sel} - {estado_sel}**"
+                                )
+                                with st.expander("Ver lista de clientes da cidade", expanded=True):
+                                    st.table(display_city)
 
     except Exception as e:
         st.info(f"Mapa de clientes ainda não disponível: {e}")
@@ -1055,15 +1142,15 @@ else:
             }
         )
 
-        cols = list(display_df.columns)
+        cols_status = list(display_df.columns)
 
-        html = "<h5>" + status_name + "</h5>"
-        html += "<table class='status-table'><colgroup>"
-        html += "<col><col><col><col><col><col></colgroup><thead><tr>"
-        html += "".join(f"<th>{c}</th>" for c in cols)
-        html += "</tr></thead><tbody>"
+        html_status = "<h5>" + status_name + "</h5>"
+        html_status += "<table class='status-table'><colgroup>"
+        html_status += "<col><col><col><col><col><col></colgroup><thead><tr>"
+        html_status += "".join(f"<th>{c}</th>" for c in cols_status)
+        html_status += "</tr></thead><tbody>"
         for _, row in display_df.iterrows():
-            html += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols) + "</tr>"
-        html += "</tbody></table>"
+            html_status += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_status) + "</tr>"
+        html_status += "</tbody></table>"
 
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(html_status, unsafe_allow_html=True)
