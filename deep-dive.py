@@ -51,34 +51,10 @@ def format_brl_compact(value: float) -> str:
     return format_brl(v)
 
 
-@st.cache_data(show_spinner=True)
 def load_data() -> pd.DataFrame:
     df = pd.read_csv(GITHUB_CSV_URL)
-
-    expected = [
-        "Codigo", "Descricao", "Quantidade", "Valor", "Mes", "Ano",
-        "ClienteCodigo", "Cliente", "Estado", "Cidade",
-        "RepresentanteCodigo", "Representante", "Categoria", "SourcePDF",
-    ]
-    missing = [c for c in expected if c not in df.columns]
-    if missing:
-        raise ValueError(
-            "CSV do GitHub não tem as colunas esperadas: "
-            + ", ".join(missing)
-        )
-
-    df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0.0)
-    df["Quantidade"] = pd.to_numeric(df["Quantidade"], errors="coerce").fillna(0.0)
-    df["Ano"] = pd.to_numeric(df["Ano"], errors="coerce").astype("Int64")
-    df["MesNum"] = pd.to_numeric(df["Mes"], errors="coerce").astype("Int64")
-
-    df["Competencia"] = pd.to_datetime(
-        dict(year=df["Ano"], month=df["MesNum"], day=1),
-        errors="coerce",
-    )
-
+    ...
     return df
-
 
 def compute_carteira_score(status_counts: pd.Series):
     if status_counts is None or status_counts.empty:
