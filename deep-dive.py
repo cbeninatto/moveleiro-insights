@@ -144,6 +144,13 @@ def build_carteira_status(df_all: pd.DataFrame,
                           rep: str,
                           start_comp: pd.Timestamp,
                           end_comp: pd.Timestamp) -> pd.DataFrame:
+    """
+    Calcula StatusCarteira (Novos / Perdidos / Crescendo / Caindo / Estáveis)
+    comparando o período selecionado com a JANELA ANTERIOR de mesmo tamanho.
+
+    Estado/Cidade vêm tanto do período atual quanto do anterior,
+    garantindo localização também para 'Perdidos'.
+    """
     df_rep_all = df_all[df_all["Representante"] == rep].copy()
     if df_rep_all.empty:
         return pd.DataFrame(columns=[
@@ -162,6 +169,7 @@ def build_carteira_status(df_all: pd.DataFrame,
     df_curr = df_rep_all.loc[mask_curr].copy()
     df_prev = df_rep_all.loc[mask_prev].copy()
 
+    # Período atual: Valor + localização
     curr_agg = (
         df_curr
         .groupby("Cliente", as_index=False)
@@ -170,23 +178,43 @@ def build_carteira_status(df_all: pd.DataFrame,
             "Estado": "first",
             "Cidade": "first",
         })
-        .rename(columns={"Valor": "ValorAtual"})
+        .rename(columns={
+            "Valor": "ValorAtual",
+            "Estado": "EstadoAtual",
+            "Cidade": "CidadeAtual",
+        })
     )
 
+    # Período anterior: Valor + localização
     prev_agg = (
         df_prev
-        .groupby("Cliente", as_index=False)["Valor"]
-        .sum()
-        .rename(columns={"Valor": "ValorAnterior"})
+        .groupby("Cliente", as_index=False)
+        .agg({
+            "Valor": "sum",
+            "Estado": "first",
+            "Cidade": "first",
+        })
+        .rename(columns={
+            "Valor": "ValorAnterior",
+            "Estado": "EstadoAnterior",
+            "Cidade": "CidadeAnterior",
+        })
     )
 
+    # Junta tudo
     clientes = pd.merge(curr_agg, prev_agg, on="Cliente", how="outer")
 
+    # ValorAtual / ValorAnterior
     clientes["ValorAtual"] = clientes["ValorAtual"].fillna(0.0)
     clientes["ValorAnterior"] = clientes["ValorAnterior"].fillna(0.0)
+
+    # Estado/Cidade: usa atual, se não tiver usa anterior
+    clientes["Estado"] = clientes["EstadoAtual"].combine_first(clientes["EstadoAnterior"])
+    clientes["Cidade"] = clientes["CidadeAtual"].combine_first(clientes["CidadeAnterior"])
     clientes["Estado"] = clientes["Estado"].fillna("")
     clientes["Cidade"] = clientes["Cidade"].fillna("")
 
+    # Classificação de status
     def classify(row):
         va = row["ValorAtual"]
         vp = row["ValorAnterior"]
@@ -205,7 +233,20 @@ def build_carteira_status(df_all: pd.DataFrame,
         return "Estáveis"
 
     clientes[STATUS_COL] = clientes.apply(classify, axis=1)
+
+    # Remove clientes sem movimento em nenhum dos dois períodos
     clientes = clientes[(clientes["ValorAtual"] > 0) | (clientes["ValorAnterior"] > 0)]
+
+    # Mantém somente colunas finais
+    clientes = clientes[[
+        "Cliente",
+        "Estado",
+        "Cidade",
+        "ValorAtual",
+        "ValorAnterior",
+        STATUS_COL,
+    ]]
+
     return clientes
 
 
@@ -643,7 +684,6 @@ else:
                             popup=folium.Popup(popup_html, max_width=300),
                         ).add_to(m)
 
-                    # mapa mais alto
                     st_folium(m, width=None, height=800)
 
                 with col_stats:
@@ -748,7 +788,7 @@ else:
     total_rep_safe = total_rep if total_rep > 0 else 1.0
     df_clientes["Share"] = df_clientes["Valor"] / total_rep_safe
 
-    # Mini KPIs (5 colunas) – usar label curto para não cortar
+    # Mini KPIs (5 colunas)
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("N80", f"{n80_count}", f"{n80_ratio:.0%} da carteira")
     k2.metric("Índice de concentração", hhi_label_short, f"HHI {hhi_value:.3f}")
@@ -763,77 +803,73 @@ else:
     col_dc1, col_dc2 = st.columns([1.4, 1])
 
     with col_dc1:
-    st.caption("Top 10 clientes por faturamento")
-    chart_clients = (
-        alt.Chart(df_clientes.head(10))
-        .mark_bar()
-        .encode(
-            x=alt.X("Valor:Q", title="Faturamento (R$)"),
-            y=alt.Y("Cliente:N", sort="-x", title="Cliente"),
+        st.caption("Top 10 clientes por faturamento")
+        chart_clients = (
+            alt.Chart(df_clientes.head(10))
+            .mark_bar()
+            .encode(
+                x=alt.X("Valor:Q", title="Faturamento (R$)"),
+                y=alt.Y("Cliente:N", sort="-x", title="Cliente"),
+                tooltip=[
+                    alt.Tooltip("Cliente:N", title="Cliente"),
+                    alt.Tooltip("Valor:Q", title="Faturamento", format=",.2f"),
+                    alt.Tooltip("Quantidade:Q", title="Volume"),
+                ],
+            )
+            .properties(height=420)
+        )
+        st.altair_chart(chart_clients, use_container_width=True)
+
+    # Pizza com todos os clientes, Top 10 destacados
+    with col_dc2:
+        st.caption("Participação dos clientes (Top 10 destacados)")
+
+        df_pie = df_clientes.copy()
+        df_pie["Rank"] = df_pie["Valor"].rank(method="first", ascending=False)
+
+        df_pie["Grupo"] = df_pie.apply(
+            lambda r: r["Cliente"] if r["Rank"] <= 10 else "Outros",
+            axis=1,
+        )
+
+        dist_df = (
+            df_pie.groupby("Grupo", as_index=False)["Valor"]
+            .sum()
+            .sort_values("Valor", ascending=False)
+        )
+        dist_df["Share"] = dist_df["Valor"] / total_rep_safe
+
+        # label interno só para fatias grandes (não "Outros")
+        dist_df["LabelText"] = dist_df.apply(
+            lambda r: r["Grupo"]
+            if (r["Grupo"] != "Outros" and r["Share"] >= 0.07)
+            else "",
+            axis=1,
+        )
+
+        base_pie = alt.Chart(dist_df)
+
+        pie = base_pie.mark_arc().encode(
+            theta=alt.Theta("Share:Q"),
+            color=alt.Color(
+                "Grupo:N",
+                legend=alt.Legend(title="Cliente (Top 10) / Outros"),
+            ),
             tooltip=[
-                alt.Tooltip("Cliente:N", title="Cliente"),
-                alt.Tooltip("Valor:Q", title="Faturamento", format=",.2f"),
-                alt.Tooltip("Quantidade:Q", title="Volume"),
+                alt.Tooltip("Grupo:N", title="Cliente / Grupo"),
+                alt.Tooltip("Share:Q", title="% Faturamento", format=".1%"),
             ],
         )
-        .properties(height=420)
-    )
-    st.altair_chart(chart_clients, use_container_width=True)
-    
-    # Pizza com clientes
-    with col_dc2:
-    st.caption("Participação dos clientes (Top 10 destacados)")
 
-    # Usa TODOS os clientes no cálculo (100%),
-    # mas só destaca os 10 maiores por nome (resto = "Outros")
-    df_pie = df_clientes.copy()
-    df_pie["Rank"] = df_pie["Valor"].rank(method="first", ascending=False)
+        text = base_pie.mark_text(radius=110, size=11).encode(
+            theta=alt.Theta("Share:Q"),
+            text="LabelText:N",
+        )
 
-    df_pie["Grupo"] = df_pie.apply(
-        lambda r: r["Cliente"] if r["Rank"] <= 10 else "Outros",
-        axis=1,
-    )
+        chart_pie = (pie + text).properties(height=320)
 
-    dist_df = (
-        df_pie.groupby("Grupo", as_index=False)["Valor"]
-        .sum()
-        .sort_values("Valor", ascending=False)
-    )
-    dist_df["Share"] = dist_df["Valor"] / total_rep_safe
+        st.altair_chart(chart_pie, use_container_width=True)
 
-    # Só escreve o nome dentro das fatias grandes e que NÃO são "Outros"
-    dist_df["LabelText"] = dist_df.apply(
-        lambda r: r["Grupo"]
-        if (r["Grupo"] != "Outros" and r["Share"] >= 0.07)
-        else "",
-        axis=1,
-    )
-
-    base_pie = alt.Chart(dist_df)
-
-    pie = base_pie.mark_arc().encode(
-        theta=alt.Theta("Share:Q"),
-        color=alt.Color(
-            "Grupo:N",
-            legend=alt.Legend(title="Cliente (Top 10) / Outros"),
-        ),
-        tooltip=[
-            alt.Tooltip("Grupo:N", title="Cliente / Grupo"),
-            alt.Tooltip("Share:Q", title="% Faturamento", format=".1%"),
-        ],
-    )
-
-    # Nomes dentro das fatias (para as maiores)
-    text = base_pie.mark_text(radius=110, size=11).encode(
-        theta=alt.Theta("Share:Q"),
-        text="LabelText:N",
-    )
-
-    chart_pie = (pie + text).properties(height=320)
-
-    st.altair_chart(chart_pie, use_container_width=True)
-
-        
 st.markdown("---")
 
 # ==========================
@@ -844,12 +880,25 @@ st.subheader("Saúde da carteira – Detalhes")
 if clientes_carteira.empty:
     st.info("Não há clientes com movimento nos períodos atual / anterior para calcular a carteira.")
 else:
+    # --- Resumo numérico por status (clientes + % + faturamento) ---
     status_counts = (
         clientes_carteira.groupby(STATUS_COL)["Cliente"]
         .nunique()
         .reset_index()
         .rename(columns={"Cliente": "QtdClientes", STATUS_COL: "Status"})
     )
+
+    # Faturamento do período atual por status
+    fat_status = (
+        clientes_carteira.groupby(STATUS_COL)["ValorAtual"]
+        .sum()
+        .reset_index()
+        .rename(columns={STATUS_COL: "Status", "ValorAtual": "Faturamento"})
+    )
+
+    # Junta clientes + faturamento
+    status_counts = status_counts.merge(fat_status, on="Status", how="left")
+
     total_clientes = status_counts["QtdClientes"].sum()
     status_counts["%Clientes"] = (
         status_counts["QtdClientes"] / total_clientes if total_clientes > 0 else 0
@@ -899,6 +948,14 @@ else:
         status_counts_display["%Clientes"] = status_counts_display["%Clientes"].map(
             lambda x: f"{x:.1%}"
         )
+        status_counts_display["Faturamento"] = status_counts_display["Faturamento"].map(
+            format_brl
+        )
+
+        status_counts_display = status_counts_display[
+            ["Status", "QtdClientes", "%Clientes", "Faturamento"]
+        ]
+
         st.dataframe(
             status_counts_display,
             hide_index=True,
@@ -910,7 +967,6 @@ else:
     # ==========================
     st.markdown("### Status dos clientes")
 
-    # CSS para tabelas com colunas fixas
     table_css = """
     <style>
     table.status-table {
@@ -964,7 +1020,6 @@ else:
 
         cols = list(display_df.columns)
 
-        # monta tabela HTML com colgroup fixo
         html = "<h5>" + status_name + "</h5>"
         html += "<table class='status-table'><colgroup>"
         html += "<col><col><col><col><col><col></colgroup><thead><tr>"
