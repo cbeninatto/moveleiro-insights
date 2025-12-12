@@ -424,7 +424,7 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 # ==========================
 # HEADER
 # ==========================
-st.title("Deep Dive – Representante")
+st.title("Resumo de Vendas")
 
 st.subheader(f"Representante: **{rep_selected}**")
 st.caption(
@@ -460,7 +460,7 @@ total_meses_periodo = len(meses_periodo)
 
 media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
 
-# Distribuição por clientes: N80, HHI, Top shares
+# Concentração de clientes: N80, HHI, Top shares
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = (
         df_rep.groupby("Cliente", as_index=False)["Valor"]
