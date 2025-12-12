@@ -329,12 +329,6 @@ if df.empty:
 # ==========================
 st.sidebar.title("Filtros – Deep Dive")
 
-reps = sorted(df["Representante"].dropna().unique())
-if not reps:
-    st.error("Não foram encontrados representantes na base de dados.")
-    st.stop()
-rep_selected = st.sidebar.selectbox("Representante", reps)
-
 st.sidebar.markdown("### Período")
 
 anos_disponiveis = sorted(df["Ano"].dropna().unique())
@@ -414,6 +408,14 @@ if df_period.empty:
     st.warning("Nenhuma venda no período selecionado.")
     st.stop()
 
+# 🔹 Representantes disponíveis APENAS no período selecionado
+reps_period = sorted(df_period["Representante"].dropna().unique())
+if not reps_period:
+    st.error("Não há representantes com vendas no período selecionado.")
+    st.stop()
+
+rep_selected = st.sidebar.selectbox("Representante", reps_period)
+
 df_rep = df_period[df_period["Representante"] == rep_selected].copy()
 
 # ==========================
@@ -424,7 +426,7 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 # ==========================
 # HEADER
 # ==========================
-st.title("Resumo de Vendas")
+st.title("Deep Dive – Representante")
 
 st.subheader(f"Representante: **{rep_selected}**")
 st.caption(
@@ -460,7 +462,7 @@ total_meses_periodo = len(meses_periodo)
 
 media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
 
-# Concentração de clientes: N80, HHI, Top shares
+# Distribuição por clientes: N80, HHI, Top shares
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = (
         df_rep.groupby("Cliente", as_index=False)["Valor"]
@@ -530,7 +532,7 @@ else:
 
 col1.metric("Total período", format_brl_compact(total_rep))
 col2.metric("Média mensal", format_brl_compact(media_mensal))
-col3.metric("Concentração de clientes", hhi_label_short, f"N80: {n80_count} clientes")
+col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
 col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
 col5.metric("Clientes atendidos", f"{clientes_atendidos}")
 
@@ -655,7 +657,8 @@ else:
                     df_map["bin"] = 0
                     bins = [values.min(), values.max()]
 
-                colors = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
+                # 🔄 Invertido: vermelho = menor valor, verde = maior valor
+                colors = ["#ef4444", "#f97316", "#eab308", "#22c55e"]  # low → high
 
                 # monta legenda das cores (quartis)
                 legend_entries = []
@@ -767,6 +770,8 @@ else:
                         border-bottom: 1px solid rgba(255,255,255,0.08);
                         white-space: nowrap;
                     }
+                    /* Permite que o nome do cliente quebre linha,
+                       mas mantém os demais em uma linha só */
                     table.clientes-table th:nth-child(1),
                     table.clientes-table td:nth-child(1) {
                         white-space: normal;
@@ -815,8 +820,44 @@ else:
                                 st.markdown(
                                     f"**Clientes em {cidade_sel} - {estado_sel}**"
                                 )
+
+                                # CSS específico para a tabela da cidade
+                                city_clients_css = """
+                                <style>
+                                table.city-table {
+                                    width: 100%;
+                                    border-collapse: collapse;
+                                }
+                                table.city-table th,
+                                table.city-table td {
+                                    padding: 0.25rem 0.5rem;
+                                    font-size: 0.85rem;
+                                    border-bottom: 1px solid rgba(255,255,255,0.08);
+                                }
+                                /* Cabeçalhos de Quantidade e Faturamento centralizados */
+                                table.city-table th:nth-child(2),
+                                table.city-table th:nth-child(3) {
+                                    text-align: center;
+                                }
+                                /* Valores de todas as colunas alinhados à esquerda */
+                                table.city-table td {
+                                    text-align: left;
+                                }
+                                </style>
+                                """
+                                st.markdown(city_clients_css, unsafe_allow_html=True)
+
                                 with st.expander("Ver lista de clientes da cidade", expanded=True):
-                                    st.table(display_city)
+                                    cols_city = list(display_city.columns)
+                                    html_city = "<table class='city-table'><thead><tr>"
+                                    html_city += "".join(f"<th>{c}</th>" for c in cols_city)
+                                    html_city += "</tr></thead><tbody>"
+                                    for _, row in display_city.iterrows():
+                                        html_city += "<tr>" + "".join(
+                                            f"<td>{row[c]}</td>" for c in cols_city
+                                        ) + "</tr>"
+                                    html_city += "</tbody></table>"
+                                    st.markdown(html_city, unsafe_allow_html=True)
 
     except Exception as e:
         st.info(f"Mapa de clientes ainda não disponível: {e}")
