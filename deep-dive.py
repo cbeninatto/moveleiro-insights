@@ -530,7 +530,7 @@ else:
 
 col1.metric("Total período", format_brl_compact(total_rep))
 col2.metric("Média mensal", format_brl_compact(media_mensal))
-col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
+col3.metric("Concentração de clientes", hhi_label_short, f"N80: {n80_count} clientes")
 col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
 col5.metric("Clientes atendidos", f"{clientes_atendidos}")
 
