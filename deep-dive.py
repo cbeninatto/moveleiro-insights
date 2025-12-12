@@ -23,7 +23,6 @@ CITY_GEO_CSV_URL = (
     "cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv"
 )
 
-# Nome lógico da coluna de status calculado
 STATUS_COL = "StatusCarteira"
 
 
@@ -53,12 +52,6 @@ def format_brl_compact(value: float) -> str:
 
 @st.cache_data(show_spinner=True)
 def load_data() -> pd.DataFrame:
-    """
-    Lê o CSV do GitHub exatamente no layout:
-
-    Codigo,Descricao,Quantidade,Valor,Mes,Ano,ClienteCodigo,Cliente,
-    Estado,Cidade,RepresentanteCodigo,Representante,Categoria,SourcePDF
-    """
     df = pd.read_csv(GITHUB_CSV_URL)
 
     expected = [
@@ -73,13 +66,11 @@ def load_data() -> pd.DataFrame:
             + ", ".join(missing)
         )
 
-    # Tipagem básica
     df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0.0)
     df["Quantidade"] = pd.to_numeric(df["Quantidade"], errors="coerce").fillna(0.0)
     df["Ano"] = pd.to_numeric(df["Ano"], errors="coerce").astype("Int64")
     df["MesNum"] = pd.to_numeric(df["Mes"], errors="coerce").astype("Int64")
 
-    # Competência (primeiro dia do mês)
     df["Competencia"] = pd.to_datetime(
         dict(year=df["Ano"], month=df["MesNum"], day=1),
         errors="coerce",
@@ -89,7 +80,6 @@ def load_data() -> pd.DataFrame:
 
 
 def compute_carteira_score(status_counts: pd.Series):
-    """Retorna (score 0–100, label) a partir da contagem por status."""
     if status_counts is None or status_counts.empty:
         return 50.0, "Neutra"
 
@@ -112,7 +102,6 @@ def compute_carteira_score(status_counts: pd.Series):
 
     score_total = 0
     n_clients = 0
-
     for status, qty in status_counts.items():
         w = weights.get(str(status), 0)
         score_total += w * qty
@@ -135,7 +124,6 @@ def compute_carteira_score(status_counts: pd.Series):
     return score_0_100, label
 
 
-# Mapeamento de meses
 MONTH_MAP_NUM_TO_NAME = {
     1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR",
     5: "MAI", 6: "JUN", 7: "JUL", 8: "AGO",
@@ -156,10 +144,6 @@ def build_carteira_status(df_all: pd.DataFrame,
                           rep: str,
                           start_comp: pd.Timestamp,
                           end_comp: pd.Timestamp) -> pd.DataFrame:
-    """
-    Calcula StatusCarteira (Novos / Perdidos / Crescendo / Caindo / Estáveis)
-    comparando o período selecionado com a JANELA ANTERIOR de mesmo tamanho.
-    """
     df_rep_all = df_all[df_all["Representante"] == rep].copy()
     if df_rep_all.empty:
         return pd.DataFrame(columns=[
@@ -227,10 +211,6 @@ def build_carteira_status(df_all: pd.DataFrame,
 
 @st.cache_data(show_spinner=True)
 def load_geo() -> pd.DataFrame:
-    """
-    Carrega o CSV de coordenadas de cidades (cidades_br_geo.csv) do GitHub
-    e normaliza colunas de Estado, Cidade, lat, lon.
-    """
     df_geo = pd.read_csv(CITY_GEO_CSV_URL, sep=None, engine="python")
 
     original_cols = list(df_geo.columns)
@@ -376,7 +356,6 @@ if start_comp > end_comp:
     st.sidebar.error("Período inicial não pode ser maior que o período final.")
     st.stop()
 
-# Períodos atual e anterior (para labels de faturamento)
 months_span_for_carteira = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
 prev_end = start_comp - pd.DateOffset(months=1)
 prev_start = prev_end - pd.DateOffset(months=months_span_for_carteira - 1)
@@ -437,7 +416,7 @@ total_meses_periodo = len(meses_periodo)
 
 media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
 
-# Distribuição por clientes: N80, HHI, Top shares (para seção)
+# Distribuição por clientes: N80, HHI, Top shares
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = (
         df_rep.groupby("Cliente", as_index=False)["Valor"]
@@ -465,6 +444,15 @@ if not df_rep.empty and total_rep > 0:
     else:
         hhi_label = "Alta concentração"
 
+    if "Baixa" in hhi_label:
+        hhi_label_short = "Baixa"
+    elif "moderada" in hhi_label:
+        hhi_label_short = "Moderada"
+    elif "Alta" in hhi_label:
+        hhi_label_short = "Alta"
+    else:
+        hhi_label_short = hhi_label
+
     top1_share = shares.iloc[:1].sum()
     top3_share = shares.iloc[:3].sum()
     top10_share = shares.iloc[:10].sum()
@@ -474,6 +462,7 @@ else:
     n80_ratio = 0.0
     hhi_value = 0.0
     hhi_label = "Sem dados"
+    hhi_label_short = "Sem dados"
     top1_share = 0.0
     top3_share = 0.0
     top10_share = 0.0
@@ -497,7 +486,7 @@ else:
 
 col1.metric("Total período", format_brl_compact(total_rep))
 col2.metric("Média mensal", format_brl_compact(media_mensal))
-col3.metric("Distribuição por clientes", hhi_label, f"N80: {n80_count} clientes")
+col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
 col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
 col5.metric("Clientes atendidos", f"{clientes_atendidos}")
 
@@ -586,11 +575,21 @@ else:
         if df_map.empty:
             st.info("Não há coordenadas de cidades para exibir no mapa.")
         else:
-            metric_choice = st.radio(
-                "Métrica do mapa",
-                ["Faturamento", "Volume"],
-                horizontal=True,
-            )
+            # Cabeçalho: métrica do mapa (esq.) e cobertura (dir.)
+            header_left, header_right = st.columns([1.2, 1])
+            with header_left:
+                metric_choice = st.radio(
+                    "Métrica do mapa",
+                    ["Faturamento", "Volume"],
+                    horizontal=True,
+                )
+            with header_right:
+                st.markdown("**Cobertura**")
+                cov1, cov2, cov3 = st.columns(3)
+                cov1.metric("Cidades atendidas", f"{cidades_atendidas}")
+                cov2.metric("Estados atendidos", f"{estados_atendidos}")
+                cov3.metric("Clientes atendidos", f"{clientes_atendidos}")
+
             if metric_choice == "Faturamento":
                 metric_col = "Valor"
                 metric_label = "Faturamento (R$)"
@@ -612,12 +611,12 @@ else:
 
                 colors = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
 
-                # layout 2 colunas: mapa à esquerda, stats à direita
-                col_map, col_stats = st.columns([1.6, 1])
+                # Segunda linha: mapa mais estreito + stats com tabela
+                col_map, col_stats = st.columns([1.1, 1])
 
                 with col_map:
                     center = [df_map["lat"].mean(), df_map["lon"].mean()]
-                    m = folium.Map(location=center, zoom_start=4, tiles="cartodbpositron")
+                    m = folium.Map(location=center, zoom_start=5, tiles="cartodbpositron")
 
                     for _, row in df_map.iterrows():
                         bin_idx = int(row["bin"]) if pd.notna(row["bin"]) else 0
@@ -644,15 +643,10 @@ else:
                             popup=folium.Popup(popup_html, max_width=300),
                         ).add_to(m)
 
-                    # reduzir largura (coluna) e dobrar altura
+                    # mapa mais alto
                     st_folium(m, width=None, height=800)
 
                 with col_stats:
-                    st.markdown("**Cobertura**")
-                    st.metric("Cidades atendidas", f"{cidades_atendidas}")
-                    st.metric("Estados atendidos", f"{estados_atendidos}")
-                    st.metric("Clientes atendidos", f"{clientes_atendidos}")
-
                     st.markdown("**Principais clientes**")
 
                     df_top_clients = (
@@ -687,7 +681,6 @@ else:
         .sort_values("Competencia")
     )
 
-    # Label de mês em PT-BR (JAN, FEV, etc.)
     ts_rep["MesLabelBr"] = ts_rep["Competencia"].apply(
         lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}"
     )
@@ -713,7 +706,11 @@ else:
         ],
     )
 
-    line = base.mark_line(point=True, color="#22c55e").encode(
+    line = base.mark_line(
+        color="#22c55e",
+        strokeWidth=3,
+        point=alt.OverlayMarkDef(color="#22c55e", filled=True, size=70),
+    ).encode(
         y=alt.Y(
             "Quantidade:Q",
             axis=alt.Axis(title="Volume", orient="right"),
@@ -751,10 +748,10 @@ else:
     total_rep_safe = total_rep if total_rep > 0 else 1.0
     df_clientes["Share"] = df_clientes["Valor"] / total_rep_safe
 
-    # Mini KPIs (5 colunas)
+    # Mini KPIs (5 colunas) – usar label curto para não cortar
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("N80", f"{n80_count}", f"{n80_ratio:.0%} da carteira")
-    k2.metric("Índice de concentração", hhi_label, f"HHI {hhi_value:.3f}")
+    k2.metric("Índice de concentração", hhi_label_short, f"HHI {hhi_value:.3f}")
     k3.metric("Top 1 cliente", f"{top1_share:.1%}")
     k4.metric("Top 3 clientes", f"{top3_share:.1%}")
     k5.metric("Top 10 clientes", f"{top10_share:.1%}")
@@ -783,32 +780,21 @@ else:
         )
         st.altair_chart(chart_clients, use_container_width=True)
 
-    # Pizza da distribuição por grupos
+    # Pizza com clientes (top 20)
     with col_dc2:
-        st.caption("Distribuição da carteira (clientes)")
+        st.caption("Participação dos 20 principais clientes")
 
-        # Grupos: Top 1, Top 2–3, Top 4–10, Demais
-        shares = df_clientes["Share"].values
-        v_top1 = shares[0] if len(shares) >= 1 else 0.0
-        v_top23 = shares[1:3].sum() if len(shares) >= 2 else 0.0
-        v_top410 = shares[3:10].sum() if len(shares) >= 4 else 0.0
-        v_rest = max(0.0, 1.0 - (v_top1 + v_top23 + v_top410))
-
-        dist_df = pd.DataFrame(
-            {
-                "Grupo": ["Top 1", "Top 2-3", "Top 4-10", "Demais"],
-                "Share": [v_top1, v_top23, v_top410, v_rest],
-            }
-        )
+        dist_df = df_clientes.head(20)[["Cliente", "Valor"]].copy()
+        dist_df["Share"] = dist_df["Valor"] / total_rep_safe
 
         chart_pie = (
             alt.Chart(dist_df)
             .mark_arc()
             .encode(
                 theta=alt.Theta("Share:Q"),
-                color=alt.Color("Grupo:N", legend=alt.Legend(title="Grupo")),
+                color=alt.Color("Cliente:N", legend=None),
                 tooltip=[
-                    alt.Tooltip("Grupo:N", title="Grupo"),
+                    alt.Tooltip("Cliente:N", title="Cliente"),
                     alt.Tooltip("Share:Q", title="% Faturamento", format=".1%"),
                 ],
             )
@@ -888,9 +874,38 @@ else:
         )
 
     # ==========================
-    # STATUS DOS CLIENTES (listas por status)
+    # STATUS DOS CLIENTES – TABELAS ALINHADAS
     # ==========================
     st.markdown("### Status dos clientes")
+
+    # CSS para tabelas com colunas fixas
+    table_css = """
+    <style>
+    table.status-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 0.75rem;
+    }
+    table.status-table col:nth-child(1) { width: 30%; }
+    table.status-table col:nth-child(2) { width: 10%; }
+    table.status-table col:nth-child(3) { width: 15%; }
+    table.status-table col:nth-child(4) { width: 10%; }
+    table.status-table col:nth-child(5) { width: 17.5%; }
+    table.status-table col:nth-child(6) { width: 17.5%; }
+
+    table.status-table th,
+    table.status-table td {
+        padding: 0.2rem 0.5rem;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        font-size: 0.85rem;
+        text-align: left;
+    }
+    table.status-table th {
+        font-weight: 600;
+    }
+    </style>
+    """
+    st.markdown(table_css, unsafe_allow_html=True)
 
     ordered_statuses = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
 
@@ -915,5 +930,16 @@ else:
             }
         )
 
-        st.markdown(f"**{status_name}**")
-        st.table(display_df)
+        cols = list(display_df.columns)
+
+        # monta tabela HTML com colgroup fixo
+        html = "<h5>" + status_name + "</h5>"
+        html += "<table class='status-table'><colgroup>"
+        html += "<col><col><col><col><col><col></colgroup><thead><tr>"
+        html += "".join(f"<th>{c}</th>" for c in cols)
+        html += "</tr></thead><tbody>"
+        for _, row in display_df.iterrows():
+            html += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols) + "</tr>"
+        html += "</tbody></table>"
+
+        st.markdown(html, unsafe_allow_html=True)
