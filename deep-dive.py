@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import folium
+import plotly.express as px
 from streamlit_folium import st_folium
 
 # ==========================
@@ -820,7 +821,7 @@ else:
         )
         st.altair_chart(chart_clients, use_container_width=True)
 
-        # Pizza com todos os clientes, Top 10 destacados
+            # Pizza com todos os clientes, Top 10 destacados (usando Plotly)
     with col_dc2:
         st.caption("Participação dos clientes (Top 10 destacados)")
 
@@ -840,55 +841,46 @@ else:
         )
         dist_df["Share"] = dist_df["Valor"] / total_rep_safe
 
-        # Ordena por participação (maior -> menor)
+        # Ordena do maior pro menor (para a legenda)
         dist_df = dist_df.sort_values("Share", ascending=False)
 
-        # Label da LEGENDA: nome + percentual
+        # Texto da LEGENDA: nome + percentual
         dist_df["Legenda"] = dist_df.apply(
             lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%",
             axis=1,
         )
 
-        # Texto DENTRO da fatia: só o percentual, para fatias ≥ 5%
-        dist_df["LabelText"] = dist_df.apply(
-            lambda r: f"{r['Share']*100:.1f}%"
-            if r["Share"] >= 0.05 else "",
-            axis=1,
+        # Texto DENTRO da fatia: nome + percentual somente se a fatia for grande
+        def make_text(row):
+            if row["Share"] >= 0.07:  # 7% ou mais
+                return f"{row['Grupo']}<br>{row['Share']*100:.1f}%"
+            else:
+                return ""
+        dist_df["Text"] = dist_df.apply(make_text, axis=1)
+
+        # Pie com Plotly
+        fig = px.pie(
+            dist_df,
+            values="Valor",
+            names="Legenda",  # legenda já vem com nome + %
+            text="Text",      # texto interno (pode ser vazio)
         )
 
-        # Base: mesmo theta para arco e texto (centro da fatia)
-        base = alt.Chart(dist_df).encode(
-            theta=alt.Theta("Share:Q", stack=True)
+        fig.update_traces(
+            textposition="inside",
+            textinfo="text",              # usa só a coluna Text
+            insidetextorientation="radial"
         )
 
-        # Arcos
-        pie = base.mark_arc().encode(
-            color=alt.Color(
-                "Legenda:N",
-                # usa a ordem atual do dataframe (já está em ordem decrescente)
-                sort=list(dist_df["Legenda"]),
-                legend=alt.Legend(title="Cliente (Top 10) / Outros"),
-            ),
-            tooltip=[
-                alt.Tooltip("Grupo:N", title="Cliente / Grupo"),
-                alt.Tooltip("Share:Q", title="% Faturamento", format=".1%"),
-            ],
+        # Mantém a legenda na ordem do DataFrame (já está do maior pro menor)
+        fig.update_layout(
+            legend=dict(
+                title="Cliente (Top 10) / Outros",
+                traceorder="normal",
+            )
         )
 
-        # Texto no MEIO da fatia (somente %)
-        text = base.mark_text(
-            radius=80,          # puxa o texto para dentro da fatia
-            size=11,
-            align="center",
-            baseline="middle",
-        ).encode(
-            text="LabelText:N",
-        )
-
-        chart_pie = (pie + text).properties(height=320)
-
-        st.altair_chart(chart_pie, use_container_width=True)
-
+        st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
 
