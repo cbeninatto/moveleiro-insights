@@ -780,11 +780,25 @@ else:
         )
         st.altair_chart(chart_clients, use_container_width=True)
 
-    # Pizza com clientes (top 20)
-    with col_dc2:
-        st.caption("Participação dos 20 principais clientes")
+    # Pizza com clientes
+       with col_dc2:
+        st.caption("Participação dos clientes (Top 20 destacados)")
 
-        dist_df = df_clientes.head(20)[["Cliente", "Valor"]].copy()
+        # Usa TODOS os clientes no cálculo da pizza,
+        # mas só destaca os 20 maiores no rótulo (Outros = resto)
+        df_pie = df_clientes.copy()
+        df_pie["Rank"] = df_pie["Valor"].rank(method="first", ascending=False)
+
+        df_pie["Grupo"] = df_pie.apply(
+            lambda r: r["Cliente"] if r["Rank"] <= 20 else "Outros",
+            axis=1,
+        )
+
+        dist_df = (
+            df_pie.groupby("Grupo", as_index=False)["Valor"]
+            .sum()
+            .sort_values("Valor", ascending=False)
+        )
         dist_df["Share"] = dist_df["Valor"] / total_rep_safe
 
         chart_pie = (
@@ -792,9 +806,12 @@ else:
             .mark_arc()
             .encode(
                 theta=alt.Theta("Share:Q"),
-                color=alt.Color("Cliente:N", legend=None),
+                color=alt.Color(
+                    "Grupo:N",
+                    legend=alt.Legend(title="Cliente (Top 20) / Outros"),
+                ),
                 tooltip=[
-                    alt.Tooltip("Cliente:N", title="Cliente"),
+                    alt.Tooltip("Grupo:N", title="Cliente / Grupo"),
                     alt.Tooltip("Share:Q", title="% Faturamento", format=".1%"),
                 ],
             )
