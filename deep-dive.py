@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import folium
-import plotly.express as px
 from streamlit_folium import st_folium
+import plotly.express as px
 
 # ==========================
 # CONFIG
@@ -769,7 +769,7 @@ else:
         height=320,
     )
 
-    st.altair_chart(combo_chart, use_container_width=True)
+    st.altair_chart(combo_chart, width="stretch")
 
 st.markdown("---")
 
@@ -819,9 +819,9 @@ else:
             )
             .properties(height=420)
         )
-        st.altair_chart(chart_clients, use_container_width=True)
+        st.altair_chart(chart_clients, width="stretch")
 
-            # Pizza com todos os clientes, Top 10 destacados (usando Plotly)
+    # Pizza com todos os clientes, Top 10 destacados (usando Plotly)
     with col_dc2:
         st.caption("Participação dos clientes (Top 10 destacados)")
 
@@ -841,16 +841,16 @@ else:
         )
         dist_df["Share"] = dist_df["Valor"] / total_rep_safe
 
-        # Ordena do maior pro menor (para a legenda)
+        # Ordena do maior pro menor
         dist_df = dist_df.sort_values("Share", ascending=False)
 
-        # Texto da LEGENDA: nome + percentual
+        # Label da LEGENDA: nome + percentual
         dist_df["Legenda"] = dist_df.apply(
             lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%",
             axis=1,
         )
 
-        # Texto DENTRO da fatia: nome + percentual somente se a fatia for grande
+        # Texto DENTRO da fatia: nome + percentual para fatias ≥ 7%
         def make_text(row):
             if row["Share"] >= 0.07:  # 7% ou mais
                 return f"{row['Grupo']}<br>{row['Share']*100:.1f}%"
@@ -858,21 +858,25 @@ else:
                 return ""
         dist_df["Text"] = dist_df.apply(make_text, axis=1)
 
-        # Pie com Plotly
+        # Ordem explícita da legenda (maior -> menor)
+        order_legenda = dist_df["Legenda"].tolist()
+
+        # Pie com Plotly (sem argumento 'text', que não existe mais no 6.5.0)
         fig = px.pie(
             dist_df,
             values="Valor",
-            names="Legenda",  # legenda já vem com nome + %
-            text="Text",      # texto interno (pode ser vazio)
+            names="Legenda",
+            category_orders={"Legenda": order_legenda},
         )
 
+        # Define o texto interno depois
         fig.update_traces(
+            text=dist_df["Text"],
             textposition="inside",
-            textinfo="text",              # usa só a coluna Text
-            insidetextorientation="radial"
+            textinfo="text",
+            insidetextorientation="radial",
         )
 
-        # Mantém a legenda na ordem do DataFrame (já está do maior pro menor)
         fig.update_layout(
             legend=dict(
                 title="Cliente (Top 10) / Outros",
@@ -880,7 +884,7 @@ else:
             )
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 st.markdown("---")
 
@@ -961,7 +965,7 @@ else:
                 )
                 .properties(height=320)
             )
-            st.altair_chart(chart_pie, use_container_width=True)
+            st.altair_chart(chart_pie, width="stretch")
 
     with col_table:
         st.caption("Resumo por status")
@@ -980,7 +984,7 @@ else:
         st.dataframe(
             status_counts_display,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
     # ==========================
