@@ -26,6 +26,24 @@ CITY_GEO_CSV_URL = (
 
 STATUS_COL = "StatusCarteira"
 
+# pesos usados no índice de saúde
+STATUS_WEIGHTS = {
+    "Novos": 1,
+    "Novo": 1,
+    "Crescendo": 2,
+    "CRESCENDO": 2,
+    "Estáveis": 1,
+    "Estável": 1,
+    "ESTAVEIS": 1,
+    "Caindo": -1,
+    "CAINDO": -1,
+    "Perdidos": -2,
+    "Perdido": -2,
+    "PERDIDOS": -2,
+}
+
+STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
+
 
 # ==========================
 # HELPERS
@@ -90,12 +108,7 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
       - Para cada cliente, define um "PesoReceita" = max(ValorAtual, ValorAnterior)
       - Soma PesoReceita por StatusCarteira
       - Converte em % da carteira (p_status)
-      - Aplica pesos:
-          Crescendo: +2
-          Novos:     +1
-          Estáveis:  +1
-          Caindo:    -1
-          Perdidos:  -2
+      - Aplica pesos (STATUS_WEIGHTS)
       - Normaliza para 0–100:
           ISC = (score_bruto + 2) / 4 * 100
       - Regra extra: se churn de receita > 20%, não deixa o índice ficar em "Saudável"
@@ -123,26 +136,10 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
     if R_total <= 0:
         return 50.0, "Neutra"
 
-    # Pesos por status (mais focado em receita do que em quantidade de clientes)
-    pesos = {
-        "Novos": 1,
-        "Novo": 1,
-        "Crescendo": 2,
-        "CRESCENDO": 2,
-        "Estáveis": 1,
-        "Estável": 1,
-        "ESTAVEIS": 1,
-        "Caindo": -1,
-        "CAINDO": -1,
-        "Perdidos": -2,
-        "Perdido": -2,
-        "PERDIDOS": -2,
-    }
-
     # Score bruto ponderado pela receita de cada status
     score_bruto = 0.0
     for status, receita in receita_status.items():
-        w = pesos.get(str(status), 0)
+        w = STATUS_WEIGHTS.get(str(status), 0)
         share = receita / R_total
         score_bruto += w * share
 
@@ -928,6 +925,92 @@ else:
 st.markdown("---")
 
 # ==========================
+# DISTRIBUIÇÃO POR ESTADOS
+# ==========================
+st.subheader("Distribuição por estados")
+
+if df_rep.empty:
+    st.info("Não há vendas no período selecionado.")
+else:
+    # Agrega por estado (já filtrado pelo período e representante/Todos)
+    estados_df = (
+        df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]]
+        .sum()
+        .sort_values("Valor", ascending=False)
+    )
+
+    total_valor_est = estados_df["Valor"].sum()
+    total_qtd_est = estados_df["Quantidade"].sum()
+
+    if total_valor_est <= 0:
+        st.info("Não há faturamento para distribuir por estados nesse período.")
+    else:
+        estados_df["ShareFat"] = estados_df["Valor"] / total_valor_est
+        estados_df["ShareVol"] = (
+            estados_df["Quantidade"] / total_qtd_est if total_qtd_est > 0 else 0
+        )
+
+        col_e1, col_e2 = st.columns([1.3, 1])
+
+        # ---- Gráfico de barras por estado ----
+        with col_e1:
+            st.caption("Participação por estado – Faturamento")
+
+            chart_est = (
+                alt.Chart(estados_df)
+                .mark_bar()
+                .encode(
+                    x=alt.X(
+                        "ShareFat:Q",
+                        title="% do faturamento",
+                        axis=alt.Axis(format="~%")
+                    ),
+                    y=alt.Y(
+                        "Estado:N",
+                        sort="-x",
+                        title="Estado"
+                    ),
+                    tooltip=[
+                        alt.Tooltip("Estado:N", title="Estado"),
+                        alt.Tooltip("Valor:Q", title="Faturamento (R$)", format=",.2f"),
+                        alt.Tooltip("ShareFat:Q", title="% do faturamento", format=".1%"),
+                        alt.Tooltip("Quantidade:Q", title="Volume"),
+                        alt.Tooltip("ShareVol:Q", title="% do volume", format=".1%"),
+                    ],
+                )
+                .properties(
+                    height=max(220, 22 * len(estados_df))  # cresce se tiver muitos estados
+                )
+            )
+
+            st.altair_chart(chart_est, width="stretch")
+
+        # ---- Tabela com valores e percentuais ----
+        with col_e2:
+            st.caption("Resumo por estado")
+
+            estados_display = estados_df.copy()
+            estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
+            estados_display["% Faturamento"] = estados_display["ShareFat"].map(
+                lambda x: f"{x:.1%}"
+            )
+            estados_display["% Volume"] = estados_display["ShareVol"].map(
+                lambda x: f"{x:.1%}"
+            )
+
+            estados_display = estados_display[
+                ["Estado", "Faturamento", "% Faturamento", "Quantidade", "% Volume"]
+            ]
+
+            st.dataframe(
+                estados_display,
+                hide_index=True,
+                width="stretch",
+            )
+
+st.markdown("---")
+
+# ==========================
 # EVOLUÇÃO – FATURAMENTO x VOLUME
 # ==========================
 st.subheader("Evolução – Faturamento x Volume")
@@ -1129,9 +1212,8 @@ else:
         status_counts["QtdClientes"] / total_clientes if total_clientes > 0 else 0
     )
 
-    status_order = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
     status_counts["Status"] = pd.Categorical(
-        status_counts["Status"], categories=status_order, ordered=True
+        status_counts["Status"], categories=STATUS_ORDER, ordered=True
     )
     status_counts = status_counts.sort_values("Status")
 
@@ -1142,6 +1224,90 @@ else:
     resumo_text += f" ({int(total_clientes)} clientes)"
 
     st.caption(resumo_text)
+
+    # --------- Explicação da pontuação ----------
+    df_expl = clientes_carteira.copy()
+    for col in ["ValorAtual", "ValorAnterior"]:
+        df_expl[col] = pd.to_numeric(df_expl.get(col, 0.0), errors="coerce").fillna(0.0)
+
+    df_expl["PesoReceita"] = df_expl[["ValorAtual", "ValorAnterior"]].max(axis=1).clip(lower=0)
+
+    score_df = (
+        df_expl.groupby(STATUS_COL)["PesoReceita"]
+        .sum()
+        .reset_index()
+        .rename(columns={STATUS_COL: "Status", "PesoReceita": "ReceitaPonderada"})
+    )
+
+    total_receita_pond = score_df["ReceitaPonderada"].sum()
+    if total_receita_pond > 0:
+        score_df["ShareReceita"] = score_df["ReceitaPonderada"] / total_receita_pond
+    else:
+        score_df["ShareReceita"] = 0.0
+
+    score_df["Peso"] = score_df["Status"].apply(lambda s: STATUS_WEIGHTS.get(str(s), 0))
+    score_df["ScoreBrutoParcial"] = score_df["Peso"] * score_df["ShareReceita"]
+
+    score_df["Status"] = pd.Categorical(
+        score_df["Status"], categories=STATUS_ORDER, ordered=True
+    )
+    score_df = score_df.sort_values("Status")
+
+    score_bruto_total = float(score_df["ScoreBrutoParcial"].sum())
+    isc_det, label_det = compute_carteira_score(clientes_carteira)
+
+    # churn de receita (mesma lógica do índice)
+    base_anterior = df_expl[df_expl["ValorAnterior"] > 0].copy()
+    base_total = float(base_anterior["PesoReceita"].sum())
+    perdidos_mask = df_expl[STATUS_COL].astype(str).str.upper().isin(["PERDIDOS", "PERDIDO"])
+    receita_perdida = float(df_expl.loc[perdidos_mask, "PesoReceita"].sum())
+    churn_receita = receita_perdida / base_total if base_total > 0 else 0.0
+
+    col_exp1, col_exp2 = st.columns([1.1, 1.6])
+
+    with col_exp1:
+        st.markdown("**Resumo dos pontos**")
+        st.write(
+            f"Índice de saúde: **{isc_det:.0f} / 100**  \n"
+            f"Classificação: **{label_det}**"
+        )
+        st.write(f"Score bruto (antes de normalizar): **{score_bruto_total:.2f}** (escala de -2 a +2)")
+        st.write(f"Churn de receita (clientes perdidos): **{churn_receita:.1%}** da base anterior.")
+
+    with col_exp2:
+        st.markdown("**Como funciona a pontuação**")
+        st.write(
+            "- Cada cliente é classificado em **Novos, Crescendo, Estáveis, Caindo ou Perdidos** "
+            "comparando o faturamento do período atual com o período anterior de mesmo tamanho."
+        )
+        st.write(
+            "- A receita de cada cliente entra como **peso**. Clientes maiores impactam mais o índice."
+        )
+        st.write(
+            "- Para cada status usamos estes pontos:\n"
+            "  • **Crescendo**: +2 pontos  \n"
+            "  • **Novos**: +1 ponto  \n"
+            "  • **Estáveis**: +1 ponto  \n"
+            "  • **Caindo**: −1 ponto  \n"
+            "  • **Perdidos**: −2 pontos"
+        )
+        st.write(
+            "- Calculamos o **score bruto** somando: (pontos do status × % da receita nesse status).\n"
+            "- Depois transformamos esse score em um índice de **0 a 100**:\n"
+            "  • < 30 → **Crítica**  \n"
+            "  • 30–49 → **Alerta**  \n"
+            "  • 50–69 → **Neutra**  \n"
+            "  • ≥ 70 → **Saudável**"
+        )
+
+        score_display = score_df.copy()
+        score_display["% Receita"] = score_display["ShareReceita"].map(lambda x: f"{x:.1%}")
+        score_display["Pontos (parcial)"] = score_display["ScoreBrutoParcial"].map(
+            lambda x: f"{x:.2f}"
+        )
+        score_display = score_display[["Status", "Peso", "% Receita", "Pontos (parcial)"]]
+
+        st.dataframe(score_display, hide_index=True, width="stretch")
 
     col_pie, col_table = st.columns([1, 1.2])
 
@@ -1223,7 +1389,7 @@ else:
     """
     st.markdown(table_css, unsafe_allow_html=True)
 
-    ordered_statuses = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
+    ordered_statuses = STATUS_ORDER
 
     for status_name in ordered_statuses:
         df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
