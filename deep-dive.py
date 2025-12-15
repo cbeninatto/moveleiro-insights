@@ -982,7 +982,7 @@ else:
                     ],
                 )
                 .properties(
-                    height=max(220, 22 * len(estados_top))  # cresce se tiver muitos estados
+                    height=max(440, 22 * len(estados_top))  # cresce se tiver muitos estados
                 )
             )
 
