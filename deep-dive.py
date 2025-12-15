@@ -204,10 +204,15 @@ def build_carteira_status(df_all: pd.DataFrame,
     Calcula StatusCarteira (Novos / Perdidos / Crescendo / Caindo / Estáveis)
     comparando o período selecionado com a JANELA ANTERIOR de mesmo tamanho.
 
+    Se rep == "Todos", considera TODOS os representantes.
     Estado/Cidade vêm tanto do período atual quanto do anterior,
     garantindo localização também para 'Perdidos'.
     """
-    df_rep_all = df_all[df_all["Representante"] == rep].copy()
+    if rep is None or rep == "Todos":
+        df_rep_all = df_all.copy()
+    else:
+        df_rep_all = df_all[df_all["Representante"] == rep].copy()
+
     if df_rep_all.empty:
         return pd.DataFrame(columns=[
             "Cliente", "Estado", "Cidade",
@@ -467,9 +472,14 @@ if not reps_period:
     st.error("Não há representantes com vendas no período selecionado.")
     st.stop()
 
-rep_selected = st.sidebar.selectbox("Representante", reps_period)
+rep_options = ["Todos"] + reps_period
+rep_selected = st.sidebar.selectbox("Representante", rep_options)
 
-df_rep = df_period[df_period["Representante"] == rep_selected].copy()
+# df_rep = dados filtrados do período para o representante selecionado (ou todos)
+if rep_selected == "Todos":
+    df_rep = df_period.copy()
+else:
+    df_rep = df_period[df_period["Representante"] == rep_selected].copy()
 
 # ==========================
 # CALCULA STATUS DA CARTEIRA
@@ -481,7 +491,12 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 # ==========================
 st.title("Deep Dive – Representante")
 
-st.subheader(f"Representante: **{rep_selected}**")
+if rep_selected == "Todos":
+    titulo_rep = "Todos os representantes"
+else:
+    titulo_rep = rep_selected
+
+st.subheader(f"Representante: **{titulo_rep}**")
 st.caption(
     f"Período selecionado: "
     f"{start_comp.strftime('%b %Y')} até {end_comp.strftime('%b %Y')}"
@@ -594,7 +609,7 @@ st.markdown("---")
 st.subheader("Destaques do período")
 
 if df_rep.empty:
-    st.info("Este representante não possui vendas no período selecionado.")
+    st.info("Não há vendas no período selecionado.")
 else:
     mensal_rep = (
         df_rep
@@ -645,7 +660,7 @@ if "selected_city_tooltip" not in st.session_state:
     st.session_state["selected_city_tooltip"] = None
 
 if df_rep.empty:
-    st.info("Este representante não possui vendas no período selecionado.")
+    st.info("Não há vendas no período selecionado.")
 else:
     try:
         df_geo = load_geo()
@@ -918,7 +933,7 @@ st.markdown("---")
 st.subheader("Evolução – Faturamento x Volume")
 
 if df_rep.empty:
-    st.info("Este representante não possui vendas no período selecionado.")
+    st.info("Não há vendas no período selecionado.")
 else:
     ts_rep = (
         df_rep
