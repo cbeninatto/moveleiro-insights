@@ -26,7 +26,7 @@ CITY_GEO_CSV_URL = (
 
 STATUS_COL = "StatusCarteira"
 
-# pesos usados no índice de saúde
+# pesos usados no índice de saúde (para o card de Saúde da carteira)
 STATUS_WEIGHTS = {
     "Novos": 1,
     "Novo": 1,
@@ -939,25 +939,28 @@ else:
         .sort_values("Valor", ascending=False)
     )
 
-    total_valor_est = estados_df["Valor"].sum()
-    total_qtd_est = estados_df["Quantidade"].sum()
+    total_valor_all = estados_df["Valor"].sum()
+    total_qtd_all = estados_df["Quantidade"].sum()
 
-    if total_valor_est <= 0:
+    if total_valor_all <= 0:
         st.info("Não há faturamento para distribuir por estados nesse período.")
     else:
-        estados_df["ShareFat"] = estados_df["Valor"] / total_valor_est
-        estados_df["ShareVol"] = (
-            estados_df["Quantidade"] / total_qtd_est if total_qtd_est > 0 else 0
+        # mantém somente TOP 10 estados por faturamento
+        estados_top = estados_df.head(10).copy()
+
+        estados_top["ShareFat"] = estados_top["Valor"] / total_valor_all
+        estados_top["ShareVol"] = (
+            estados_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
         )
 
         col_e1, col_e2 = st.columns([1.3, 1])
 
         # ---- Gráfico de barras por estado ----
         with col_e1:
-            st.caption("Participação por estado – Faturamento")
+            st.caption("Top 10 estados por faturamento – % do faturamento total")
 
             chart_est = (
-                alt.Chart(estados_df)
+                alt.Chart(estados_top)
                 .mark_bar()
                 .encode(
                     x=alt.X(
@@ -979,7 +982,7 @@ else:
                     ],
                 )
                 .properties(
-                    height=max(220, 22 * len(estados_df))  # cresce se tiver muitos estados
+                    height=max(220, 22 * len(estados_top))  # cresce se tiver muitos estados
                 )
             )
 
@@ -987,9 +990,9 @@ else:
 
         # ---- Tabela com valores e percentuais ----
         with col_e2:
-            st.caption("Resumo por estado")
+            st.caption("Resumo – Top 10 estados")
 
-            estados_display = estados_df.copy()
+            estados_display = estados_top.copy()
             estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
             estados_display["% Faturamento"] = estados_display["ShareFat"].map(
                 lambda x: f"{x:.1%}"
@@ -1224,90 +1227,6 @@ else:
     resumo_text += f" ({int(total_clientes)} clientes)"
 
     st.caption(resumo_text)
-
-    # --------- Explicação da pontuação ----------
-    df_expl = clientes_carteira.copy()
-    for col in ["ValorAtual", "ValorAnterior"]:
-        df_expl[col] = pd.to_numeric(df_expl.get(col, 0.0), errors="coerce").fillna(0.0)
-
-    df_expl["PesoReceita"] = df_expl[["ValorAtual", "ValorAnterior"]].max(axis=1).clip(lower=0)
-
-    score_df = (
-        df_expl.groupby(STATUS_COL)["PesoReceita"]
-        .sum()
-        .reset_index()
-        .rename(columns={STATUS_COL: "Status", "PesoReceita": "ReceitaPonderada"})
-    )
-
-    total_receita_pond = score_df["ReceitaPonderada"].sum()
-    if total_receita_pond > 0:
-        score_df["ShareReceita"] = score_df["ReceitaPonderada"] / total_receita_pond
-    else:
-        score_df["ShareReceita"] = 0.0
-
-    score_df["Peso"] = score_df["Status"].apply(lambda s: STATUS_WEIGHTS.get(str(s), 0))
-    score_df["ScoreBrutoParcial"] = score_df["Peso"] * score_df["ShareReceita"]
-
-    score_df["Status"] = pd.Categorical(
-        score_df["Status"], categories=STATUS_ORDER, ordered=True
-    )
-    score_df = score_df.sort_values("Status")
-
-    score_bruto_total = float(score_df["ScoreBrutoParcial"].sum())
-    isc_det, label_det = compute_carteira_score(clientes_carteira)
-
-    # churn de receita (mesma lógica do índice)
-    base_anterior = df_expl[df_expl["ValorAnterior"] > 0].copy()
-    base_total = float(base_anterior["PesoReceita"].sum())
-    perdidos_mask = df_expl[STATUS_COL].astype(str).str.upper().isin(["PERDIDOS", "PERDIDO"])
-    receita_perdida = float(df_expl.loc[perdidos_mask, "PesoReceita"].sum())
-    churn_receita = receita_perdida / base_total if base_total > 0 else 0.0
-
-    col_exp1, col_exp2 = st.columns([1.1, 1.6])
-
-    with col_exp1:
-        st.markdown("**Resumo dos pontos**")
-        st.write(
-            f"Índice de saúde: **{isc_det:.0f} / 100**  \n"
-            f"Classificação: **{label_det}**"
-        )
-        st.write(f"Score bruto (antes de normalizar): **{score_bruto_total:.2f}** (escala de -2 a +2)")
-        st.write(f"Churn de receita (clientes perdidos): **{churn_receita:.1%}** da base anterior.")
-
-    with col_exp2:
-        st.markdown("**Como funciona a pontuação**")
-        st.write(
-            "- Cada cliente é classificado em **Novos, Crescendo, Estáveis, Caindo ou Perdidos** "
-            "comparando o faturamento do período atual com o período anterior de mesmo tamanho."
-        )
-        st.write(
-            "- A receita de cada cliente entra como **peso**. Clientes maiores impactam mais o índice."
-        )
-        st.write(
-            "- Para cada status usamos estes pontos:\n"
-            "  • **Crescendo**: +2 pontos  \n"
-            "  • **Novos**: +1 ponto  \n"
-            "  • **Estáveis**: +1 ponto  \n"
-            "  • **Caindo**: −1 ponto  \n"
-            "  • **Perdidos**: −2 pontos"
-        )
-        st.write(
-            "- Calculamos o **score bruto** somando: (pontos do status × % da receita nesse status).\n"
-            "- Depois transformamos esse score em um índice de **0 a 100**:\n"
-            "  • < 30 → **Crítica**  \n"
-            "  • 30–49 → **Alerta**  \n"
-            "  • 50–69 → **Neutra**  \n"
-            "  • ≥ 70 → **Saudável**"
-        )
-
-        score_display = score_df.copy()
-        score_display["% Receita"] = score_display["ShareReceita"].map(lambda x: f"{x:.1%}")
-        score_display["Pontos (parcial)"] = score_display["ScoreBrutoParcial"].map(
-            lambda x: f"{x:.2f}"
-        )
-        score_display = score_display[["Status", "Peso", "% Receita", "Pontos (parcial)"]]
-
-        st.dataframe(score_display, hide_index=True, width="stretch")
 
     col_pie, col_table = st.columns([1, 1.2])
 
