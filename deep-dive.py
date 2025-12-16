@@ -1280,66 +1280,82 @@ else:
 
     st.markdown("### Status dos clientes")
 
-    table_css = """
-    <style>
-    table.status-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 0.75rem;
-    }
-    table.status-table col:nth-child(1) { width: 30%; }
-    table.status-table col:nth-child(2) { width: 10%; }
-    table.status-table col:nth-child(3) { width: 15%; }
-    table.status-table col:nth-child(4) { width: 10%; }
-    table.status-table col:nth-child(5) { width: 17.5%; }
-    table.status-table col:nth-child(6) { width: 17.5%; }
+# campo de busca
+search_cliente = st.text_input(
+    "Buscar cliente",
+    value="",
+    placeholder="Digite parte do nome do cliente",
+)
 
-    table.status-table th,
-    table.status-table td {
-        padding: 0.2rem 0.5rem;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-        font-size: 0.85rem;
-        text-align: left;
-    }
-    table.status-table th {
-        font-weight: 600;
-    }
-    </style>
-    """
-    st.markdown(table_css, unsafe_allow_html=True)
+table_css = """
+<style>
+table.status-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.75rem;
+}
+table.status-table col:nth-child(1) { width: 30%; }
+table.status-table col:nth-child(2) { width: 10%; }
+table.status-table col:nth-child(3) { width: 15%; }
+table.status-table col:nth-child(4) { width: 10%; }
+table.status-table col:nth-child(5) { width: 17.5%; }
+table.status-table col:nth-child(6) { width: 17.5%; }
 
-    ordered_statuses = STATUS_ORDER
+table.status-table th,
+table.status-table td {
+    padding: 0.2rem 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-size: 0.85rem;
+    text-align: left;
+}
+table.status-table th {
+    font-weight: 600;
+}
+</style>
+"""
+st.markdown(table_css, unsafe_allow_html=True)
 
-    for status_name in ordered_statuses:
-        df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
-        if df_status.empty:
-            continue
+ordered_statuses = STATUS_ORDER
 
-        df_status["FaturamentoAtualFmt"] = df_status["ValorAtual"].map(format_brl)
-        df_status["FaturamentoAnteriorFmt"] = df_status["ValorAnterior"].map(format_brl)
+for status_name in ordered_statuses:
+    df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
 
-        df_status = df_status.sort_values("ValorAtual", ascending=False)
+    # aplica filtro por cliente, se preenchido
+    if search_cliente:
+        df_status = df_status[
+            df_status["Cliente"]
+            .astype(str)
+            .str.contains(search_cliente, case=False, na=False)
+        ]
 
-        display_df = df_status[
-            ["Cliente", "Estado", "Cidade", STATUS_COL,
-             "FaturamentoAtualFmt", "FaturamentoAnteriorFmt"]
-        ].rename(
-            columns={
-                STATUS_COL: "Status",
-                "FaturamentoAtualFmt": f"Faturamento {current_period_label}",
-                "FaturamentoAnteriorFmt": f"Faturamento {previous_period_label}",
-            }
-        )
+    if df_status.empty:
+        continue
 
-        cols_status = list(display_df.columns)
+    df_status["FaturamentoAtualFmt"] = df_status["ValorAtual"].map(format_brl)
+    df_status["FaturamentoAnteriorFmt"] = df_status["ValorAnterior"].map(format_brl)
 
-        html_status = "<h5>" + status_name + "</h5>"
-        html_status += "<table class='status-table'><colgroup>"
-        html_status += "<col><col><col><col><col><col></colgroup><thead><tr>"
-        html_status += "".join(f"<th>{c}</th>" for c in cols_status)
-        html_status += "</tr></thead><tbody>"
-        for _, row in display_df.iterrows():
-            html_status += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_status) + "</tr>"
-        html_status += "</tbody></table>"
+    df_status = df_status.sort_values("ValorAtual", ascending=False)
 
-        st.markdown(html_status, unsafe_allow_html=True)
+    display_df = df_status[
+        ["Cliente", "Estado", "Cidade", STATUS_COL,
+         "FaturamentoAtualFmt", "FaturamentoAnteriorFmt"]
+    ].rename(
+        columns={
+            STATUS_COL: "Status",
+            "FaturamentoAtualFmt": f"Faturamento {current_period_label}",
+            "FaturamentoAnteriorFmt": f"Faturamento {previous_period_label}",
+        }
+    )
+
+    cols_status = list(display_df.columns)
+
+    html_status = "<h5>" + status_name + "</h5>"
+    html_status += "<table class='status-table'><colgroup>"
+    html_status += "<col><col><col><col><col><col></colgroup><thead><tr>"
+    html_status += "".join(f"<th>{c}</th>" for c in cols_status)
+    html_status += "</tr></thead><tbody>"
+    for _, row in display_df.iterrows():
+        html_status += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_status) + "</tr>"
+    html_status += "</tbody></table>"
+
+    st.markdown(html_status, unsafe_allow_html=True)
