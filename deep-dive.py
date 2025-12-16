@@ -11,8 +11,8 @@ import plotly.express as px
 st.set_page_config(
     page_title="Nova Visão – Deep Dive",
     layout="wide",
+    initial_sidebar_state="collapsed",  # <-- add this line
 )
-
 # CSV direto do GitHub
 GITHUB_CSV_URL = (
     "https://raw.githubusercontent.com/"
