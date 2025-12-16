@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# CSV direto do GitHub (layout real do seu arquivo)
+# CSV direto do GitHub
 GITHUB_CSV_URL = (
     "https://raw.githubusercontent.com/"
     "cbeninatto/performance-moveleiro-v2/main/data/relatorio_faturamento.csv"
@@ -26,7 +26,6 @@ CITY_GEO_CSV_URL = (
 
 STATUS_COL = "StatusCarteira"
 
-# pesos usados no índice de saúde (para o card de Saúde da carteira)
 STATUS_WEIGHTS = {
     "Novos": 1,
     "Novo": 1,
@@ -89,7 +88,6 @@ def load_data() -> pd.DataFrame:
     df["Quantidade"] = pd.to_numeric(df["Quantidade"], errors="coerce").fillna(0.0)
     df["Ano"] = pd.to_numeric(df["Ano"], errors="coerce").astype("Int64")
 
-    # MesNum SEMPRE criado aqui
     df["MesNum"] = pd.to_numeric(df["Mes"], errors="coerce").astype("Int64")
 
     df["Competencia"] = pd.to_datetime(
@@ -102,31 +100,19 @@ def load_data() -> pd.DataFrame:
 
 def compute_carteira_score(clientes_carteira: pd.DataFrame):
     """
-    Calcula o Índice de Saúde da Carteira (ISC) de 0 a 100 usando receita por status.
-
-    Lógica:
-      - Para cada cliente, define um "PesoReceita" = max(ValorAtual, ValorAnterior)
-      - Soma PesoReceita por StatusCarteira
-      - Converte em % da carteira (p_status)
-      - Aplica pesos (STATUS_WEIGHTS)
-      - Normaliza para 0–100:
-          ISC = (score_bruto + 2) / 4 * 100
-      - Regra extra: se churn de receita > 20%, não deixa o índice ficar em "Saudável"
+    Índice de Saúde da Carteira (ISC) 0–100 usando receita por status.
     """
     if clientes_carteira is None or clientes_carteira.empty:
         return 50.0, "Neutra"
 
     df = clientes_carteira.copy()
 
-    # Garantir colunas numéricas
     for col in ["ValorAtual", "ValorAnterior"]:
         df[col] = pd.to_numeric(df.get(col, 0.0), errors="coerce").fillna(0.0)
 
-    # Peso da receita de cada cliente = tamanho típico dele na carteira
     df["PesoReceita"] = df[["ValorAtual", "ValorAnterior"]].max(axis=1)
     df["PesoReceita"] = df["PesoReceita"].clip(lower=0)
 
-    # Soma por status
     if STATUS_COL not in df.columns:
         return 50.0, "Neutra"
 
@@ -136,35 +122,24 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
     if R_total <= 0:
         return 50.0, "Neutra"
 
-    # Score bruto ponderado pela receita de cada status
     score_bruto = 0.0
     for status, receita in receita_status.items():
         w = STATUS_WEIGHTS.get(str(status), 0)
         share = receita / R_total
         score_bruto += w * share
 
-    # Normaliza para 0–100
     isc = (score_bruto + 2) / 4 * 100
     isc = max(0.0, min(100.0, isc))
 
-    # --------- Regra extra: churn de receita ----------
-    # Considera como "base anterior" quem tinha ValorAnterior > 0
     base_anterior = df[df["ValorAnterior"] > 0].copy()
     base_total = float(base_anterior["PesoReceita"].sum())
-
-    # Receita perdida (status = Perdidos)
     perdidos_mask = df[STATUS_COL].astype(str).str.upper().isin(["PERDIDOS", "PERDIDO"])
     receita_perdida = float(df.loc[perdidos_mask, "PesoReceita"].sum())
+    churn_receita = receita_perdida / base_total if base_total > 0 else 0.0
 
-    churn_receita = 0.0
-    if base_total > 0:
-        churn_receita = receita_perdida / base_total
-
-    # Se churn > 20%, não permitir que a carteira seja classificada como "Saudável"
     if churn_receita > 0.20 and isc >= 70:
-        isc = 69.0  # força ficar no máximo em "Neutra/Atenção"
+        isc = 69.0
 
-    # --------- Traduz ISC em rótulo ----------
     if isc < 30:
         label = "Crítica"
     elif isc < 50:
@@ -199,11 +174,7 @@ def build_carteira_status(df_all: pd.DataFrame,
                           end_comp: pd.Timestamp) -> pd.DataFrame:
     """
     Calcula StatusCarteira (Novos / Perdidos / Crescendo / Caindo / Estáveis)
-    comparando o período selecionado com a JANELA ANTERIOR de mesmo tamanho.
-
-    Se rep == "Todos", considera TODOS os representantes.
-    Estado/Cidade vêm tanto do período atual quanto do anterior,
-    garantindo localização também para 'Perdidos'.
+    comparando o período selecionado com a janela anterior de mesmo tamanho.
     """
     if rep is None or rep == "Todos":
         df_rep_all = df_all.copy()
@@ -227,7 +198,6 @@ def build_carteira_status(df_all: pd.DataFrame,
     df_curr = df_rep_all.loc[mask_curr].copy()
     df_prev = df_rep_all.loc[mask_prev].copy()
 
-    # Período atual: Valor + localização
     curr_agg = (
         df_curr
         .groupby("Cliente", as_index=False)
@@ -243,7 +213,6 @@ def build_carteira_status(df_all: pd.DataFrame,
         })
     )
 
-    # Período anterior: Valor + localização
     prev_agg = (
         df_prev
         .groupby("Cliente", as_index=False)
@@ -259,20 +228,16 @@ def build_carteira_status(df_all: pd.DataFrame,
         })
     )
 
-    # Junta tudo
     clientes = pd.merge(curr_agg, prev_agg, on="Cliente", how="outer")
 
-    # ValorAtual / ValorAnterior
     clientes["ValorAtual"] = clientes["ValorAtual"].fillna(0.0)
     clientes["ValorAnterior"] = clientes["ValorAnterior"].fillna(0.0)
 
-    # Estado/Cidade: usa atual, se não tiver usa anterior
     clientes["Estado"] = clientes["EstadoAtual"].combine_first(clientes["EstadoAnterior"])
     clientes["Cidade"] = clientes["CidadeAtual"].combine_first(clientes["CidadeAnterior"])
     clientes["Estado"] = clientes["Estado"].fillna("")
     clientes["Cidade"] = clientes["Cidade"].fillna("")
 
-    # Classificação de status
     def classify(row):
         va = row["ValorAtual"]
         vp = row["ValorAnterior"]
@@ -291,11 +256,8 @@ def build_carteira_status(df_all: pd.DataFrame,
         return "Estáveis"
 
     clientes[STATUS_COL] = clientes.apply(classify, axis=1)
-
-    # Remove clientes sem movimento em nenhum dos dois períodos
     clientes = clientes[(clientes["ValorAtual"] > 0) | (clientes["ValorAnterior"] > 0)]
 
-    # Mantém somente colunas finais
     clientes = clientes[[
         "Cliente",
         "Estado",
@@ -383,7 +345,6 @@ if df.empty:
 # SIDEBAR – FILTROS
 # ==========================
 st.sidebar.title("Filtros – Deep Dive")
-
 st.sidebar.markdown("### Período")
 
 anos_disponiveis = sorted(df["Ano"].dropna().unique())
@@ -463,7 +424,7 @@ if df_period.empty:
     st.warning("Nenhuma venda no período selecionado.")
     st.stop()
 
-# Representantes disponíveis APENAS no período selecionado
+# Representantes disponíveis no período selecionado
 reps_period = sorted(df_period["Representante"].dropna().unique())
 if not reps_period:
     st.error("Não há representantes com vendas no período selecionado.")
@@ -472,7 +433,6 @@ if not reps_period:
 rep_options = ["Todos"] + reps_period
 rep_selected = st.sidebar.selectbox("Representante", rep_options)
 
-# df_rep = dados filtrados do período para o representante selecionado (ou todos)
 if rep_selected == "Todos":
     df_rep = df_period.copy()
 else:
@@ -652,7 +612,6 @@ st.markdown("---")
 # ==========================
 st.subheader("Mapa de Clientes")
 
-# session_state para lembrar a última cidade clicada
 if "selected_city_tooltip" not in st.session_state:
     st.session_state["selected_city_tooltip"] = None
 
@@ -687,7 +646,6 @@ else:
         if df_map.empty:
             st.info("Não há coordenadas de cidades para exibir no mapa.")
         else:
-            # Texto de tooltip para cada cidade
             df_map["Tooltip"] = (
                 df_map["Cidade_fat"].astype(str)
                 + " - "
@@ -719,10 +677,8 @@ else:
                     df_map["bin"] = 0
                     bins = [values.min(), values.max()]
 
-                # Invertido: vermelho = menor valor, verde = maior valor
                 colors = ["#ef4444", "#f97316", "#eab308", "#22c55e"]  # low → high
 
-                # monta legenda das cores (quartis)
                 legend_entries = []
                 if len(bins) > 1:
                     for i in range(len(bins) - 1):
@@ -740,7 +696,6 @@ else:
 
                 col_map, col_stats = st.columns([0.8, 1.2])
 
-                # ---------- MAPA ----------
                 with col_map:
                     center = [df_map["lat"].mean(), df_map["lon"].mean()]
                     m = folium.Map(location=center, zoom_start=5, tiles="cartodbpositron")
@@ -768,12 +723,11 @@ else:
                             fill_color=color,
                             fill_opacity=0.8,
                             popup=folium.Popup(popup_html, max_width=300),
-                            tooltip=row["Tooltip"],  # usado para identificar a cidade clicada
+                            tooltip=row["Tooltip"],
                         ).add_to(m)
 
                     map_data = st_folium(m, width=None, height=800)
 
-                    # legenda embaixo do mapa
                     if legend_entries:
                         legend_html = "<div style='font-size:0.8rem; margin-top:0.5rem;'>"
                         legend_html += f"<b>Legenda – {metric_label}</b><br>"
@@ -787,8 +741,6 @@ else:
                         legend_html += "</div>"
                         st.markdown(legend_html, unsafe_allow_html=True)
 
-                # ---------- COBERTURA + PRINCIPAIS CLIENTES + TABELA DA CIDADE ----------
-                # descobre qual cidade foi clicada (tooltip do último objeto clicado)
                 selected_label = None
                 if isinstance(map_data, dict):
                     selected_label = map_data.get("last_object_clicked_tooltip")
@@ -850,7 +802,6 @@ else:
 
                     st.markdown(html_top, unsafe_allow_html=True)
 
-                    # ---- TABELA DE CLIENTES DA CIDADE CLICADA ----
                     if selected_label:
                         row_city = df_map[df_map["Tooltip"] == selected_label].head(1)
                         if not row_city.empty:
@@ -881,7 +832,6 @@ else:
                                     f"**Clientes em {cidade_sel} - {estado_sel}**"
                                 )
 
-                                # CSS específico para a tabela da cidade
                                 city_clients_css = """
                                 <style>
                                 table.city-table {
@@ -894,12 +844,10 @@ else:
                                     font-size: 0.85rem;
                                     border-bottom: 1px solid rgba(255,255,255,0.08);
                                 }
-                                /* Cabeçalhos de Quantidade e Faturamento centralizados */
                                 table.city-table th:nth-child(2),
                                 table.city-table th:nth-child(3) {
                                     text-align: center;
                                 }
-                                /* Valores de todas as colunas alinhados à esquerda */
                                 table.city-table td {
                                     text-align: left;
                                 }
@@ -932,7 +880,6 @@ st.subheader("Distribuição por estados")
 if df_rep.empty:
     st.info("Não há vendas no período selecionado.")
 else:
-    # Agrega por estado (já filtrado pelo período e representante/Todos)
     estados_df = (
         df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]]
         .sum()
@@ -945,7 +892,6 @@ else:
     if total_valor_all <= 0:
         st.info("Não há faturamento para distribuir por estados nesse período.")
     else:
-        # mantém somente TOP 10 estados por faturamento
         estados_top = estados_df.head(10).copy()
 
         estados_top["ShareFat"] = estados_top["Valor"] / total_valor_all
@@ -955,7 +901,6 @@ else:
 
         col_e1, col_e2 = st.columns([1.3, 1])
 
-        # ---- Gráfico de barras por estado ----
         with col_e1:
             st.caption("Top 10 estados por faturamento – % do faturamento total")
 
@@ -982,13 +927,12 @@ else:
                     ],
                 )
                 .properties(
-                    height=max(440, 22 * len(estados_top))  # cresce se tiver muitos estados
+                    height=max(440, 22 * len(estados_top))  # altura maior
                 )
             )
 
             st.altair_chart(chart_est, width="stretch")
 
-        # ---- Tabela com valores e percentuais ----
         with col_e2:
             st.caption("Resumo – Top 10 estados")
 
@@ -1126,7 +1070,6 @@ else:
         )
         st.altair_chart(chart_clients, width="stretch")
 
-    # Pizza com todos os clientes, Top 10 destacados (Plotly 6.5 compatível)
     with col_dc2:
         st.caption("Participação dos clientes (Top 10 destacados)")
 
@@ -1259,115 +1202,115 @@ else:
             st.altair_chart(chart_pie, width="stretch")
 
     with col_table:
-    st.caption("Resumo por status")
-    status_counts_display = status_counts.copy()
-    status_counts_display["%Clientes"] = status_counts_display["%Clientes"].map(
-        lambda x: f"{x:.1%}"
-    )
-    status_counts_display["Faturamento"] = status_counts_display["Faturamento"].map(
-        format_brl
-    )
+        st.caption("Resumo por status")
+        status_counts_display = status_counts.copy()
+        status_counts_display["%Clientes"] = status_counts_display["%Clientes"].map(
+            lambda x: f"{x:.1%}"
+        )
+        status_counts_display["Faturamento"] = status_counts_display["Faturamento"].map(
+            format_brl
+        )
 
-    status_counts_display = status_counts_display[
-        ["Status", "QtdClientes", "%Clientes", "Faturamento"]
-    ]
-
-    st.dataframe(
-        status_counts_display,
-        hide_index=True,
-        width="stretch",
-    )
-
-    # Observação abaixo da tabela
-    st.markdown(
-        (
-            f"<span style='font-size:0.8rem;opacity:0.8;'>"
-            f"<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento "
-            f"entre o período atual (<b>{current_period_label}</b>) e o período anterior "
-            f"(<b>{previous_period_label}</b>). Valores positivos indicam crescimento; "
-            f"valores negativos indicam queda.</span>"
-        ),
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("### Status dos clientes")
-
-# campo de busca
-search_cliente = st.text_input(
-    "Buscar cliente",
-    value="",
-    placeholder="Digite parte do nome do cliente",
-)
-
-table_css = """
-<style>
-table.status-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 0.75rem;
-}
-table.status-table col:nth-child(1) { width: 30%; }
-table.status-table col:nth-child(2) { width: 10%; }
-table.status-table col:nth-child(3) { width: 15%; }
-table.status-table col:nth-child(4) { width: 10%; }
-table.status-table col:nth-child(5) { width: 17.5%; }
-table.status-table col:nth-child(6) { width: 17.5%; }
-
-table.status-table th,
-table.status-table td {
-    padding: 0.2rem 0.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    font-size: 0.85rem;
-    text-align: left;
-}
-table.status-table th {
-    font-weight: 600;
-}
-</style>
-"""
-st.markdown(table_css, unsafe_allow_html=True)
-
-ordered_statuses = STATUS_ORDER
-
-for status_name in ordered_statuses:
-    df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
-
-    # aplica filtro por cliente, se preenchido
-    if search_cliente:
-        df_status = df_status[
-            df_status["Cliente"]
-            .astype(str)
-            .str.contains(search_cliente, case=False, na=False)
+        status_counts_display = status_counts_display[
+            ["Status", "QtdClientes", "%Clientes", "Faturamento"]
         ]
 
-    if df_status.empty:
-        continue
+        st.dataframe(
+            status_counts_display,
+            hide_index=True,
+            width="stretch",
+        )
 
-    df_status["FaturamentoAtualFmt"] = df_status["ValorAtual"].map(format_brl)
-    df_status["FaturamentoAnteriorFmt"] = df_status["ValorAnterior"].map(format_brl)
+        st.markdown(
+            (
+                f"<span style='font-size:0.8rem;opacity:0.8;'>"
+                f"<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento "
+                f"entre o período atual (<b>{current_period_label}</b>) e o período anterior "
+                f"(<b>{previous_period_label}</b>). Valores positivos indicam crescimento; "
+                f"valores negativos indicam queda.</span>"
+            ),
+            unsafe_allow_html=True,
+        )
 
-    df_status = df_status.sort_values("ValorAtual", ascending=False)
+    # ==========================
+    # STATUS DOS CLIENTES (LISTAS)
+    # ==========================
+    st.markdown("### Status dos clientes")
 
-    display_df = df_status[
-        ["Cliente", "Estado", "Cidade", STATUS_COL,
-         "FaturamentoAtualFmt", "FaturamentoAnteriorFmt"]
-    ].rename(
-        columns={
-            STATUS_COL: "Status",
-            "FaturamentoAtualFmt": f"Faturamento {current_period_label}",
-            "FaturamentoAnteriorFmt": f"Faturamento {previous_period_label}",
-        }
+    search_cliente = st.text_input(
+        "Buscar cliente",
+        value="",
+        placeholder="Digite parte do nome do cliente",
     )
 
-    cols_status = list(display_df.columns)
+    table_css = """
+    <style>
+    table.status-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 0.75rem;
+    }
+    table.status-table col:nth-child(1) { width: 30%; }
+    table.status-table col:nth-child(2) { width: 10%; }
+    table.status-table col:nth-child(3) { width: 15%; }
+    table.status-table col:nth-child(4) { width: 10%; }
+    table.status-table col:nth-child(5) { width: 17.5%; }
+    table.status-table col:nth-child(6) { width: 17.5%; }
 
-    html_status = "<h5>" + status_name + "</h5>"
-    html_status += "<table class='status-table'><colgroup>"
-    html_status += "<col><col><col><col><col><col></colgroup><thead><tr>"
-    html_status += "".join(f"<th>{c}</th>" for c in cols_status)
-    html_status += "</tr></thead><tbody>"
-    for _, row in display_df.iterrows():
-        html_status += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_status) + "</tr>"
-    html_status += "</tbody></table>"
+    table.status-table th,
+    table.status-table td {
+        padding: 0.2rem 0.5rem;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        font-size: 0.85rem;
+        text-align: left;
+    }
+    table.status-table th {
+        font-weight: 600;
+    }
+    </style>
+    """
+    st.markdown(table_css, unsafe_allow_html=True)
 
-    st.markdown(html_status, unsafe_allow_html=True)
+    ordered_statuses = STATUS_ORDER
+
+    for status_name in ordered_statuses:
+        df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
+
+        if search_cliente:
+            df_status = df_status[
+                df_status["Cliente"]
+                .astype(str)
+                .str.contains(search_cliente, case=False, na=False)
+            ]
+
+        if df_status.empty:
+            continue
+
+        df_status["FaturamentoAtualFmt"] = df_status["ValorAtual"].map(format_brl)
+        df_status["FaturamentoAnteriorFmt"] = df_status["ValorAnterior"].map(format_brl)
+
+        df_status = df_status.sort_values("ValorAtual", ascending=False)
+
+        display_df = df_status[
+            ["Cliente", "Estado", "Cidade", STATUS_COL,
+             "FaturamentoAtualFmt", "FaturamentoAnteriorFmt"]
+        ].rename(
+            columns={
+                STATUS_COL: "Status",
+                "FaturamentoAtualFmt": f"Faturamento {current_period_label}",
+                "FaturamentoAnteriorFmt": f"Faturamento {previous_period_label}",
+            }
+        )
+
+        cols_status = list(display_df.columns)
+
+        html_status = "<h5>" + status_name + "</h5>"
+        html_status += "<table class='status-table'><colgroup>"
+        html_status += "<col><col><col><col><col><col></colgroup><thead><tr>"
+        html_status += "".join(f"<th>{c}</th>" for c in cols_status)
+        html_status += "</tr></thead><tbody>"
+        for _, row in display_df.iterrows():
+            html_status += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_status) + "</tr>"
+        html_status += "</tbody></table>"
+
+        st.markdown(html_status, unsafe_allow_html=True)
