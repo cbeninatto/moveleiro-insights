@@ -1259,24 +1259,36 @@ else:
             st.altair_chart(chart_pie, width="stretch")
 
     with col_table:
-        st.caption("Resumo por status")
-        status_counts_display = status_counts.copy()
-        status_counts_display["%Clientes"] = status_counts_display["%Clientes"].map(
-            lambda x: f"{x:.1%}"
-        )
-        status_counts_display["Faturamento"] = status_counts_display["Faturamento"].map(
-            format_brl
-        )
+    st.caption("Resumo por status")
+    status_counts_display = status_counts.copy()
+    status_counts_display["%Clientes"] = status_counts_display["%Clientes"].map(
+        lambda x: f"{x:.1%}"
+    )
+    status_counts_display["Faturamento"] = status_counts_display["Faturamento"].map(
+        format_brl
+    )
 
-        status_counts_display = status_counts_display[
-            ["Status", "QtdClientes", "%Clientes", "Faturamento"]
-        ]
+    status_counts_display = status_counts_display[
+        ["Status", "QtdClientes", "%Clientes", "Faturamento"]
+    ]
 
-        st.dataframe(
-            status_counts_display,
-            hide_index=True,
-            width="stretch",
-        )
+    st.dataframe(
+        status_counts_display,
+        hide_index=True,
+        width="stretch",
+    )
+
+    # Observação abaixo da tabela
+    st.markdown(
+        (
+            f"<span style='font-size:0.8rem;opacity:0.8;'>"
+            f"<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento "
+            f"entre o período atual (<b>{current_period_label}</b>) e o período anterior "
+            f"(<b>{previous_period_label}</b>). Valores positivos indicam crescimento; "
+            f"valores negativos indicam queda.</span>"
+        ),
+        unsafe_allow_html=True,
+    )
 
     st.markdown("### Status dos clientes")
 
