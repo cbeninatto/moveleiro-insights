@@ -556,7 +556,7 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 st.title("Resumo de Venda - Moveleiro")
 
 if rep_selected == "Todos":
-    titulo_rep = "Todos os representantes"
+    titulo_rep = "Todos"
 else:
     titulo_rep = rep_selected
 
