@@ -553,7 +553,7 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 # ==========================
 # HEADER
 # ==========================
-st.title("Deep Dive – Representante")
+st.title("Resumo de Venda - Moveleiro")
 
 if rep_selected == "Todos":
     titulo_rep = "Todos os representantes"
