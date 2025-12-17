@@ -7,7 +7,7 @@ import plotly.express as px
 import math
 import io
 
-# Tentativa de importar reportlab para gerar PDF
+# Tentativa de importar reportlab (não usamos mais no layout, mas deixo aqui se você quiser reaproveitar no futuro)
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -26,6 +26,38 @@ st.set_page_config(
     page_title="Nova Visão – Deep Dive",
     layout="wide",
     initial_sidebar_state="collapsed",
+)
+
+# CSS para impressão (A4) e quebras de página
+st.markdown(
+    """
+<style>
+@page {
+  size: A4 portrait;
+  margin: 1.5cm;
+}
+
+@media print {
+
+  html, body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Esconde sidebar e headers na impressão */
+  [data-testid="stSidebar"], header, footer {
+      display: none !important;
+  }
+
+  /* Quebra de página manual */
+  .page-break {
+      break-before: page;
+      page-break-before: always;
+  }
+}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
 # CSV direto do GitHub
@@ -66,8 +98,8 @@ MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]  # verde, amarelo,
 
 def build_dynamic_bins(values, is_valor: bool):
     """
-    Gera 4 faixas (bins) com cores e rótulos, baseadas em quartis,
-    inspirado no mapa HTML original.
+    Gera 4 faixas (bins) com cores e rótulos, baseadas em quartis.
+    Inspirado no mapa HTML original.
     """
     cleaned = [
         float(v) for v in values
@@ -387,211 +419,6 @@ def build_carteira_status(df_all: pd.DataFrame,
     return clientes
 
 
-def build_pdf_overview(
-    rep_name,
-    current_period_label,
-    previous_period_label,
-    total_rep,
-    media_mensal,
-    hhi_label_short,
-    n80_count,
-    clientes_atendidos,
-    cidades_atendidas,
-    estados_atendidos,
-    carteira_score,
-    carteira_label,
-    destaques_info,
-    df_top_cities_pdf,
-    estados_top_pdf,
-    df_top_clients_pdf,
-    status_counts_display_pdf,
-    clientes_carteira_pdf,
-):
-    """Gera PDF em 3 páginas, seguindo o layout pedido."""
-    if not REPORTLAB_AVAILABLE or A4 is None or canvas is None:
-        return None
-
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-    x_margin = 2 * cm
-    y = height - 2 * cm
-
-    def line(text, size=10, bold=False, spacing=0.5 * cm):
-        """Escreve uma linha e gerencia quebra de página."""
-        nonlocal y
-        if y < 2 * cm:
-            c.showPage()
-            y = height - 2 * cm
-        c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-        c.drawString(x_margin, y, str(text))
-        y -= spacing
-
-    # ========== PAGE 1 ==========
-    line("Nova Visão – Deep Dive", size=16, bold=True, spacing=0.8 * cm)
-    line(f"Representante: {rep_name}", size=11)
-    line(f"Período atual: {current_period_label}", size=10)
-    line(f"Período anterior: {previous_period_label}", size=10)
-    y -= 0.4 * cm
-
-    # Métricas principais
-    line("Métricas principais", size=12, bold=True, spacing=0.7 * cm)
-    line(f"- Total período: {format_brl(total_rep)}")
-    line(f"- Média mensal: {format_brl(media_mensal)}")
-    line(f"- Clientes atendidos: {clientes_atendidos}")
-    line(f"- Cidades atendidas: {cidades_atendidas}")
-    line(f"- Estados atendidos: {estados_atendidos}")
-    line(f"- Distribuição por clientes (HHI): {hhi_label_short} (N80: {n80_count} clientes)")
-    line(f"- Saúde da carteira (ISC): {carteira_score:.0f}/100 – {carteira_label}")
-    y -= 0.5 * cm
-
-    # Destaques do período
-    line("Destaques do período", size=12, bold=True, spacing=0.7 * cm)
-    if destaques_info:
-        bf = destaques_info.get("best_fat", {})
-        wf = destaques_info.get("worst_fat", {})
-        bv = destaques_info.get("best_vol", {})
-        wv = destaques_info.get("worst_vol", {})
-        if bf:
-            line(f"- Melhor mês de faturamento: {bf.get('mes', '')} – {format_brl(bf.get('valor', 0.0))}")
-        if wf:
-            line(f"- Pior mês de faturamento: {wf.get('mes', '')} – {format_brl(wf.get('valor', 0.0))}")
-        if bv:
-            line(f"- Melhor mês de volume: {bv.get('mes', '')} – {int(bv.get('qtd', 0))} un.")
-        if wv:
-            line(f"- Pior mês de volume: {wv.get('mes', '')} – {int(wv.get('qtd', 0))} un.")
-    else:
-        line("- Sem destaques calculados.")
-    y -= 0.5 * cm
-
-    # Mapa de Clientes
-    line("Mapa de Clientes", size=12, bold=True, spacing=0.7 * cm)
-    line(f"- Cobertura: {cidades_atendidas} cidades em {estados_atendidos} estados.")
-    line(f"- Clientes únicos atendidos: {clientes_atendidos}")
-    if df_top_cities_pdf is not None and not df_top_cities_pdf.empty:
-        line("- Principais cidades por faturamento:", size=10, bold=False, spacing=0.5 * cm)
-        for _, row in df_top_cities_pdf.iterrows():
-            cidade = str(row.get("Cidade", ""))
-            estado = str(row.get("Estado", ""))
-            valor = float(row.get("Valor", 0.0))
-            line(f"  • {cidade} - {estado}: {format_brl(valor)}", size=9, spacing=0.35 * cm)
-    else:
-        line("- Não foi possível listar as principais cidades.", size=9)
-    y -= 0.3 * cm
-
-    # Distribuição por estados
-    line("Distribuição por estados", size=12, bold=True, spacing=0.7 * cm)
-    if estados_top_pdf is not None and not estados_top_pdf.empty:
-        line("Top estados por faturamento:", size=10, bold=False, spacing=0.5 * cm)
-        for _, row in estados_top_pdf.iterrows():
-            estado = str(row.get("Estado", ""))
-            valor = float(row.get("Valor", 0.0))
-            share = float(row.get("ShareFat", 0.0))
-            line(
-                f"  • {estado}: {format_brl(valor)} ({share*100:.1f}% do faturamento)",
-                size=9,
-                spacing=0.35 * cm,
-            )
-    else:
-        line("- Sem dados de estados para o período.", size=9)
-
-    # Quebra de página
-    c.showPage()
-    y = height - 2 * cm
-
-    # ========== PAGE 2 ==========
-    # Evolução – Faturamento x Volume
-    line("Evolução – Faturamento x Volume", size=12, bold=True, spacing=0.8 * cm)
-    line(
-        "Resumo numérico da evolução (o gráfico completo está disponível no dashboard interativo).",
-        size=9,
-        spacing=0.5 * cm,
-    )
-    if destaques_info:
-        bf = destaques_info.get("best_fat", {})
-        wf = destaques_info.get("worst_fat", {})
-        line(f"- Melhor mês de faturamento: {bf.get('mes', '')} – {format_brl(bf.get('valor', 0.0))}", size=9)
-        line(f"- Pior mês de faturamento: {wf.get('mes', '')} – {format_brl(wf.get('valor', 0.0))}", size=9)
-    line(f"- Total período: {format_brl(total_rep)}", size=9)
-    line(f"- Média mensal: {format_brl(media_mensal)}", size=9)
-    y -= 0.5 * cm
-
-    # Distribuição por clientes
-    line("Distribuição por clientes", size=12, bold=True, spacing=0.7 * cm)
-    line(f"- N80: {n80_count} clientes para atingir ~80% do faturamento.", size=9)
-    line(f"- Índice de concentração (HHI): {hhi_label_short}", size=9)
-    line(f"- Top 1 cliente: participação relevante no faturamento.", size=9)
-    line(f"- Top 3 clientes: concentração importante para monitorar.", size=9)
-    line(f"- Top 10 clientes: análise de dependência de grandes contas.", size=9)
-    y -= 0.5 * cm
-
-    # Saúde da carteira – Detalhes
-    line("Saúde da carteira – Detalhes", size=12, bold=True, spacing=0.7 * cm)
-    line(
-        f"- Índice de Saúde da Carteira (ISC): {carteira_score:.0f}/100 – {carteira_label}",
-        size=9,
-    )
-    if status_counts_display_pdf is not None and not status_counts_display_pdf.empty:
-        line("Resumo por status:", size=10, bold=False, spacing=0.5 * cm)
-        for _, row in status_counts_display_pdf.iterrows():
-            status = str(row.get("Status", ""))
-            qtd = int(row.get("QtdClientes", 0))
-            pct = str(row.get("%Clientes", ""))
-            fat = str(row.get("Faturamento", ""))
-            line(
-                f"  • {status}: {qtd} clientes ({pct}), variação de faturamento: {fat}",
-                size=9,
-                spacing=0.35 * cm,
-            )
-        line(
-            f"Obs.: 'Faturamento' representa a diferença entre {current_period_label} e {previous_period_label}.",
-            size=8,
-            spacing=0.5 * cm,
-        )
-    else:
-        line("- Não há dados de status consolidados.", size=9)
-
-    # Quebra de página
-    c.showPage()
-    y = height - 2 * cm
-
-    # ========== PAGE 3 ==========
-    line("Status dos clientes", size=12, bold=True, spacing=0.7 * cm)
-    if clientes_carteira_pdf is None or clientes_carteira_pdf.empty:
-        line("Sem clientes com movimento para detalhar.", size=9)
-    else:
-        clientes = clientes_carteira_pdf.copy()
-        clientes["ValorAtual"] = pd.to_numeric(clientes["ValorAtual"], errors="coerce").fillna(0.0)
-        clientes["ValorAnterior"] = pd.to_numeric(clientes["ValorAnterior"], errors="coerce").fillna(0.0)
-
-        clientes["Status"] = clientes[STATUS_COL].astype(str)
-        clientes["Status"] = pd.Categorical(clientes["Status"], categories=STATUS_ORDER, ordered=True)
-        clientes = clientes.sort_values(["Status", "Cliente"])
-
-        for status in STATUS_ORDER:
-            sub = clientes[clientes["Status"] == status]
-            if sub.empty:
-                continue
-            line(status, size=11, bold=True, spacing=0.6 * cm)
-            for _, row in sub.iterrows():
-                cliente = str(row.get("Cliente", ""))
-                cidade = str(row.get("Cidade", ""))
-                estado = str(row.get("Estado", ""))
-                va = format_brl(row.get("ValorAtual", 0.0))
-                vp = format_brl(row.get("ValorAnterior", 0.0))
-                text = (
-                    f"- {cliente} ({cidade} - {estado}) | "
-                    f"{current_period_label}: {va} | "
-                    f"{previous_period_label}: {vp}"
-                )
-                line(text, size=8, spacing=0.4 * cm)
-
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-    return buffer.getvalue()
-
-
 @st.cache_data(show_spinner=True)
 def load_geo() -> pd.DataFrame:
     df_geo = pd.read_csv(CITY_GEO_CSV_URL, sep=None, engine="python")
@@ -760,7 +587,7 @@ if rep_selected == "Todos":
 else:
     df_rep = df_period[df_period["Representante"] == rep_selected].copy()
 
-# Variáveis auxiliares para PDF
+# Variáveis auxiliares (se quiser reaproveitar depois para PDF estático)
 df_top_clients_pdf = None
 estados_top_pdf = None
 status_counts_display_pdf = None
@@ -1109,7 +936,7 @@ else:
                         ["Cliente", "Cidade", "Estado", "Faturamento"]
                     ]
 
-                    # para PDF: usar top 10 (mais compacto)
+                    # para possível uso futuro (PDF): top 10
                     df_top_clients_pdf = df_top_clients.head(10).copy()
 
                     clientes_table_css = """
@@ -1241,7 +1068,7 @@ else:
             estados_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
         )
 
-        # para PDF
+        # para possível uso futuro (PDF)
         estados_top_pdf = estados_top.copy()
 
         col_e1, col_e2 = st.columns([1.3, 1])
@@ -1301,6 +1128,9 @@ else:
             )
 
 st.markdown("---")
+
+# ========= QUEBRA DE PÁGINA 1 → 2 (para impressão) =========
+st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
 
 # ==========================
 # EVOLUÇÃO – FATURAMENTO x VOLUME
@@ -1560,7 +1390,7 @@ else:
             ["Status", "QtdClientes", "%Clientes", "Faturamento"]
         ]
 
-        # snapshot para PDF
+        # snapshot para uso futuro se necessário
         status_counts_display_pdf = status_counts_display.copy()
 
         st.dataframe(
@@ -1579,6 +1409,9 @@ else:
             ),
             unsafe_allow_html=True,
         )
+
+    # ========= QUEBRA DE PÁGINA 2 → 3 (para impressão) =========
+    st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
 
     # ==========================
     # STATUS DOS CLIENTES (LISTAS)
@@ -1664,48 +1497,3 @@ else:
         st.markdown(html_status, unsafe_allow_html=True)
 
 st.markdown("---")
-
-# ==========================
-# EXPORTAR RELATÓRIO
-# ==========================
-st.subheader("Exportar relatório")
-
-if not REPORTLAB_AVAILABLE:
-    st.info(
-        "Para exportar o relatório em PDF, adicione `reportlab` ao arquivo "
-        "`requirements.txt` do projeto e faça o deploy novamente."
-    )
-else:
-    pdf_bytes = build_pdf_overview(
-        rep_name=titulo_rep,
-        current_period_label=current_period_label,
-        previous_period_label=previous_period_label,
-        total_rep=total_rep,
-        media_mensal=media_mensal,
-        hhi_label_short=hhi_label_short,
-        n80_count=n80_count,
-        clientes_atendidos=clientes_atendidos,
-        cidades_atendidas=cidades_atendidas,
-        estados_atendidos=estados_atendidos,
-        carteira_score=carteira_score,
-        carteira_label=carteira_label,
-        destaques_info=destaques_info,
-        df_top_cities_pdf=df_top_cities_pdf,
-        estados_top_pdf=estados_top_pdf,
-        df_top_clients_pdf=df_top_clients_pdf,
-        status_counts_display_pdf=status_counts_display_pdf,
-        clientes_carteira_pdf=clientes_carteira,
-    )
-
-    if pdf_bytes is None:
-        st.info(
-            "Não foi possível gerar o PDF. Verifique se a biblioteca `reportlab` "
-            "está instalada no ambiente."
-        )
-    else:
-        st.download_button(
-            "📄 Baixar relatório em PDF",
-            data=pdf_bytes,
-            file_name="deep_dive_relatorio.pdf",
-            mime="application/pdf",
-        )
