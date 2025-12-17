@@ -858,7 +858,7 @@ else:
                         df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)["Valor"]
                         .sum()
                         .sort_values("Valor", ascending=False)
-                        .head(10)
+                        .head(15)
                     )
                     df_top_clients["Faturamento"] = df_top_clients["Valor"].map(format_brl)
                     df_top_display = df_top_clients[
