@@ -5,6 +5,19 @@ import folium
 from streamlit_folium import st_folium
 import plotly.express as px
 import math
+import io
+
+# Tentativa de importar reportlab para gerar PDF
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import cm
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    A4 = None
+    canvas = None
+    cm = 1
 
 # ==========================
 # CONFIG
@@ -377,6 +390,108 @@ def build_carteira_status(df_all: pd.DataFrame,
     return clientes
 
 
+def build_pdf_overview(
+    rep_name,
+    current_period_label,
+    previous_period_label,
+    total_rep,
+    media_mensal,
+    hhi_label_short,
+    n80_count,
+    clientes_atendidos,
+    carteira_score,
+    carteira_label,
+    df_top_clients_pdf,
+    estados_top_pdf,
+    status_counts_display_pdf,
+):
+    """Gera um PDF-resumo do deep dive. Retorna bytes do PDF ou None se não for possível."""
+    if not REPORTLAB_AVAILABLE or A4 is None or canvas is None:
+        return None
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    x_margin = 2 * cm
+    y = height - 2 * cm
+
+    def line(text: str, size: int = 10, bold: bool = False, spacing: float = 0.5 * cm):
+        nonlocal y
+        if y < 2 * cm:
+            c.showPage()
+            y = height - 2 * cm
+        c.setFont("Helvetica-Bold" if bold else "Helvetica", size)
+        c.drawString(x_margin, y, text)
+        y -= spacing
+
+    # Cabeçalho
+    line("Relatório Deep Dive – Nova Visão", size=14, bold=True, spacing=0.7 * cm)
+    line(f"Representante: {rep_name}", size=11)
+    line(f"Período atual: {current_period_label}", size=10)
+    line(f"Período anterior: {previous_period_label}", size=10)
+    y -= 0.3 * cm
+
+    # Resumo geral
+    line("Resumo geral", size=11, bold=True, spacing=0.6 * cm)
+    line(f"Total período: {format_brl(total_rep)}")
+    line(f"Média mensal: {format_brl(media_mensal)}")
+    line(f"Clientes atendidos: {clientes_atendidos}")
+    line(f"Distribuição por clientes (HHI): {hhi_label_short} (N80: {n80_count})")
+    line(f"Saúde da carteira (ISC): {carteira_score:.0f}/100 – {carteira_label}")
+    y -= 0.3 * cm
+
+    # Top clientes
+    if df_top_clients_pdf is not None and not df_top_clients_pdf.empty:
+        line("Top clientes por faturamento", size=11, bold=True, spacing=0.6 * cm)
+        for _, row in df_top_clients_pdf.iterrows():
+            cliente = str(row.get("Cliente", ""))
+            cidade = str(row.get("Cidade", ""))
+            estado = str(row.get("Estado", ""))
+            valor = float(row.get("Valor", 0.0))
+            line(
+                f"- {cliente} ({cidade} - {estado}): {format_brl(valor)}",
+                size=9,
+                spacing=0.35 * cm,
+            )
+        y -= 0.2 * cm
+
+    # Top estados
+    if estados_top_pdf is not None and not estados_top_pdf.empty:
+        line("Top estados por faturamento", size=11, bold=True, spacing=0.6 * cm)
+        for _, row in estados_top_pdf.iterrows():
+            estado = str(row.get("Estado", ""))
+            valor = float(row.get("Valor", 0.0))
+            share = float(row.get("ShareFat", 0.0))
+            line(
+                f"- {estado}: {format_brl(valor)} ({share*100:.1f}% do faturamento)",
+                size=9,
+                spacing=0.35 * cm,
+            )
+        y -= 0.2 * cm
+
+    # Resumo por status
+    if status_counts_display_pdf is not None and not status_counts_display_pdf.empty:
+        c.showPage()
+        y = height - 2 * cm
+        line("Resumo por status da carteira", size=11, bold=True, spacing=0.6 * cm)
+
+        for _, row in status_counts_display_pdf.iterrows():
+            status = str(row.get("Status", ""))
+            qtd = int(row.get("QtdClientes", 0))
+            pct = str(row.get("%Clientes", ""))
+            fat = str(row.get("Faturamento", ""))
+            line(
+                f"- {status}: {qtd} clientes ({pct}), variação de faturamento: {fat}",
+                size=9,
+                spacing=0.35 * cm,
+            )
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 @st.cache_data(show_spinner=True)
 def load_geo() -> pd.DataFrame:
     df_geo = pd.read_csv(CITY_GEO_CSV_URL, sep=None, engine="python")
@@ -545,6 +660,11 @@ if rep_selected == "Todos":
 else:
     df_rep = df_period[df_period["Representante"] == rep_selected].copy()
 
+# Variáveis auxiliares para PDF
+df_top_clients_pdf = None
+estados_top_pdf = None
+status_counts_display_pdf = None
+
 # ==========================
 # CALCULA STATUS DA CARTEIRA
 # ==========================
@@ -553,10 +673,10 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 # ==========================
 # HEADER
 # ==========================
-st.title("Resumo de Venda - Moveleiro")
+st.title("Deep Dive – Representante")
 
 if rep_selected == "Todos":
-    titulo_rep = "Todos"
+    titulo_rep = "Todos os representantes"
 else:
     titulo_rep = rep_selected
 
@@ -858,12 +978,15 @@ else:
                         df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)["Valor"]
                         .sum()
                         .sort_values("Valor", ascending=False)
-                        .head(15)
+                        .head(15)  # 15 linhas
                     )
                     df_top_clients["Faturamento"] = df_top_clients["Valor"].map(format_brl)
                     df_top_display = df_top_clients[
                         ["Cliente", "Cidade", "Estado", "Faturamento"]
                     ]
+
+                    # para PDF: usar top 10 (mais compacto)
+                    df_top_clients_pdf = df_top_clients.head(10).copy()
 
                     clientes_table_css = """
                     <style>
@@ -993,6 +1116,9 @@ else:
         estados_top["ShareVol"] = (
             estados_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
         )
+
+        # para PDF
+        estados_top_pdf = estados_top.copy()
 
         col_e1, col_e2 = st.columns([1.3, 1])
 
@@ -1310,6 +1436,9 @@ else:
             ["Status", "QtdClientes", "%Clientes", "Faturamento"]
         ]
 
+        # snapshot para PDF
+        status_counts_display_pdf = status_counts_display.copy()
+
         st.dataframe(
             status_counts_display,
             hide_index=True,
@@ -1409,3 +1538,45 @@ else:
         html_status += "</tbody></table>"
 
         st.markdown(html_status, unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ==========================
+# EXPORTAR RELATÓRIO
+# ==========================
+st.subheader("Exportar relatório")
+
+if not REPORTLAB_AVAILABLE:
+    st.info(
+        "Para exportar o relatório em PDF, adicione `reportlab` ao arquivo "
+        "`requirements.txt` do projeto e faça o deploy novamente."
+    )
+else:
+    pdf_bytes = build_pdf_overview(
+        rep_name=titulo_rep,
+        current_period_label=current_period_label,
+        previous_period_label=previous_period_label,
+        total_rep=total_rep,
+        media_mensal=media_mensal,
+        hhi_label_short=hhi_label_short,
+        n80_count=n80_count,
+        clientes_atendidos=clientes_atendidos,
+        carteira_score=carteira_score,
+        carteira_label=carteira_label,
+        df_top_clients_pdf=df_top_clients_pdf,
+        estados_top_pdf=estados_top_pdf,
+        status_counts_display_pdf=status_counts_display_pdf,
+    )
+
+    if pdf_bytes is None:
+        st.info(
+            "Não foi possível gerar o PDF. Verifique se a biblioteca `reportlab` "
+            "está instalada no ambiente."
+        )
+    else:
+        st.download_button(
+            "📄 Baixar relatório em PDF",
+            data=pdf_bytes,
+            file_name="deep_dive_relatorio.pdf",
+            mime="application/pdf",
+        )
