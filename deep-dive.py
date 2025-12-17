@@ -4,7 +4,7 @@ import altair as alt
 import folium
 from streamlit_folium import st_folium
 import plotly.express as px
-import math  # <-- add this
+import math
 
 # ==========================
 # CONFIG
@@ -12,8 +12,9 @@ import math  # <-- add this
 st.set_page_config(
     page_title="Nova Visão – Deep Dive",
     layout="wide",
-    initial_sidebar_state="collapsed",  # <-- add this line
+    initial_sidebar_state="collapsed",
 )
+
 # CSV direto do GitHub
 GITHUB_CSV_URL = (
     "https://raw.githubusercontent.com/"
@@ -43,6 +44,111 @@ STATUS_WEIGHTS = {
 }
 
 STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
+
+# ==========================
+# MAP BINNING (match dashboard_deep_dive_map.html)
+# ==========================
+# Ordem dos bins: maior valor → menor valor
+MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]  # verde, amarelo, laranja, vermelho
+
+
+def build_dynamic_bins(values, is_valor: bool):
+    """
+    Replica aproximada da função JS buildDynamicBins do dashboard_deep_dive_map.html.
+    Gera 4 faixas (bins) com cores e rótulos, baseadas em quartis.
+    """
+    cleaned = [
+        float(v) for v in values
+        if pd.notna(v) and float(v) >= 0
+    ]
+    cleaned.sort()
+
+    def fmt(v: float) -> str:
+        if is_valor:
+            # "R$ 1.234.567"
+            return "R$ " + f"{v:,.0f}".replace(",", ".")
+        else:
+            # "12.345"
+            return f"{int(round(v)):,}".replace(",", ".")
+
+    # Nenhum valor válido
+    if not cleaned:
+        if is_valor:
+            return [
+                {"min": 1_000_000, "color": MAP_BIN_COLORS[0], "label": "R$ 1.000.000+"},
+                {"min": 500_000,   "color": MAP_BIN_COLORS[1], "label": "R$ 500.000 - 999.999"},
+                {"min": 250_000,   "color": MAP_BIN_COLORS[2], "label": "R$ 250.000 - 499.999"},
+                {"min": 0,         "color": MAP_BIN_COLORS[3], "label": "R$ 0 - 249.999"},
+            ]
+        else:
+            return [
+                {"min": 10_000, "color": MAP_BIN_COLORS[0], "label": "10.000+"},
+                {"min": 5_000,  "color": MAP_BIN_COLORS[1], "label": "5.000 - 9.999"},
+                {"min": 2_500,  "color": MAP_BIN_COLORS[2], "label": "2.500 - 4.999"},
+                {"min": 0,      "color": MAP_BIN_COLORS[3], "label": "0 - 2.499"},
+            ]
+
+    n = len(cleaned)
+    min_val = cleaned[0]
+    max_val = cleaned[-1]
+
+    # Caso todos valores sejam iguais
+    if min_val == max_val:
+        label_single = fmt(min_val)
+        color = MAP_BIN_COLORS[0]
+        return [
+            {"min": min_val, "color": color, "label": label_single},
+            {"min": min_val, "color": color, "label": label_single},
+            {"min": min_val, "color": color, "label": label_single},
+            {"min": 0,       "color": color, "label": label_single},
+        ]
+
+    def idx(p: float) -> int:
+        # mesmo conceito: índice de percentil aproximado
+        return int(math.floor(p * (n - 1)))
+
+    q1 = cleaned[idx(0.25)]
+    q2 = cleaned[idx(0.5)]
+    q3 = cleaned[idx(0.75)]
+
+    t0 = max(0, min_val)
+    t1 = max(t0, q1)
+    t2 = max(t1, q2)
+    t3 = max(t2, q3)
+
+    # Lista em ordem do maior valor para o menor
+    return [
+        {
+            "min": t3,
+            "color": MAP_BIN_COLORS[0],
+            "label": f"{fmt(t3)}+",
+        },
+        {
+            "min": t2,
+            "color": MAP_BIN_COLORS[1],
+            "label": f"{fmt(t2)} - {fmt(t3)}",
+        },
+        {
+            "min": t1,
+            "color": MAP_BIN_COLORS[2],
+            "label": f"{fmt(t1)} - {fmt(t2)}",
+        },
+        {
+            "min": t0,
+            "color": MAP_BIN_COLORS[3],
+            "label": f"{fmt(t0)} - {fmt(t1)}",
+        },
+    ]
+
+
+def get_bin_for_value(v: float, bins):
+    """Retorna o primeiro bin cujo min <= v (mesma ideia do getMetricBin do HTML)."""
+    if not bins:
+        return None
+    for b in bins:
+        if v >= b["min"]:
+            return b
+    return bins[-1]
 
 
 # ==========================
@@ -669,31 +775,20 @@ else:
             if df_map[metric_col].max() <= 0:
                 st.info("Sem dados para exibir no mapa nesse período.")
             else:
-                values = df_map[metric_col]
-                try:
-                    df_map["bin"], bins = pd.qcut(
-                        values, q=4, labels=False, retbins=True, duplicates="drop"
-                    )
-                except ValueError:
-                    df_map["bin"] = 0
-                    bins = [values.min(), values.max()]
+                values = df_map[metric_col].tolist()
+                is_valor = (metric_col == "Valor")
+                bins = build_dynamic_bins(values, is_valor=is_valor)
 
-                colors = ["#ef4444", "#f97316", "#eab308", "#22c55e"]  # low → high
+                df_map["bin_color"] = df_map[metric_col].apply(
+                    lambda v: get_bin_for_value(float(v), bins)["color"]
+                    if pd.notna(v) else MAP_BIN_COLORS[-1]
+                )
+                df_map["bin_label"] = df_map[metric_col].apply(
+                    lambda v: get_bin_for_value(float(v), bins)["label"]
+                    if pd.notna(v) else bins[-1]["label"]
+                )
 
-                legend_entries = []
-                if len(bins) > 1:
-                    for i in range(len(bins) - 1):
-                        low = bins[i]
-                        high = bins[i + 1]
-                        if metric_col == "Valor":
-                            label_range = f"{format_brl(low)} – {format_brl(high)}"
-                        else:
-                            low_i = int(round(low))
-                            high_i = int(round(high))
-                            label_range = (
-                                f"{low_i:,} – {high_i:,}".replace(",", ".")
-                            )
-                        legend_entries.append((colors[i % len(colors)], label_range))
+                legend_entries = [(b["color"], b["label"]) for b in bins]
 
                 col_map, col_stats = st.columns([0.8, 1.2])
 
@@ -702,8 +797,7 @@ else:
                     m = folium.Map(location=center, zoom_start=5, tiles="cartodbpositron")
 
                     for _, row in df_map.iterrows():
-                        bin_idx = int(row["bin"]) if pd.notna(row["bin"]) else 0
-                        color = colors[bin_idx % len(colors)]
+                        color = row["bin_color"]
 
                         if metric_col == "Valor":
                             metric_val_str = format_brl(row["Valor"])
