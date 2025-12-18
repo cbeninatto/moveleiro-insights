@@ -196,7 +196,6 @@ def get_bin_for_value(v: float, bins):
     return bins[-1]
 
 def load_data() -> pd.DataFrame:
-    # cache-busting to auto-detect new CSV versions on GitHub
     cb = int(time.time())
     url = f"{GITHUB_CSV_URL}?cb={cb}"
     resp = requests.get(url, headers={"Cache-Control": "no-cache"}, timeout=60)
@@ -494,7 +493,6 @@ if df_period.empty:
     st.warning("Nenhuma venda no período selecionado.")
     st.stop()
 
-# Representative options must respect selected dates
 reps_period = sorted(df_period["Representante"].dropna().unique())
 if not reps_period:
     st.error("Não há representantes com vendas no período selecionado.")
@@ -1041,7 +1039,7 @@ else:
     st.altair_chart(chart_prev, use_container_width=True)
 
 # ==========================
-# NEW SECTION: CATEGORIAS (after Evolução)
+# CATEGORIAS VENDIDAS (Δ renamed to Variação)
 # ==========================
 st.markdown("---")
 st.subheader("Categorias vendidas")
@@ -1069,7 +1067,7 @@ else:
         st.info("Sem faturamento para exibir categorias nesse período.")
     else:
         cat["%"] = cat["ValorAtual"] / total_cat
-        cat["Δ Faturamento"] = cat["ValorAtual"] - cat["ValorAnterior"]
+        cat["Variação (R$)"] = cat["ValorAtual"] - cat["ValorAnterior"]
 
         def pct_growth(row):
             prevv = float(row["ValorAnterior"])
@@ -1124,7 +1122,7 @@ else:
             cat_disp = cat.copy()
             cat_disp["Valor"] = cat_disp["ValorAtual"].map(format_brl)
             cat_disp["%"] = cat_disp["%"].map(lambda x: f"{x:.1%}")
-            cat_disp["Δ"] = cat_disp["Δ Faturamento"].map(format_brl_signed)
+            cat_disp["Variação (R$)"] = cat_disp["Variação (R$)"].map(format_brl_signed)
 
             def fmt_growth(v):
                 if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -1133,9 +1131,7 @@ else:
 
             cat_disp["Crescimento vs anterior"] = cat_disp["% Crescimento"].apply(fmt_growth)
 
-            cat_disp = cat_disp[["Categoria", "Valor", "%", "Δ", "Crescimento vs anterior"]].rename(
-                columns={"Δ": "Δ Faturamento"}
-            )
+            cat_disp = cat_disp[["Categoria", "Valor", "%", "Variação (R$)", "Crescimento vs anterior"]]
 
             st.markdown(
                 """
