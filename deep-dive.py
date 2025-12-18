@@ -117,10 +117,7 @@ def format_un(value: float) -> str:
 
 
 def force_leaflet_1_9_4():
-    """
-    Folium defaults to older Leaflet versions in many builds.
-    This forces Leaflet 1.9.4 (JS + CSS) globally for Folium maps.
-    """
+    """Force Leaflet 1.9.4 globally for Folium maps."""
     try:
         import folium.folium as ff
 
@@ -140,7 +137,6 @@ def force_leaflet_1_9_4():
 
         ff._default_js = new_js
         ff._default_css = new_css
-
     except Exception:
         pass
 
@@ -635,7 +631,9 @@ else:
         .sum()
     )
     mensal_rep["Competencia"] = pd.to_datetime(dict(year=mensal_rep["Ano"], month=mensal_rep["MesNum"], day=1))
-    mensal_rep["MesLabel"] = mensal_rep["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
+    mensal_rep["MesLabel"] = mensal_rep["Competencia"].apply(
+        lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}"
+    )
 
     best_fat = mensal_rep.loc[mensal_rep["Valor"].idxmax()]
     worst_fat = mensal_rep.loc[mensal_rep["Valor"].idxmin()]
@@ -695,14 +693,12 @@ else:
             else:
                 bins = build_dynamic_bins(df_map[metric_col].tolist(), is_valor=(metric_col == "Valor"))
                 df_map["bin_color"] = df_map[metric_col].apply(lambda v: get_bin_for_value(float(v), bins)["color"])
-
                 legend_entries = [(b["color"], b["label"]) for b in bins]
 
                 col_map, col_stats = st.columns([0.8, 1.2])
 
                 with col_map:
                     center = [df_map["lat"].mean(), df_map["lon"].mean()]
-
                     m = folium.Map(location=center, zoom_start=5, tiles=None)
                     folium.TileLayer(
                         tiles=OSM_TILE_URL,
@@ -776,10 +772,7 @@ else:
                     st.markdown(
                         """
 <style>
-table.principais-clientes {
-  width: 100%;
-  border-collapse: collapse;
-}
+table.principais-clientes { width: 100%; border-collapse: collapse; }
 table.principais-clientes th, table.principais-clientes td {
   padding: 0.25rem 0.5rem;
   font-size: 0.85rem;
@@ -787,10 +780,7 @@ table.principais-clientes th, table.principais-clientes td {
   border-bottom: 1px solid rgba(255,255,255,0.08);
   vertical-align: top;
 }
-table.principais-clientes td:nth-child(4),
-table.principais-clientes th:nth-child(4) {
-  white-space: nowrap;
-}
+table.principais-clientes td:nth-child(4), table.principais-clientes th:nth-child(4) { white-space: nowrap; }
 </style>
 """,
                         unsafe_allow_html=True,
@@ -897,36 +887,64 @@ else:
         cidades_top["% Volume"] = cidades_top["% Volume"].map(lambda x: f"{x:.1%}")
         cidades_top_display = cidades_top[["Cidade", "Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
 
-        left, right = st.columns([1.15, 1.0])
+        # Right table: only requested columns
+        estados_display = estados_top.copy()
+        estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
+        estados_display["Volume"] = estados_display["Quantidade"].map(format_un)
+        estados_display["% Faturamento"] = estados_display["% Faturamento"].map(lambda x: f"{x:.1%}")
+        estados_display["% Volume"] = estados_display["% Volume"].map(lambda x: f"{x:.1%}")
+        estados_display = estados_display[["Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
+
+        # Wider right column (table), legend removed to avoid layout squeeze
+        left, right = st.columns([1.0, 1.35])
 
         with left:
             st.caption("Top 10 estados por faturamento – % do faturamento total")
 
-            pie_df = estados_top.copy()
             fig_states = px.pie(
-                pie_df.sort_values("Valor", ascending=False),
+                estados_top.sort_values("Valor", ascending=False),
                 values="Valor",
                 names="Estado",
                 hole=0.35,
             )
             fig_states.update_traces(textposition="inside", textinfo="percent+label")
-            fig_states.update_layout(margin=dict(l=10, r=10, t=10, b=10))
+            fig_states.update_layout(
+                showlegend=False,  # ✅ remove labels list on the right
+                margin=dict(l=10, r=10, t=10, b=10),
+            )
             st.plotly_chart(fig_states, width="stretch", height=520)
 
-            # SWAPPED: now cities table goes under the pie
             st.markdown("**Principais cidades por faturamento**")
             st.table(cidades_top_display)
 
         with right:
-            # SWAPPED: now states summary table goes on the right
-            st.caption("Resumo – Top 10 estados")
-            estados_display = estados_top.copy()
-            estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
-            estados_display["Volume"] = estados_display["Quantidade"].map(format_un)
-            estados_display["% Faturamento"] = estados_display["% Faturamento"].map(lambda x: f"{x:.1%}")
-            estados_display["% Volume"] = estados_display["% Volume"].map(lambda x: f"{x:.1%}")
-            estados_display = estados_display[["Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
-            st.table(estados_display)
+            # HTML table to avoid header wrapping
+            st.markdown("**Resumo – Top 10 estados**")
+
+            st.markdown(
+                """
+<style>
+table.estados-resumo { width: 100%; border-collapse: collapse; }
+table.estados-resumo th, table.estados-resumo td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap; /* ✅ avoid wrapping */
+}
+</style>
+""",
+                unsafe_allow_html=True,
+            )
+
+            cols_e = list(estados_display.columns)
+            html_e = "<table class='estados-resumo'><thead><tr>"
+            html_e += "".join(f"<th>{c}</th>" for c in cols_e)
+            html_e += "</tr></thead><tbody>"
+            for _, r in estados_display.iterrows():
+                html_e += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_e) + "</tr>"
+            html_e += "</tbody></table>"
+            st.markdown(html_e, unsafe_allow_html=True)
 
 st.markdown("---")
 
