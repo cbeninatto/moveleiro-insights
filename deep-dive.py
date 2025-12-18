@@ -85,6 +85,13 @@ def format_brl_compact(value: float) -> str:
         return "R$ " + f"{v/1_000:.1f} mil".replace(".", ",")
     return format_brl(v)
 
+def format_brl_signed(value: float) -> str:
+    if pd.isna(value):
+        return "R$ 0,00"
+    v = float(value)
+    sign = "-" if v < 0 else ""
+    return sign + format_brl(abs(v))
+
 def format_un(value: float) -> str:
     if pd.isna(value):
         return "0 un"
@@ -800,8 +807,6 @@ st.markdown("---")
 
 # ==========================
 # DISTRIBUIÇÃO POR ESTADOS
-# Row 1: Pie (left) + Resumo Top 10 Estados (right)
-# Row 2: Full-width Principais Cidades (Top 15) with Top 1/2/3 columns
 # ==========================
 st.subheader("Distribuição por estados")
 
@@ -867,7 +872,6 @@ table.estados-resumo th, table.estados-resumo td {
             html_e += "</tbody></table>"
             st.markdown(html_e, unsafe_allow_html=True)
 
-        # --- FULL WIDTH: Top cities table (Top 15), with Option 1: Top 1 / Top 2 / Top 3 columns
         cidades_top = (
             df_rep.groupby(["Cidade", "Estado"], as_index=False)
             .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
@@ -1035,6 +1039,128 @@ if chart_prev is None:
     st.info("Sem dados para exibir no período anterior.")
 else:
     st.altair_chart(chart_prev, use_container_width=True)
+
+# ==========================
+# NEW SECTION: CATEGORIAS (after Evolução)
+# ==========================
+st.markdown("---")
+st.subheader("Categorias vendidas")
+
+if df_rep.empty:
+    st.info("Não há vendas no período selecionado.")
+else:
+    curr_cat = (
+        df_rep.groupby("Categoria", as_index=False)["Valor"]
+        .sum()
+        .rename(columns={"Valor": "ValorAtual"})
+    )
+    prev_cat = (
+        df_rep_prev.groupby("Categoria", as_index=False)["Valor"]
+        .sum()
+        .rename(columns={"Valor": "ValorAnterior"})
+    )
+
+    cat = pd.merge(curr_cat, prev_cat, on="Categoria", how="outer")
+    cat["ValorAtual"] = pd.to_numeric(cat["ValorAtual"], errors="coerce").fillna(0.0)
+    cat["ValorAnterior"] = pd.to_numeric(cat["ValorAnterior"], errors="coerce").fillna(0.0)
+
+    total_cat = float(cat["ValorAtual"].sum())
+    if total_cat <= 0:
+        st.info("Sem faturamento para exibir categorias nesse período.")
+    else:
+        cat["%"] = cat["ValorAtual"] / total_cat
+        cat["Δ Faturamento"] = cat["ValorAtual"] - cat["ValorAnterior"]
+
+        def pct_growth(row):
+            prevv = float(row["ValorAnterior"])
+            currv = float(row["ValorAtual"])
+            if prevv > 0:
+                return (currv - prevv) / prevv
+            if currv > 0 and prevv == 0:
+                return None  # "Novo"
+            return 0.0
+
+        cat["% Crescimento"] = cat.apply(pct_growth, axis=1)
+        cat = cat.sort_values("ValorAtual", ascending=False)
+
+        col_pie_cat, col_tbl_cat = st.columns([1.0, 1.25])
+
+        with col_pie_cat:
+            st.caption("Participação por categoria")
+
+            df_pie = cat[["Categoria", "ValorAtual"]].copy().rename(columns={"ValorAtual": "Valor"})
+            df_pie = df_pie.sort_values("Valor", ascending=False).reset_index(drop=True)
+
+            if len(df_pie) > 10:
+                top10 = df_pie.head(10).copy()
+                others_val = float(df_pie.iloc[10:]["Valor"].sum())
+                top10 = pd.concat([top10, pd.DataFrame([{"Categoria": "Outras", "Valor": others_val}])], ignore_index=True)
+                df_pie = top10
+
+            df_pie["Share"] = df_pie["Valor"] / float(df_pie["Valor"].sum()) if float(df_pie["Valor"].sum()) > 0 else 0.0
+            df_pie["Legenda"] = df_pie.apply(lambda r: f"{r['Categoria']} {r['Share']*100:.1f}%", axis=1)
+
+            def make_text_cat(row):
+                if row["Share"] >= 0.07:
+                    return f"{row['Categoria']}<br>{row['Share']*100:.1f}%"
+                return ""
+
+            df_pie["Text"] = df_pie.apply(make_text_cat, axis=1)
+            order_leg = df_pie.sort_values("Share", ascending=False)["Legenda"].tolist()
+
+            fig_cat = px.pie(df_pie, values="Valor", names="Legenda", hole=0.35, category_orders={"Legenda": order_leg})
+            fig_cat.update_traces(
+                text=df_pie["Text"],
+                textposition="inside",
+                textinfo="text",
+                insidetextorientation="radial",
+            )
+            fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_cat, use_container_width=True)
+
+        with col_tbl_cat:
+            st.caption("Resumo – Categorias (com crescimento vs. período anterior)")
+
+            cat_disp = cat.copy()
+            cat_disp["Valor"] = cat_disp["ValorAtual"].map(format_brl)
+            cat_disp["%"] = cat_disp["%"].map(lambda x: f"{x:.1%}")
+            cat_disp["Δ"] = cat_disp["Δ Faturamento"].map(format_brl_signed)
+
+            def fmt_growth(v):
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return "Novo"
+                return f"{v:+.1%}"
+
+            cat_disp["Crescimento vs anterior"] = cat_disp["% Crescimento"].apply(fmt_growth)
+
+            cat_disp = cat_disp[["Categoria", "Valor", "%", "Δ", "Crescimento vs anterior"]].rename(
+                columns={"Δ": "Δ Faturamento"}
+            )
+
+            st.markdown(
+                """
+<style>
+table.cat-resumo { width: 100%; border-collapse: collapse; }
+table.cat-resumo th, table.cat-resumo td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.84rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap;
+}
+</style>
+""",
+                unsafe_allow_html=True,
+            )
+
+            cols_k = list(cat_disp.columns)
+            html_k = "<table class='cat-resumo'><thead><tr>"
+            html_k += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_k)
+            html_k += "</tr></thead><tbody>"
+            for _, r in cat_disp.iterrows():
+                html_k += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_k) + "</tr>"
+            html_k += "</tbody></table>"
+            st.markdown(html_k, unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -1207,7 +1333,7 @@ else:
 
         status_disp = status_counts.copy()
         status_disp["%Clientes"] = status_disp["%Clientes"].map(lambda x: f"{x:.1%}")
-        status_disp["Faturamento"] = status_disp["Faturamento"].map(format_brl)
+        status_disp["Faturamento"] = status_disp["Faturamento"].map(format_brl_signed)
         status_disp = status_disp[["Status", "QtdClientes", "%Clientes", "Faturamento"]]
 
         st.markdown(
