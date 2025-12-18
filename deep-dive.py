@@ -1,1499 +1,1045 @@
-import streamlit as st
+import math
+from datetime import datetime
+from io import StringIO
+
+import numpy as np
 import pandas as pd
-import altair as alt
+import requests
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
 import folium
 from streamlit_folium import st_folium
-import plotly.express as px
-import math
-import io
 
-# Tentativa de importar reportlab (não usamos mais no layout, mas deixo aqui se você quiser reaproveitar no futuro)
-try:
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.units import cm
-    REPORTLAB_AVAILABLE = True
-except ImportError:
-    REPORTLAB_AVAILABLE = False
-    A4 = None
-    canvas = None
-    cm = 1
 
-# ==========================
+# =========================================================
 # CONFIG
-# ==========================
+# =========================================================
 st.set_page_config(
     page_title="Nova Visão – Deep Dive",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# CSS para impressão (A4) e quebras de página
+RAW_CSV_URL = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/refs/heads/main/data/relatorio_faturamento.csv"
+GEO_CSV_URL = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/refs/heads/main/data/cidades_br_geo.csv"
+GITHUB_COMMIT_API = "https://api.github.com/repos/cbeninatto/performance-moveleiro-v2/commits"
+DATA_PATH_IN_REPO = "data/relatorio_faturamento.csv"
+
+PT_MONTHS = {
+    1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR", 5: "MAI", 6: "JUN",
+    7: "JUL", 8: "AGO", 9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ"
+}
+
+STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
+STATUS_COLORS = {
+    "Perdidos": "#ef4444",   # Red
+    "Caindo": "#f97316",     # Orange
+    "Estáveis": "#eab308",   # Yellow
+    "Crescendo": "#22c55e",  # Green
+    "Novos": "#3b82f6",      # Blue
+}
+
+# Map palette (low -> high): red to green
+MAP_BIN_COLORS_LOW_TO_HIGH = ["#ef4444", "#f97316", "#eab308", "#22c55e"]
+
+
+# =========================================================
+# CSS (includes A4 print rules and page breaks)
+# =========================================================
 st.markdown(
     """
 <style>
-@page {
-  size: A4 portrait;
-  margin: 1.5cm;
+:root{
+  --card: rgba(255,255,255,0.04);
+  --stroke: rgba(255,255,255,0.08);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.65);
+  --muted2: rgba(255,255,255,0.55);
+}
+.block-container{ padding-top: 1.2rem; padding-bottom: 2.5rem; max-width: 1400px; }
+.small-muted{ color: var(--muted2); font-size: 0.9rem; }
+
+.kpi-grid{
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 10px;
+  margin-bottom: 14px;
+}
+.kpi-card{
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  padding: 14px 14px 12px 14px;
+  min-width: 0;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+.kpi-label{ color: var(--muted); font-size: 0.92rem; margin-bottom: 6px; }
+.kpi-value{
+  color: var(--text);
+  font-weight: 800;
+  line-height: 1.05;
+  font-size: clamp(22px, 2.2vw, 36px);
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  word-break: break-word;
+}
+.kpi-sub{ margin-top: 8px; color: var(--muted2); font-size: 0.92rem; }
+.kpi-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(34,197,94,0.12);
+  color: rgba(34,197,94,0.95);
+  border: 1px solid rgba(34,197,94,0.25);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-weight: 650;
+  font-size: 0.86rem;
 }
 
-@media print {
+.section-card{
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.22);
+}
+.hr{ height:1px; background: rgba(255,255,255,0.08); margin: 10px 0 14px 0; }
 
-  html, body {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
+/* HTML tables */
+.table-wrap table{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  table-layout: fixed;
+}
+.table-wrap th, .table-wrap td{
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 8px 10px;
+  vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.table-wrap th{
+  color: rgba(255,255,255,0.85);
+  font-weight: 800;
+  background: rgba(255,255,255,0.03);
+  text-align: left;
+}
+.table-nowrap td, .table-nowrap th{ white-space: nowrap; }
 
-  /* Esconde sidebar e headers na impressão */
-  [data-testid="stSidebar"], header, footer {
-      display: none !important;
-  }
-
-  /* Quebra de página manual */
-  .page-break {
-      break-before: page;
-      page-break-before: always;
-  }
+/* Print (A4) */
+.page-break{ height: 1px; margin: 0; }
+@media print{
+  @page{ size: A4; margin: 10mm; }
+  header, footer, #MainMenu, [data-testid="stSidebar"], [data-testid="stToolbar"]{ display:none !important; }
+  html, body{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .block-container{ max-width: 780px !important; padding-top: 0.2rem !important; }
+  .page-break{ break-after: page; page-break-after: always; }
+  .kpi-card, .section-card, .stPlotlyChart, .stAltairChart{ break-inside: avoid; page-break-inside: avoid; }
+  iframe{ max-width: 100% !important; }
+  /* prevent column overlap in print */
+  div[data-testid="stHorizontalBlock"]{ flex-wrap: wrap !important; }
+  div[data-testid="stColumn"]{ min-width: 0 !important; }
 }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# CSV direto do GitHub
-GITHUB_CSV_URL = (
-    "https://raw.githubusercontent.com/"
-    "cbeninatto/performance-moveleiro-v2/main/data/relatorio_faturamento.csv"
-)
 
-CITY_GEO_CSV_URL = (
-    "https://raw.githubusercontent.com/"
-    "cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv"
-)
-
-STATUS_COL = "StatusCarteira"
-
-STATUS_WEIGHTS = {
-    "Novos": 1,
-    "Novo": 1,
-    "Crescendo": 2,
-    "CRESCENDO": 2,
-    "Estáveis": 1,
-    "Estável": 1,
-    "ESTAVEIS": 1,
-    "Caindo": -1,
-    "CAINDO": -1,
-    "Perdidos": -2,
-    "Perdido": -2,
-    "PERDIDOS": -2,
-}
-
-STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
-
-# ==========================
-# MAP BINNING (match dashboard_deep_dive_map.html)
-# ==========================
-MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]  # verde, amarelo, laranja, vermelho
-
-
-def build_dynamic_bins(values, is_valor: bool):
-    """
-    Gera 4 faixas (bins) com cores e rótulos, baseadas em quartis.
-    Inspirado no mapa HTML original.
-    """
-    cleaned = [
-        float(v) for v in values
-        if pd.notna(v) and float(v) >= 0
-    ]
-    cleaned.sort()
-
-    def fmt(v: float) -> str:
-        if is_valor:
-            return "R$ " + f"{v:,.0f}".replace(",", ".")
-        else:
-            return f"{int(round(v)):,}".replace(",", ".")
-
-    # Nenhum valor válido
-    if not cleaned:
-        if is_valor:
-            return [
-                {"min": 1_000_000, "color": MAP_BIN_COLORS[0], "label": "R$ 1.000.000+"},
-                {"min": 500_000,   "color": MAP_BIN_COLORS[1], "label": "R$ 500.000 - 999.999"},
-                {"min": 250_000,   "color": MAP_BIN_COLORS[2], "label": "R$ 250.000 - 499.999"},
-                {"min": 0,         "color": MAP_BIN_COLORS[3], "label": "R$ 0 - 249.999"},
-            ]
-        else:
-            return [
-                {"min": 10_000, "color": MAP_BIN_COLORS[0], "label": "10.000+"},
-                {"min": 5_000,  "color": MAP_BIN_COLORS[1], "label": "5.000 - 9.999"},
-                {"min": 2_500,  "color": MAP_BIN_COLORS[2], "label": "2.500 - 4.999"},
-                {"min": 0,      "color": MAP_BIN_COLORS[3], "label": "0 - 2.499"},
-            ]
-
-    n = len(cleaned)
-    min_val = cleaned[0]
-    max_val = cleaned[-1]
-
-    # Caso todos valores sejam iguais
-    if min_val == max_val:
-        label_single = fmt(min_val)
-        color = MAP_BIN_COLORS[0]
-        return [
-            {"min": min_val, "color": color, "label": label_single},
-            {"min": min_val, "color": color, "label": label_single},
-            {"min": min_val, "color": color, "label": label_single},
-            {"min": 0,       "color": color, "label": label_single},
-        ]
-
-    def idx(p: float) -> int:
-        # índice aproximado do percentil
-        return int(math.floor(p * (n - 1)))
-
-    q1 = cleaned[idx(0.25)]
-    q2 = cleaned[idx(0.5)]
-    q3 = cleaned[idx(0.75)]
-
-    t0 = max(0, min_val)
-    t1 = max(t0, q1)
-    t2 = max(t1, q2)
-    t3 = max(t2, q3)
-
-    # Lista em ordem do maior valor para o menor
-    return [
-        {
-            "min": t3,
-            "color": MAP_BIN_COLORS[0],
-            "label": f"{fmt(t3)}+",
-        },
-        {
-            "min": t2,
-            "color": MAP_BIN_COLORS[1],
-            "label": f"{fmt(t2)} - {fmt(t3)}",
-        },
-        {
-            "min": t1,
-            "color": MAP_BIN_COLORS[2],
-            "label": f"{fmt(t1)} - {fmt(t2)}",
-        },
-        {
-            "min": t0,
-            "color": MAP_BIN_COLORS[3],
-            "label": f"{fmt(t0)} - {fmt(t1)}",
-        },
-    ]
-
-
-def get_bin_for_value(v: float, bins):
-    """Retorna o primeiro bin cujo min <= v."""
-    if not bins:
-        return None
-    for b in bins:
-        if v >= b["min"]:
-            return b
-    return bins[-1]
-
-
-# ==========================
-# HELPERS
-# ==========================
-def format_brl(value: float) -> str:
-    if pd.isna(value):
+# =========================================================
+# Helpers
+# =========================================================
+def brl(x: float) -> str:
+    if x is None or (isinstance(x, float) and np.isnan(x)):
         return "R$ 0,00"
-    return "R$ " + f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    s = f"{float(x):,.2f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {s}"
 
 
-def format_brl_compact(value: float) -> str:
-    """Formato mais curto para cards (evita cortar número)."""
-    if pd.isna(value):
-        return "R$ 0"
-    v = float(value)
-    av = abs(v)
-    if av >= 1_000_000_000:
-        return "R$ " + f"{v/1_000_000_000:.1f} bi".replace(".", ",")
-    if av >= 1_000_000:
-        return "R$ " + f"{v/1_000_000:.1f} mi".replace(".", ",")
-    if av >= 1_000:
-        return "R$ " + f"{v/1_000:.1f} mil".replace(".", ",")
-    return format_brl(v)
+def pct(x: float) -> str:
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return "0,0%"
+    return f"{float(x) * 100:.1f}%".replace(".", ",")
 
 
-def load_data() -> pd.DataFrame:
-    """Carrega SEM cache para sempre pegar a versão mais recente do CSV do GitHub."""
-    df = pd.read_csv(GITHUB_CSV_URL)
+def month_label(y: int, m: int) -> str:
+    return f"{PT_MONTHS.get(int(m), str(m))} {str(int(y))[-2:]}"
 
-    expected = [
-        "Codigo", "Descricao", "Quantidade", "Valor", "Mes", "Ano",
-        "ClienteCodigo", "Cliente", "Estado", "Cidade",
-        "RepresentanteCodigo", "Representante", "Categoria", "SourcePDF",
-    ]
-    missing = [c for c in expected if c not in df.columns]
-    if missing:
-        raise ValueError(
-            "CSV do GitHub não tem as colunas esperadas: "
-            + ", ".join(missing)
+
+def iter_months(start_y: int, start_m: int, end_y: int, end_m: int):
+    y, m = int(start_y), int(start_m)
+    while (y < end_y) or (y == end_y and m <= end_m):
+        yield y, m
+        m += 1
+        if m == 13:
+            m = 1
+            y += 1
+
+
+def period_key(y: int, m: int) -> int:
+    return int(y) * 100 + int(m)
+
+
+def get_latest_commit_sha(path_in_repo: str) -> str | None:
+    try:
+        r = requests.get(
+            GITHUB_COMMIT_API,
+            params={"path": path_in_repo, "per_page": 1, "page": 1},
+            timeout=10,
         )
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, list) and data:
+            return data[0].get("sha")
+    except Exception:
+        return None
+    return None
 
-    df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0.0)
-    df["Quantidade"] = pd.to_numeric(df["Quantidade"], errors="coerce").fillna(0.0)
-    df["Ano"] = pd.to_numeric(df["Ano"], errors="coerce").astype("Int64")
 
-    df["MesNum"] = pd.to_numeric(df["Mes"], errors="coerce").astype("Int64")
+@st.cache_data(show_spinner=False, ttl=300)
+def load_geo(sha: str | None) -> pd.DataFrame:
+    url = GEO_CSV_URL if not sha else f"{GEO_CSV_URL}?cb={sha}"
+    r = requests.get(url, timeout=30, headers={"Cache-Control": "no-cache"})
+    r.raise_for_status()
+    g = pd.read_csv(StringIO(r.text))
+
+    cols = {c.lower(): c for c in g.columns}
+    estado_c = cols.get("estado") or cols.get("uf")
+    cidade_c = cols.get("cidade")
+    lat_c = cols.get("lat") or cols.get("latitude")
+    lon_c = cols.get("lon") or cols.get("lng") or cols.get("longitude")
+
+    if not (estado_c and cidade_c and lat_c and lon_c):
+        raise KeyError("cidades_br_geo.csv must contain Estado/UF, Cidade, lat, lon columns")
+
+    g = g[[estado_c, cidade_c, lat_c, lon_c]].copy()
+    g.columns = ["Estado", "Cidade", "lat", "lon"]
+    g["Estado"] = g["Estado"].astype(str).str.strip().str.upper()
+    g["Cidade"] = g["Cidade"].astype(str).str.strip().str.upper()
+    g["lat"] = pd.to_numeric(g["lat"], errors="coerce")
+    g["lon"] = pd.to_numeric(g["lon"], errors="coerce")
+    g = g.dropna(subset=["lat", "lon"])
+    return g
+
+
+@st.cache_data(show_spinner=False, ttl=120)
+def load_sales(sha: str | None, bust: int) -> pd.DataFrame:
+    # cache-busting so the app detects CSV updates quickly
+    if sha:
+        url = f"{RAW_CSV_URL}?cb={sha}-{bust}"
+    else:
+        url = f"{RAW_CSV_URL}?cb={int(datetime.utcnow().timestamp())}-{bust}"
+
+    r = requests.get(url, timeout=60, headers={"Cache-Control": "no-cache"})
+    r.raise_for_status()
+    df = pd.read_csv(StringIO(r.text))
+
+    # type coercion
+    for c in ["Quantidade", "Valor", "Mes", "Ano"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    if "Ano" not in df.columns or "Mes" not in df.columns:
+        raise KeyError("CSV must contain Ano and Mes columns.")
+
+    df["Ano"] = df["Ano"].astype("Int64")
+    df["MesNum"] = df["Mes"].astype("Int64")
+    df["CompetenciaKey"] = df["Ano"].astype(int) * 100 + df["MesNum"].astype(int)
 
     df["Competencia"] = pd.to_datetime(
-        dict(year=df["Ano"], month=df["MesNum"], day=1),
+        df["Ano"].astype(str) + "-" + df["MesNum"].astype(str).str.zfill(2) + "-01",
         errors="coerce",
     )
+
+    for c in ["Cliente", "Cidade", "Estado", "Representante"]:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
 
     return df
 
 
-def compute_carteira_score(clientes_carteira: pd.DataFrame):
-    """
-    Índice de Saúde da Carteira (ISC) 0–100 usando receita por status.
-    """
-    if clientes_carteira is None or clientes_carteira.empty:
-        return 50.0, "Neutra"
+def filter_df_period(df: pd.DataFrame, sy: int, sm: int, ey: int, em: int) -> pd.DataFrame:
+    start_key = period_key(sy, sm)
+    end_key = period_key(ey, em)
+    return df[(df["CompetenciaKey"] >= start_key) & (df["CompetenciaKey"] <= end_key)].copy()
 
-    df = clientes_carteira.copy()
 
-    for col in ["ValorAtual", "ValorAnterior"]:
-        df[col] = pd.to_numeric(df.get(col, 0.0), errors="coerce").fillna(0.0)
+def compute_basic_metrics(df_period: pd.DataFrame, sy: int, sm: int, ey: int, em: int) -> dict:
+    total = float(df_period["Valor"].sum()) if len(df_period) else 0.0
+    months = list(iter_months(sy, sm, ey, em))
+    n_months = len(months) if months else 1
 
-    df["PesoReceita"] = df[["ValorAtual", "ValorAnterior"]].max(axis=1)
-    df["PesoReceita"] = df["PesoReceita"].clip(lower=0)
+    by_month = df_period.groupby(["Ano", "MesNum"], as_index=False).agg(Faturamento=("Valor", "sum"))
+    months_with_sales = int((by_month["Faturamento"] > 0).sum()) if not by_month.empty else 0
+    clientes = int(df_period["Cliente"].nunique()) if "Cliente" in df_period.columns and not df_period.empty else 0
 
-    if STATUS_COL not in df.columns:
-        return 50.0, "Neutra"
+    return {
+        "total": total,
+        "avg_month": total / n_months,
+        "months_with_sales": months_with_sales,
+        "months_total": n_months,
+        "clientes": clientes,
+    }
 
-    receita_status = df.groupby(STATUS_COL)["PesoReceita"].sum()
-    R_total = float(receita_status.sum())
 
-    if R_total <= 0:
-        return 50.0, "Neutra"
+def compute_destaques(df_period: pd.DataFrame):
+    if df_period.empty:
+        return None
+    m = (
+        df_period.groupby(["Ano", "MesNum"], as_index=False)
+        .agg(Faturamento=("Valor", "sum"), Volume=("Quantidade", "sum"))
+        .sort_values(["Ano", "MesNum"])
+    )
+    best_fat = m.loc[m["Faturamento"].idxmax()]
+    worst_fat = m.loc[m["Faturamento"].idxmin()]
+    best_vol = m.loc[m["Volume"].idxmax()]
+    worst_vol = m.loc[m["Volume"].idxmin()]
+    return {
+        "best_fat": (int(best_fat["Ano"]), int(best_fat["MesNum"]), float(best_fat["Faturamento"])),
+        "worst_fat": (int(worst_fat["Ano"]), int(worst_fat["MesNum"]), float(worst_fat["Faturamento"])),
+        "best_vol": (int(best_vol["Ano"]), int(best_vol["MesNum"]), float(best_vol["Volume"])),
+        "worst_vol": (int(worst_vol["Ano"]), int(worst_vol["MesNum"]), float(worst_vol["Volume"])),
+    }
 
-    score_bruto = 0.0
-    for status, receita in receita_status.items():
-        w = STATUS_WEIGHTS.get(str(status), 0)
-        share = receita / R_total
-        score_bruto += w * share
 
-    isc = (score_bruto + 2) / 4 * 100
-    isc = max(0.0, min(100.0, isc))
+def compute_client_concentration(df_period: pd.DataFrame):
+    if df_period.empty:
+        return {
+            "n80": 0, "hhi": 0.0, "label": "Sem dados",
+            "top1": 0.0, "top3": 0.0, "top10": 0.0,
+            "pie_df": pd.DataFrame(columns=["Cliente", "Valor", "Legenda", "TextInside"])
+        }
 
-    base_anterior = df[df["ValorAnterior"] > 0].copy()
-    base_total = float(base_anterior["PesoReceita"].sum())
-    perdidos_mask = df[STATUS_COL].astype(str).str.upper().isin(["PERDIDOS", "PERDIDO"])
-    receita_perdida = float(df.loc[perdidos_mask, "PesoReceita"].sum())
-    churn_receita = receita_perdida / base_total if base_total > 0 else 0.0
+    c = df_period.groupby("Cliente", as_index=False).agg(Valor=("Valor", "sum"))
+    c = c.sort_values("Valor", ascending=False).reset_index(drop=True)
 
-    if churn_receita > 0.20 and isc >= 70:
-        isc = 69.0
+    total = float(c["Valor"].sum()) if len(c) else 0.0
+    if total <= 0:
+        return {
+            "n80": 0, "hhi": 0.0, "label": "Sem faturamento",
+            "top1": 0.0, "top3": 0.0, "top10": 0.0,
+            "pie_df": pd.DataFrame(columns=["Cliente", "Valor", "Legenda", "TextInside"])
+        }
 
-    if isc < 30:
-        label = "Crítica"
-    elif isc < 50:
-        label = "Alerta"
-    elif isc < 70:
-        label = "Neutra"
+    c["share"] = c["Valor"] / total
+    c["cum"] = c["share"].cumsum()
+    n80 = int((c["cum"] <= 0.8).sum())
+    if n80 < len(c):
+        n80 += 1
+
+    hhi = float((c["share"] ** 2).sum())
+    if hhi < 0.10:
+        label = "Baixa concentração"
+    elif hhi < 0.18:
+        label = "Concentração moderada"
     else:
-        label = "Saudável"
+        label = "Alta concentração"
 
-    return float(isc), label
+    top1 = float(c["share"].iloc[0]) if len(c) else 0.0
+    top3 = float(c["share"].head(3).sum()) if len(c) else 0.0
+    top10 = float(c["share"].head(10).sum()) if len(c) else 0.0
 
+    # Pie: Top 10 + Outros (represents all remaining clients)
+    top = c.head(10).copy()
+    rest_val = float(c["Valor"].iloc[10:].sum()) if len(c) > 10 else 0.0
+    if rest_val > 0:
+        top = pd.concat([top, pd.DataFrame([{"Cliente": "Outros", "Valor": rest_val}])], ignore_index=True)
 
-MONTH_MAP_NUM_TO_NAME = {
-    1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR",
-    5: "MAI", 6: "JUN", 7: "JUL", 8: "AGO",
-    9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ",
-}
-MONTH_MAP_NAME_TO_NUM = {v: k for k, v in MONTH_MAP_NUM_TO_NAME.items()}
+    top["Percent"] = top["Valor"] / total
+    top["Legenda"] = top.apply(lambda r: f"{str(r['Cliente'])[:28]} {pct(float(r['Percent']))}", axis=1)
 
+    # IMPORTANT: no multiline f-strings here (this fixes your SyntaxError)
+    def inside_text(row):
+        p = float(row["Percent"])
+        if row["Cliente"] == "Outros":
+            return f"Outros\n{pct(p)}"
+        if p >= 0.06:
+            return f"{str(row['Cliente'])[:20]}\n{pct(p)}"
+        return ""
 
-def format_period_label(start: pd.Timestamp, end: pd.Timestamp) -> str:
-    def fmt(d: pd.Timestamp) -> str:
-        return f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}"
-    if start.year == end.year and start.month == end.month:
-        return fmt(start)
-    return f"{fmt(start)} - {fmt(end)}"
+    top["TextInside"] = top.apply(inside_text, axis=1)
 
-
-def build_carteira_status(df_all: pd.DataFrame,
-                          rep: str,
-                          start_comp: pd.Timestamp,
-                          end_comp: pd.Timestamp) -> pd.DataFrame:
-    """
-    Calcula StatusCarteira (Novos / Perdidos / Crescendo / Caindo / Estáveis)
-    comparando o período selecionado com a janela anterior de mesmo tamanho.
-    """
-    if rep is None or rep == "Todos":
-        df_rep_all = df_all.copy()
+    # Sort by value (desc) and keep "Outros" last
+    if "Outros" in top["Cliente"].values:
+        top_no_outros = top[top["Cliente"] != "Outros"].sort_values("Valor", ascending=False)
+        outros = top[top["Cliente"] == "Outros"]
+        top = pd.concat([top_no_outros, outros], ignore_index=True)
     else:
-        df_rep_all = df_all[df_all["Representante"] == rep].copy()
+        top = top.sort_values("Valor", ascending=False).reset_index(drop=True)
 
-    if df_rep_all.empty:
-        return pd.DataFrame(columns=[
-            "Cliente", "Estado", "Cidade",
-            "ValorAtual", "ValorAnterior", STATUS_COL
-        ])
+    return {"n80": n80, "hhi": hhi, "label": label, "top1": top1, "top3": top3, "top10": top10, "pie_df": top}
 
-    months_span = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
 
-    prev_end = start_comp - pd.DateOffset(months=1)
-    prev_start = prev_end - pd.DateOffset(months=months_span - 1)
+def compute_states_distribution(df_period: pd.DataFrame):
+    if df_period.empty:
+        return pd.DataFrame(columns=["Estado", "Valor", "Percent"])
+    s = df_period.groupby("Estado", as_index=False).agg(Valor=("Valor", "sum"))
+    total = float(s["Valor"].sum()) if len(s) else 0.0
+    s["Percent"] = (s["Valor"] / total) if total > 0 else 0.0
+    return s.sort_values("Valor", ascending=False).head(10).reset_index(drop=True)
 
-    mask_curr = (df_rep_all["Competencia"] >= start_comp) & (df_rep_all["Competencia"] <= end_comp)
-    mask_prev = (df_rep_all["Competencia"] >= prev_start) & (df_rep_all["Competencia"] <= prev_end)
 
-    df_curr = df_rep_all.loc[mask_curr].copy()
-    df_prev = df_rep_all.loc[mask_prev].copy()
+def carteira_status(df_all: pd.DataFrame, sy: int, sm: int, ey: int, em: int, representante: str | None):
+    """Portfolio status comparing selected period vs same months in previous year."""
+    cur = filter_df_period(df_all, sy, sm, ey, em)
+    prev = filter_df_period(df_all, sy - 1, sm, ey - 1, em)
 
-    curr_agg = (
-        df_curr
+    if representante and representante != "Todos":
+        cur = cur[cur["Representante"] == representante]
+        prev = prev[prev["Representante"] == representante]
+
+    cur_cli = cur.groupby("Cliente", as_index=False).agg(FaturamentoAtual=("Valor", "sum"))
+    prev_cli = prev.groupby("Cliente", as_index=False).agg(FaturamentoAnterior=("Valor", "sum"))
+
+    dim = df_all.copy()
+    if representante and representante != "Todos":
+        dim = dim[dim["Representante"] == representante]
+    dim = (
+        dim.sort_values("CompetenciaKey")
         .groupby("Cliente", as_index=False)
-        .agg({
-            "Valor": "sum",
-            "Estado": "first",
-            "Cidade": "first",
-        })
-        .rename(columns={
-            "Valor": "ValorAtual",
-            "Estado": "EstadoAtual",
-            "Cidade": "CidadeAtual",
-        })
+        .agg(Estado=("Estado", "last"), Cidade=("Cidade", "last"))
     )
 
-    prev_agg = (
-        df_prev
-        .groupby("Cliente", as_index=False)
-        .agg({
-            "Valor": "sum",
-            "Estado": "first",
-            "Cidade": "first",
-        })
-        .rename(columns={
-            "Valor": "ValorAnterior",
-            "Estado": "EstadoAnterior",
-            "Cidade": "CidadeAnterior",
-        })
-    )
+    d = cur_cli.merge(prev_cli, on="Cliente", how="outer").merge(dim, on="Cliente", how="left")
+    d["FaturamentoAtual"] = d["FaturamentoAtual"].fillna(0.0)
+    d["FaturamentoAnterior"] = d["FaturamentoAnterior"].fillna(0.0)
 
-    clientes = pd.merge(curr_agg, prev_agg, on="Cliente", how="outer")
-
-    clientes["ValorAtual"] = clientes["ValorAtual"].fillna(0.0)
-    clientes["ValorAnterior"] = clientes["ValorAnterior"].fillna(0.0)
-
-    clientes["Estado"] = clientes["EstadoAtual"].combine_first(clientes["EstadoAnterior"])
-    clientes["Cidade"] = clientes["CidadeAtual"].combine_first(clientes["CidadeAnterior"])
-    clientes["Estado"] = clientes["Estado"].fillna("")
-    clientes["Cidade"] = clientes["Cidade"].fillna("")
-
-    def classify(row):
-        va = row["ValorAtual"]
-        vp = row["ValorAnterior"]
-        if va > 0 and vp == 0:
+    def status_row(r):
+        curv = float(r["FaturamentoAtual"])
+        prevv = float(r["FaturamentoAnterior"])
+        if prevv <= 0 and curv > 0:
             return "Novos"
-        if va == 0 and vp > 0:
+        if prevv > 0 and curv <= 0:
             return "Perdidos"
-        if va > 0 and vp > 0:
-            ratio = va / vp if vp != 0 else 0
-            if ratio >= 1.2:
-                return "Crescendo"
-            elif ratio <= 0.8:
-                return "Caindo"
-            else:
-                return "Estáveis"
+        if prevv <= 0 and curv <= 0:
+            return "Estáveis"
+        chg = (curv - prevv) / prevv if prevv else 0.0
+        if chg >= 0.15:
+            return "Crescendo"
+        if chg <= -0.15:
+            return "Caindo"
         return "Estáveis"
 
-    clientes[STATUS_COL] = clientes.apply(classify, axis=1)
-    clientes = clientes[(clientes["ValorAtual"] > 0) | (clientes["ValorAnterior"] > 0)]
+    d["Status"] = d.apply(status_row, axis=1)
+    d["DeltaFaturamento"] = d["FaturamentoAtual"] - d["FaturamentoAnterior"]
 
-    clientes = clientes[[
-        "Cliente",
-        "Estado",
-        "Cidade",
-        "ValorAtual",
-        "ValorAnterior",
-        STATUS_COL,
-    ]]
+    total_cli = len(d) or 1
+    summary = (
+        d.groupby("Status", as_index=False)
+        .agg(Clientes=("Cliente", "count"), FaturamentoDelta=("DeltaFaturamento", "sum"))
+    )
+    summary["PercentClientes"] = summary["Clientes"] / total_cli
+    summary["Status"] = pd.Categorical(summary["Status"], categories=STATUS_ORDER, ordered=True)
+    summary = summary.sort_values("Status")
 
-    return clientes
+    return d, summary
 
 
-@st.cache_data(show_spinner=True)
-def load_geo() -> pd.DataFrame:
-    df_geo = pd.read_csv(CITY_GEO_CSV_URL, sep=None, engine="python")
+def compute_carteira_score(summary_df: pd.DataFrame) -> int:
+    """0–100 score based on status composition."""
+    if summary_df is None or summary_df.empty:
+        return 0
 
-    original_cols = list(df_geo.columns)
-    df_geo.columns = [str(c).strip() for c in df_geo.columns]
+    counts = {str(row["Status"]): int(row["Clientes"]) for _, row in summary_df.iterrows()}
+    total = sum(counts.values()) or 1
 
-    def find_col(candidates):
-        for col in df_geo.columns:
-            norm = str(col).strip().lower()
-            if norm in candidates:
-                return col
-        return None
+    novos = counts.get("Novos", 0) / total
+    crescendo = counts.get("Crescendo", 0) / total
+    estaveis = counts.get("Estáveis", 0) / total
+    caindo = counts.get("Caindo", 0) / total
+    perdidos = counts.get("Perdidos", 0) / total
 
-    estado_col = find_col({"estado", "uf"})
-    cidade_col = find_col({"cidade", "municipio", "município"})
-    lat_col = find_col({"lat", "latitude"})
-    lon_col = find_col({"lon", "longitude", "long", "lng"})
+    score = 60.0
+    score += 25.0 * crescendo
+    score += 10.0 * novos
+    score += 5.0 * estaveis
+    score -= 20.0 * caindo
+    score -= 40.0 * perdidos
 
-    missing = []
-    if estado_col is None:
-        missing.append("Estado/UF")
-    if cidade_col is None:
-        missing.append("Cidade/Municipio")
-    if lat_col is None:
-        missing.append("Latitude (lat)")
-    if lon_col is None:
-        missing.append("Longitude (lon)")
+    return int(round(max(0.0, min(100.0, score))))
 
-    if missing:
-        raise ValueError(
-            "cidades_br_geo.csv está com colunas diferentes das esperadas.\n"
-            f"Faltando: {', '.join(missing)}\n"
-            f"Colunas encontradas: {', '.join(map(str, original_cols))}"
+
+def render_kpis(metrics: dict, conc: dict, score: int):
+    pill = f"HHI {conc['hhi']:.3f} • N80: {conc['n80']} clientes"
+    html = f"""
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Total período</div>
+        <div class="kpi-value">{brl(metrics['total'])}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Média mensal</div>
+        <div class="kpi-value">{brl(metrics['avg_month'])}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Distribuição por clientes</div>
+        <div class="kpi-value">{conc['label']}</div>
+        <div class="kpi-sub"><span class="kpi-pill">{pill}</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Saúde da carteira</div>
+        <div class="kpi-value">{score} / 100</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Clientes atendidos</div>
+        <div class="kpi-value">{metrics['clientes']}</div>
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def folium_add_legend(m, bins):
+    rows = "".join(
+        [
+            "<div style='display:flex;align-items:center;gap:8px;margin:2px 0;'>"
+            f"<span style='width:12px;height:12px;border-radius:3px;background:{b['color']};display:inline-block;'></span>"
+            f"<span style='font-size:12px;color:#111;'>{b['label']}</span></div>"
+            for b in bins
+        ]
+    )
+    legend_html = f"""
+    <div style="
+      position: fixed; bottom: 18px; left: 18px; z-index: 9999;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(0,0,0,0.12);
+      border-radius: 10px;
+      padding: 10px 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+      ">
+      <div style="font-weight:800;font-size:12px;margin-bottom:6px;color:#111;">Legenda</div>
+      {rows}
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+
+
+def build_city_map(df_period: pd.DataFrame, geo: pd.DataFrame, metric: str):
+    g = (
+        df_period.groupby(["Estado", "Cidade"], as_index=False)
+        .agg(
+            Faturamento=("Valor", "sum"),
+            Volume=("Quantidade", "sum"),
+            Clientes=("Cliente", "nunique"),
         )
-
-    df_geo = df_geo[[estado_col, cidade_col, lat_col, lon_col]].rename(
-        columns={
-            estado_col: "Estado",
-            cidade_col: "Cidade",
-            lat_col: "lat",
-            lon_col: "lon",
-        }
     )
+    if g.empty:
+        m = folium.Map(location=[-14.2, -51.9], zoom_start=4, tiles="cartodbpositron")
+        return m, g, []
 
-    df_geo["lat"] = pd.to_numeric(df_geo["lat"], errors="coerce")
-    df_geo["lon"] = pd.to_numeric(df_geo["lon"], errors="coerce")
-    df_geo = df_geo.dropna(subset=["lat", "lon"])
+    g["Estado"] = g["Estado"].astype(str).str.strip().str.upper()
+    g["Cidade"] = g["Cidade"].astype(str).str.strip().str.upper()
 
-    df_geo["key"] = (
-        df_geo["Estado"].astype(str).str.strip().str.upper()
-        + "|"
-        + df_geo["Cidade"].astype(str).str.strip().str.upper()
-    )
+    gg = g.merge(geo, on=["Estado", "Cidade"], how="left").dropna(subset=["lat", "lon"]).copy()
+    if gg.empty:
+        m = folium.Map(location=[-14.2, -51.9], zoom_start=4, tiles="cartodbpositron")
+        return m, g, []
 
-    return df_geo[["key", "Estado", "Cidade", "lat", "lon"]]
+    val_col = "Faturamento" if metric == "Faturamento" else "Volume"
+    vals = gg[val_col].astype(float)
+
+    q1, q2, q3 = vals.quantile([0.25, 0.50, 0.75]).tolist()
+    thresholds = [float(q1), float(q2), float(q3)]
+
+    def bin_idx(v):
+        if v <= thresholds[0]:
+            return 0
+        if v <= thresholds[1]:
+            return 1
+        if v <= thresholds[2]:
+            return 2
+        return 3
+
+    def fmt_range(lo, hi):
+        if metric == "Faturamento":
+            return f"{brl(lo)} – {brl(hi)}"
+        return f"{lo:,.0f} – {hi:,.0f}".replace(",", ".")
+
+    lo0, hi0 = float(vals.min()), thresholds[0]
+    lo1, hi1 = thresholds[0], thresholds[1]
+    lo2, hi2 = thresholds[1], thresholds[2]
+    lo3, hi3 = thresholds[2], float(vals.max())
+
+    bins = [
+        {"label": fmt_range(lo0, hi0), "color": MAP_BIN_COLORS_LOW_TO_HIGH[0]},
+        {"label": fmt_range(lo1, hi1), "color": MAP_BIN_COLORS_LOW_TO_HIGH[1]},
+        {"label": fmt_range(lo2, hi2), "color": MAP_BIN_COLORS_LOW_TO_HIGH[2]},
+        {"label": fmt_range(lo3, hi3), "color": MAP_BIN_COLORS_LOW_TO_HIGH[3]},
+    ]
+
+    center = [float(gg["lat"].mean()), float(gg["lon"].mean())]
+    m = folium.Map(location=center, zoom_start=5, tiles="cartodbpositron")
+
+    vmax = float(vals.max()) if float(vals.max()) > 0 else 1.0
+    for _, r in gg.iterrows():
+        v = float(r[val_col])
+        b = bin_idx(v)
+        color = MAP_BIN_COLORS_LOW_TO_HIGH[b]
+        radius = 7 + (10 * (v / vmax))
+        tooltip = (
+            f"{str(r['Cidade']).title()} - {r['Estado']} • "
+            f"{metric}: {brl(v) if metric == 'Faturamento' else f'{v:,.0f}'.replace(',', '.')}"
+        )
+        folium.CircleMarker(
+            location=[float(r["lat"]), float(r["lon"])],
+            radius=float(radius),
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.7,
+            weight=2,
+            tooltip=tooltip,
+        ).add_to(m)
+
+    folium_add_legend(m, bins)
+    return m, gg, bins
 
 
-# ==========================
-# LOAD DATA
-# ==========================
+def html_table(df: pd.DataFrame, nowrap_cols=None, center_headers=None, col_widths=None) -> str:
+    nowrap_cols = set(nowrap_cols or [])
+    center_headers = set(center_headers or [])
+
+    colgroup = ""
+    if col_widths and len(col_widths) == len(df.columns):
+        colgroup = "<colgroup>" + "".join([f"<col style='width:{w};'>" for w in col_widths]) + "</colgroup>"
+
+    ths = ""
+    for c in df.columns:
+        align = "center" if c in center_headers else "left"
+        ths += f"<th style='text-align:{align};'>{c}</th>"
+
+    rows = ""
+    for _, row in df.iterrows():
+        tds = ""
+        for c in df.columns:
+            val = row[c]
+            style = "white-space:nowrap;" if c in nowrap_cols else ""
+            tds += f"<td style='{style}'>{val}</td>"
+        rows += f"<tr>{tds}</tr>"
+
+    return f"<div class='table-wrap table-nowrap'><table>{colgroup}<thead><tr>{ths}</tr></thead><tbody>{rows}</tbody></table></div>"
+
+
+# =========================================================
+# Load data (auto-detect updates)
+# =========================================================
+if "cache_bust" not in st.session_state:
+    st.session_state["cache_bust"] = 0
+
+with st.sidebar:
+    st.markdown("### Deep Dive")
+    if st.button("🔄 Atualizar dados"):
+        st.session_state["cache_bust"] += 1
+        st.cache_data.clear()
+
+sha = get_latest_commit_sha(DATA_PATH_IN_REPO)
+
 try:
-    df = load_data()
+    df = load_sales(sha, st.session_state["cache_bust"])
 except Exception as e:
     st.error(f"Erro ao carregar dados do GitHub: {e}")
     st.stop()
 
-if df.empty:
-    st.warning("O arquivo de dados está vazio.")
+try:
+    geo = load_geo(sha)
+except Exception as e:
+    st.warning(f"Mapa: não foi possível carregar cidades_br_geo.csv ({e}).")
+    geo = pd.DataFrame(columns=["Estado", "Cidade", "lat", "lon"])
+
+
+# =========================================================
+# Sidebar filters (period + representative with 'Todos')
+# =========================================================
+years = sorted([int(y) for y in df["Ano"].dropna().unique().tolist()])
+if not years:
+    st.error("No Ano/Mes data in CSV.")
     st.stop()
 
-# ==========================
-# SIDEBAR – FILTROS
-# ==========================
-st.sidebar.title("Filtros – Deep Dive")
-st.sidebar.markdown("### Período")
+max_year = max(years)
+months_max_year = sorted(df.loc[df["Ano"] == max_year, "MesNum"].dropna().unique().astype(int).tolist())
+default_sm = min(months_max_year) if months_max_year else 1
+default_em = max(months_max_year) if months_max_year else 12
 
-anos_disponiveis = sorted(df["Ano"].dropna().unique())
-if not anos_disponiveis:
-    st.error("Não foi possível identificar anos na base de dados.")
-    st.stop()
-
-last_year = int(anos_disponiveis[-1])
-default_start_year = last_year
-default_end_year = last_year
-
-meses_ano_default = df.loc[df["Ano"] == last_year, "MesNum"].dropna().unique()
-if len(meses_ano_default) > 0:
-    default_start_month_num = int(meses_ano_default.min())
-    default_end_month_num = int(meses_ano_default.max())
-else:
-    default_start_month_num = 1
-    default_end_month_num = 12
-
-month_names = [MONTH_MAP_NUM_TO_NAME[m] for m in range(1, 13)]
-
-st.sidebar.caption("Período inicial")
-col_mi, col_ai = st.sidebar.columns(2)
-with col_mi:
-    start_month_name = st.selectbox(
-        "Mês",
-        options=month_names,
-        index=month_names.index(MONTH_MAP_NUM_TO_NAME[default_start_month_num]),
-        key="start_month",
-    )
-with col_ai:
-    start_year = st.selectbox(
-        "Ano",
-        options=[int(a) for a in anos_disponiveis],
-        index=list(anos_disponiveis).index(default_start_year),
-        key="start_year",
-    )
-
-st.sidebar.caption("Período final")
-col_mf, col_af = st.sidebar.columns(2)
-with col_mf:
-    end_month_name = st.selectbox(
-        "Mês ",
-        options=month_names,
-        index=month_names.index(MONTH_MAP_NUM_TO_NAME[default_end_month_num]),
-        key="end_month",
-    )
-with col_af:
-    end_year = st.selectbox(
-        "Ano ",
-        options=[int(a) for a in anos_disponiveis],
-        index=list(anos_disponiveis).index(default_end_year),
-        key="end_year",
-    )
-
-start_month = MONTH_MAP_NAME_TO_NUM[start_month_name]
-end_month = MONTH_MAP_NAME_TO_NUM[end_month_name]
-
-start_comp = pd.Timestamp(year=int(start_year), month=int(start_month), day=1)
-end_comp = pd.Timestamp(year=int(end_year), month=int(end_month), day=1)
-
-if start_comp > end_comp:
-    st.sidebar.error("Período inicial não pode ser maior que o período final.")
-    st.stop()
-
-months_span_for_carteira = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
-prev_end = start_comp - pd.DateOffset(months=1)
-prev_start = prev_end - pd.DateOffset(months=months_span_for_carteira - 1)
-
-current_period_label = format_period_label(start_comp, end_comp)
-previous_period_label = format_period_label(prev_start, prev_end)
-
-mask_period = (df["Competencia"] >= start_comp) & (df["Competencia"] <= end_comp)
-df_period = df.loc[mask_period].copy()
-
-if df_period.empty:
-    st.warning("Nenhuma venda no período selecionado.")
-    st.stop()
-
-# Representantes disponíveis no período selecionado
-reps_period = sorted(df_period["Representante"].dropna().unique())
-if not reps_period:
-    st.error("Não há representantes com vendas no período selecionado.")
-    st.stop()
-
-rep_options = ["Todos"] + reps_period
-rep_selected = st.sidebar.selectbox("Representante", rep_options)
-
-if rep_selected == "Todos":
-    df_rep = df_period.copy()
-else:
-    df_rep = df_period[df_period["Representante"] == rep_selected].copy()
-
-# Variáveis auxiliares (se quiser reaproveitar depois para PDF estático)
-df_top_clients_pdf = None
-estados_top_pdf = None
-status_counts_display_pdf = None
-destaques_info = None
-df_top_cities_pdf = None
-
-# ==========================
-# CALCULA STATUS DA CARTEIRA
-# ==========================
-clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp)
-
-# ==========================
-# HEADER
-# ==========================
-st.title("Deep Dive – Representante")
-
-if rep_selected == "Todos":
-    titulo_rep = "Todos os representantes"
-else:
-    titulo_rep = rep_selected
-
-st.subheader(f"Representante: **{titulo_rep}**")
-st.caption(
-    f"Período selecionado: "
-    f"{start_comp.strftime('%b %Y')} até {end_comp.strftime('%b %Y')}"
-)
-
-st.markdown("---")
-
-# ==========================
-# MÉTRICAS PRINCIPAIS – 5 COLUNAS
-# ==========================
-col1, col2, col3, col4, col5 = st.columns(5)
-
-total_rep = df_rep["Valor"].sum()
-
-if not df_rep.empty:
-    meses_rep = (
-        df_rep.groupby([df_rep["Ano"], df_rep["MesNum"]])["Valor"]
-        .sum()
-        .reset_index(name="ValorMes")
-    )
-    meses_com_venda = (meses_rep["ValorMes"] > 0).sum()
-else:
-    meses_com_venda = 0
-
-meses_periodo = (
-    df_period.groupby([df_period["Ano"], df_period["MesNum"]])["Valor"]
-    .sum()
-    .reset_index(name="ValorMes")
-)
-total_meses_periodo = len(meses_periodo)
-
-media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
-
-# Distribuição por clientes: N80, HHI, Top shares
-if not df_rep.empty and total_rep > 0:
-    df_clientes_tot = (
-        df_rep.groupby("Cliente", as_index=False)["Valor"]
-        .sum()
-        .sort_values("Valor", ascending=False)
-    )
-    num_clientes_rep = df_clientes_tot["Cliente"].nunique()
-
-    shares = df_clientes_tot["Valor"] / total_rep
-    df_clientes_tot["Share"] = shares
-
-    cum_share = shares.cumsum()
-    n80_count = 0
-    for i, val in enumerate(cum_share, start=1):
-        n80_count = i
-        if val >= 0.8:
-            break
-    n80_ratio = n80_count / num_clientes_rep if num_clientes_rep > 0 else 0.0
-
-    hhi_value = float((shares ** 2).sum())
-    if hhi_value < 0.10:
-        hhi_label = "Baixa concentração"
-    elif hhi_value < 0.20:
-        hhi_label = "Concentração moderada"
-    else:
-        hhi_label = "Alta concentração"
-
-    if "Baixa" in hhi_label:
-        hhi_label_short = "Baixa"
-    elif "moderada" in hhi_label:
-        hhi_label_short = "Moderada"
-    elif "Alta" in hhi_label:
-        hhi_label_short = "Alta"
-    else:
-        hhi_label_short = hhi_label
-
-    top1_share = shares.iloc[:1].sum()
-    top3_share = shares.iloc[:3].sum()
-    top10_share = shares.iloc[:10].sum()
-else:
-    num_clientes_rep = 0
-    n80_count = 0
-    n80_ratio = 0.0
-    hhi_value = 0.0
-    hhi_label = "Sem dados"
-    hhi_label_short = "Sem dados"
-    top1_share = 0.0
-    top3_share = 0.0
-    top10_share = 0.0
-
-clientes_atendidos = num_clientes_rep
-cidades_atendidas = (
-    df_rep[["Estado", "Cidade"]]
-    .dropna()
-    .drop_duplicates()
-    .shape[0]
-)
-estados_atendidos = df_rep["Estado"].dropna().nunique()
-
-if not clientes_carteira.empty:
-    carteira_score, carteira_label = compute_carteira_score(clientes_carteira)
-else:
-    carteira_score, carteira_label = 50.0, "Neutra"
-
-col1.metric("Total período", format_brl_compact(total_rep))
-col2.metric("Média mensal", format_brl_compact(media_mensal))
-col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
-col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
-col5.metric("Clientes atendidos", f"{clientes_atendidos}")
-
-st.markdown("---")
-
-# ==========================
-# DESTAQUES DO PERÍODO
-# ==========================
-st.subheader("Destaques do período")
-
-if df_rep.empty:
-    st.info("Não há vendas no período selecionado.")
-else:
-    mensal_rep = (
-        df_rep
-        .groupby(["Ano", "MesNum"], as_index=False)[["Valor", "Quantidade"]]
-        .sum()
-    )
-    mensal_rep["Competencia"] = pd.to_datetime(
-        dict(year=mensal_rep["Ano"], month=mensal_rep["MesNum"], day=1)
-    )
-    mensal_rep["MesLabel"] = mensal_rep["Competencia"].dt.strftime("%b %Y")
-
-    best_fat = mensal_rep.loc[mensal_rep["Valor"].idxmax()]
-    worst_fat = mensal_rep.loc[mensal_rep["Valor"].idxmin()]
-    best_vol = mensal_rep.loc[mensal_rep["Quantidade"].idxmax()]
-    worst_vol = mensal_rep.loc[mensal_rep["Quantidade"].idxmin()]
-
-    destaques_info = {
-        "best_fat": {
-            "mes": best_fat["MesLabel"],
-            "valor": float(best_fat["Valor"]),
-        },
-        "worst_fat": {
-            "mes": worst_fat["MesLabel"],
-            "valor": float(worst_fat["Valor"]),
-        },
-        "best_vol": {
-            "mes": best_vol["MesLabel"],
-            "qtd": float(best_vol["Quantidade"]),
-        },
-        "worst_vol": {
-            "mes": worst_vol["MesLabel"],
-            "qtd": float(worst_vol["Quantidade"]),
-        },
-    }
-
-    col_d1, col_d2 = st.columns(2)
-
-    with col_d1:
-        st.markdown("**Faturamento**")
-        st.write(
-            f"• Melhor mês: **{best_fat['MesLabel']}** — {format_brl(best_fat['Valor'])}"
+with st.sidebar:
+    st.markdown("### Filtros")
+    cA, cB = st.columns(2)
+    with cA:
+        start_year = st.selectbox("Ano inicial", years, index=years.index(max_year))
+        start_month = st.selectbox(
+            "Mês inicial",
+            list(range(1, 13)),
+            index=default_sm - 1,
+            format_func=lambda x: PT_MONTHS[x],
         )
-        st.write(
-            f"• Pior mês: **{worst_fat['MesLabel']}** — {format_brl(worst_fat['Valor'])}"
+    with cB:
+        end_year = st.selectbox("Ano final", years, index=years.index(max_year))
+        end_month = st.selectbox(
+            "Mês final",
+            list(range(1, 13)),
+            index=default_em - 1,
+            format_func=lambda x: PT_MONTHS[x],
         )
 
-    with col_d2:
-        st.markdown("**Volume**")
-        st.write(
-            f"• Melhor mês: **{best_vol['MesLabel']}** — "
-            f"{int(best_vol['Quantidade']):,}".replace(",", ".")
-        )
-        st.write(
-            f"• Pior mês: **{worst_vol['MesLabel']}** — "
-            f"{int(worst_vol['Quantidade']):,}".replace(",", ".")
-        )
+    if period_key(end_year, end_month) < period_key(start_year, start_month):
+        start_year, end_year = end_year, start_year
+        start_month, end_month = end_month, start_month
 
-st.markdown("---")
+    df_period_for_rep = filter_df_period(df, start_year, start_month, end_year, end_month)
 
-# ==========================
-# MAPA DE CLIENTES
-# ==========================
-st.subheader("Mapa de Clientes")
+    reps = sorted(df_period_for_rep["Representante"].dropna().unique().tolist()) if not df_period_for_rep.empty else []
+    reps = ["Todos"] + reps
+    representante = st.selectbox("Representante", reps, index=0)
 
-if "selected_city_tooltip" not in st.session_state:
-    st.session_state["selected_city_tooltip"] = None
+df_period = df_period_for_rep.copy()
+if representante != "Todos":
+    df_period = df_period[df_period["Representante"] == representante]
 
-if df_rep.empty:
-    st.info("Não há vendas no período selecionado.")
+period_label = f"{PT_MONTHS[start_month]} {start_year} até {PT_MONTHS[end_month]} {end_year}"
+rep_title = "Todos os representantes" if representante == "Todos" else representante
+
+
+# =========================================================
+# Compute data for sections
+# =========================================================
+metrics = compute_basic_metrics(df_period, start_year, start_month, end_year, end_month)
+destaques = compute_destaques(df_period)
+conc = compute_client_concentration(df_period)
+det_status, sum_status = carteira_status(df, start_year, start_month, end_year, end_month, representante)
+score = compute_carteira_score(sum_status)
+
+
+# =========================================================
+# PAGE 1
+# =========================================================
+st.markdown(f"# Representante: {rep_title}")
+st.markdown(f"<div class='small-muted'>Período selecionado: {period_label}</div>", unsafe_allow_html=True)
+
+render_kpis(metrics, conc, score)
+
+st.markdown("## Destaques do período")
+if not destaques:
+    st.info("No data to highlight for the selected period.")
 else:
-    try:
-        df_geo = load_geo()
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown("#### Faturamento")
+        bf = destaques["best_fat"]
+        wf = destaques["worst_fat"]
+        st.write(f"**Melhor mês:** {month_label(bf[0], bf[1])} • {brl(bf[2])}")
+        st.write(f"**Pior mês:** {month_label(wf[0], wf[1])} • {brl(wf[2])}")
+        st.markdown("</div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown("#### Volume")
+        bv = destaques["best_vol"]
+        wv = destaques["worst_vol"]
+        st.write(f"**Melhor mês:** {month_label(bv[0], bv[1])} • {bv[2]:,.0f}".replace(",", "."))
+        st.write(f"**Pior mês:** {month_label(wv[0], wv[1])} • {wv[2]:,.0f}".replace(",", "."))
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        df_cities = (
-            df_rep.groupby(["Estado", "Cidade"], as_index=False)
-            .agg(
-                Valor=("Valor", "sum"),
-                Quantidade=("Quantidade", "sum"),
-                Clientes=("Cliente", "nunique"),
-            )
-        )
+st.markdown("## Mapa de Clientes")
 
-        if not df_cities.empty:
-            df_top_cities_pdf = df_cities.sort_values("Valor", ascending=False).head(10).copy()
+map_metric = st.radio("Métrica do mapa", ["Faturamento", "Volume"], horizontal=True, key="map_metric")
 
-        df_cities["key"] = (
-            df_cities["Estado"].astype(str).str.strip().str.upper()
-            + "|"
-            + df_cities["Cidade"].astype(str).str.strip().str.upper()
-        )
+col_map, col_right = st.columns([1.0, 1.25], gap="large")
 
-        df_map = df_cities.merge(
-            df_geo,
-            on="key",
-            how="inner",
-            suffixes=("_fat", "_geo"),
-        )
+with col_map:
+    m, cities_df, _bins = build_city_map(df_period, geo, map_metric)
+    map_out = st_folium(m, height=720, width="100%", returned_objects=["last_object_clicked"])
 
-        if df_map.empty:
-            st.info("Não há coordenadas de cidades para exibir no mapa.")
-        else:
-            df_map["Tooltip"] = (
-                df_map["Cidade_fat"].astype(str)
-                + " - "
-                + df_map["Estado_fat"].astype(str)
-            )
+with col_right:
+    st.markdown("#### Cobertura")
+    cc1, cc2, cc3 = st.columns(3, gap="medium")
+    cidades_atendidas = int(df_period[["Estado", "Cidade"]].drop_duplicates().shape[0]) if not df_period.empty else 0
+    estados_atendidos = int(df_period["Estado"].nunique()) if not df_period.empty else 0
+    with cc1:
+        st.metric("Cidades", cidades_atendidas)
+    with cc2:
+        st.metric("Estados", estados_atendidos)
+    with cc3:
+        st.metric("Clientes", metrics["clientes"])
 
-            metric_choice = st.radio(
-                "Métrica do mapa",
-                ["Faturamento", "Volume"],
-                horizontal=True,
-            )
+    st.markdown("<div class='hr'></div>", unsafe_allow_html=True)
 
-            if metric_choice == "Faturamento":
-                metric_col = "Valor"
-                metric_label = "Faturamento (R$)"
-            else:
-                metric_col = "Quantidade"
-                metric_label = "Volume"
+    st.markdown("#### Principais clientes")
+    top_clients = (
+        df_period.groupby(["Cliente", "Cidade", "Estado"], as_index=False)
+        .agg(Faturamento=("Valor", "sum"))
+        .sort_values("Faturamento", ascending=False)
+        .head(15)
+    )
+    top_disp = top_clients.copy()
+    top_disp["Faturamento"] = top_disp["Faturamento"].apply(brl)
 
-            if df_map[metric_col].max() <= 0:
-                st.info("Sem dados para exibir no mapa nesse período.")
-            else:
-                values = df_map[metric_col].tolist()
-                is_valor = (metric_col == "Valor")
-                bins = build_dynamic_bins(values, is_valor=is_valor)
+    st.markdown(
+        html_table(
+            top_disp[["Cliente", "Cidade", "Estado", "Faturamento"]],
+            nowrap_cols=["Faturamento"],
+            col_widths=["46%", "22%", "12%", "20%"],
+        ),
+        unsafe_allow_html=True,
+    )
 
-                df_map["bin_color"] = df_map[metric_col].apply(
-                    lambda v: get_bin_for_value(float(v), bins)["color"]
-                    if pd.notna(v) else MAP_BIN_COLORS[-1]
+    clicked = (map_out or {}).get("last_object_clicked")
+    if clicked and not cities_df.empty:
+        st.markdown("<div class='hr'></div>", unsafe_allow_html=True)
+        st.markdown("#### Ver lista de clientes da cidade")
+        try:
+            lat = float(clicked.get("lat"))
+            lon = float(clicked.get("lng"))
+            tmp = cities_df.copy()
+            tmp["dist"] = (tmp["lat"] - lat) ** 2 + (tmp["lon"] - lon) ** 2
+            row = tmp.sort_values("dist").head(1)
+            if not row.empty:
+                estado = row.iloc[0]["Estado"]
+                cidade = row.iloc[0]["Cidade"]
+                st.markdown(f"<div class='small-muted'><b>{cidade.title()}</b> – {estado}</div>", unsafe_allow_html=True)
+
+                city_rows = df_period.copy()
+                city_rows["CidadeU"] = city_rows["Cidade"].astype(str).str.strip().str.upper()
+                city_rows["EstadoU"] = city_rows["Estado"].astype(str).str.strip().str.upper()
+                city_rows = city_rows[
+                    (city_rows["CidadeU"] == str(cidade).upper())
+                    & (city_rows["EstadoU"] == str(estado).upper())
+                ]
+
+                city_clients = (
+                    city_rows.groupby("Cliente", as_index=False)
+                    .agg(Quantidade=("Quantidade", "sum"), Faturamento=("Valor", "sum"))
+                    .sort_values("Faturamento", ascending=False)
                 )
-                df_map["bin_label"] = df_map[metric_col].apply(
-                    lambda v: get_bin_for_value(float(v), bins)["label"]
-                    if pd.notna(v) else bins[-1]["label"]
-                )
+                city_disp = city_clients.copy()
+                city_disp["Quantidade"] = city_disp["Quantidade"].map(lambda x: f"{float(x):,.0f}".replace(",", "."))
+                city_disp["Faturamento"] = city_disp["Faturamento"].apply(brl)
 
-                legend_entries = [(b["color"], b["label"]) for b in bins]
-
-                col_map, col_stats = st.columns([0.8, 1.2])
-
-                with col_map:
-                    center = [df_map["lat"].mean(), df_map["lon"].mean()]
-                    m = folium.Map(location=center, zoom_start=5, tiles="cartodbpositron")
-
-                    for _, row in df_map.iterrows():
-                        color = row["bin_color"]
-
-                        if metric_col == "Valor":
-                            metric_val_str = format_brl(row["Valor"])
-                        else:
-                            metric_val_str = f"{int(row['Quantidade']):,}".replace(",", ".")
-
-                        popup_html = (
-                            f"<b>{row['Cidade_fat']} - {row['Estado_fat']}</b><br>"
-                            f"{metric_label}: {metric_val_str}<br>"
-                            f"Clientes: {int(row['Clientes'])}"
-                        )
-
-                        folium.CircleMarker(
-                            location=[row["lat"], row["lon"]],
-                            radius=6,
-                            color=color,
-                            fill=True,
-                            fill_color=color,
-                            fill_opacity=0.8,
-                            popup=folium.Popup(popup_html, max_width=300),
-                            tooltip=row["Tooltip"],
-                        ).add_to(m)
-
-                    map_data = st_folium(m, width=None, height=800)
-
-                    if legend_entries:
-                        legend_html = "<div style='font-size:0.8rem; margin-top:0.5rem;'>"
-                        legend_html += f"<b>Legenda – {metric_label}</b><br>"
-                        for color, label_range in legend_entries:
-                            legend_html += (
-                                f"<span style='display:inline-block;width:12px;"
-                                f"height:12px;background:{color};"
-                                f"margin-right:4px;border-radius:2px;'></span>"
-                                f"{label_range}<br>"
-                            )
-                        legend_html += "</div>"
-                        st.markdown(legend_html, unsafe_allow_html=True)
-
-                selected_label = None
-                if isinstance(map_data, dict):
-                    selected_label = map_data.get("last_object_clicked_tooltip")
-
-                if selected_label:
-                    st.session_state["selected_city_tooltip"] = selected_label
-                else:
-                    selected_label = st.session_state.get("selected_city_tooltip")
-
-                with col_stats:
-                    st.markdown("**Cobertura**")
-                    cov1, cov2, cov3 = st.columns(3)
-                    cov1.metric("Cidades atendidas", f"{cidades_atendidas}")
-                    cov2.metric("Estados atendidos", f"{estados_atendidos}")
-                    cov3.metric("Clientes atendidos", f"{clientes_atendidos}")
-
-                    st.markdown("**Principais clientes**")
-
-                    df_top_clients = (
-                        df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)["Valor"]
-                        .sum()
-                        .sort_values("Valor", ascending=False)
-                        .head(15)  # 15 linhas
-                    )
-                    df_top_clients["Faturamento"] = df_top_clients["Valor"].map(format_brl)
-                    df_top_display = df_top_clients[
-                        ["Cliente", "Cidade", "Estado", "Faturamento"]
-                    ]
-
-                    # para possível uso futuro (PDF): top 10
-                    df_top_clients_pdf = df_top_clients.head(10).copy()
-
-                    clientes_table_css = """
-                    <style>
-                    table.clientes-table {
-                        width: 100%;
-                        border-collapse: collapse;
-                    }
-                    table.clientes-table th,
-                    table.clientes-table td {
-                        padding: 0.25rem 0.5rem;
-                        font-size: 0.85rem;
-                        text-align: left;
-                        border-bottom: 1px solid rgba(255,255,255,0.08);
-                        white-space: nowrap;
-                    }
-                    table.clientes-table th:nth-child(1),
-                    table.clientes-table td:nth-child(1) {
-                        white-space: normal;
-                    }
-                    </style>
-                    """
-                    st.markdown(clientes_table_css, unsafe_allow_html=True)
-
-                    cols_top = list(df_top_display.columns)
-                    html_top = "<table class='clientes-table'><thead><tr>"
-                    html_top += "".join(f"<th>{c}</th>" for c in cols_top)
-                    html_top += "</tr></thead><tbody>"
-                    for _, row in df_top_display.iterrows():
-                        html_top += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_top) + "</tr>"
-                    html_top += "</tbody></table>"
-
-                    st.markdown(html_top, unsafe_allow_html=True)
-
-                    if selected_label:
-                        row_city = df_map[df_map["Tooltip"] == selected_label].head(1)
-                        if not row_city.empty:
-                            cidade_sel = row_city["Cidade_fat"].iloc[0]
-                            estado_sel = row_city["Estado_fat"].iloc[0]
-
-                            df_city_clients = df_rep[
-                                (df_rep["Cidade"] == cidade_sel)
-                                & (df_rep["Estado"] == estado_sel)
-                            ].copy()
-
-                            if not df_city_clients.empty:
-                                df_city_agg = (
-                                    df_city_clients
-                                    .groupby("Cliente", as_index=False)
-                                    .agg(
-                                        Valor=("Valor", "sum"),
-                                        Quantidade=("Quantidade", "sum"),
-                                    )
-                                    .sort_values("Valor", ascending=False)
-                                )
-                                df_city_agg["Faturamento"] = df_city_agg["Valor"].map(format_brl)
-                                display_city = df_city_agg[
-                                    ["Cliente", "Quantidade", "Faturamento"]
-                                ]
-
-                                st.markdown(
-                                    f"**Clientes em {cidade_sel} - {estado_sel}**"
-                                )
-
-                                city_clients_css = """
-                                <style>
-                                table.city-table {
-                                    width: 100%;
-                                    border-collapse: collapse;
-                                }
-                                table.city-table th,
-                                table.city-table td {
-                                    padding: 0.25rem 0.5rem;
-                                    font-size: 0.85rem;
-                                    border-bottom: 1px solid rgba(255,255,255,0.08);
-                                }
-                                table.city-table th:nth-child(2),
-                                table.city-table th:nth-child(3) {
-                                    text-align: center;
-                                }
-                                table.city-table td {
-                                    text-align: left;
-                                }
-                                </style>
-                                """
-                                st.markdown(city_clients_css, unsafe_allow_html=True)
-
-                                with st.expander("Ver lista de clientes da cidade", expanded=True):
-                                    cols_city = list(display_city.columns)
-                                    html_city = "<table class='city-table'><thead><tr>"
-                                    html_city += "".join(f"<th>{c}</th>" for c in cols_city)
-                                    html_city += "</tr></thead><tbody>"
-                                    for _, row in display_city.iterrows():
-                                        html_city += "<tr>" + "".join(
-                                            f"<td>{row[c]}</td>" for c in cols_city
-                                        ) + "</tr>"
-                                    html_city += "</tbody></table>"
-                                    st.markdown(html_city, unsafe_allow_html=True)
-
-    except Exception as e:
-        st.info(f"Mapa de clientes ainda não disponível: {e}")
-
-st.markdown("---")
-
-# ==========================
-# DISTRIBUIÇÃO POR ESTADOS
-# ==========================
-st.subheader("Distribuição por estados")
-
-if df_rep.empty:
-    st.info("Não há vendas no período selecionado.")
-else:
-    estados_df = (
-        df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]]
-        .sum()
-        .sort_values("Valor", ascending=False)
-    )
-
-    total_valor_all = estados_df["Valor"].sum()
-    total_qtd_all = estados_df["Quantidade"].sum()
-
-    if total_valor_all <= 0:
-        st.info("Não há faturamento para distribuir por estados nesse período.")
-    else:
-        estados_top = estados_df.head(10).copy()
-
-        estados_top["ShareFat"] = estados_top["Valor"] / total_valor_all
-        estados_top["ShareVol"] = (
-            estados_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
-        )
-
-        # para possível uso futuro (PDF)
-        estados_top_pdf = estados_top.copy()
-
-        col_e1, col_e2 = st.columns([1.3, 1])
-
-        with col_e1:
-            st.caption("Top 10 estados por faturamento – % do faturamento total")
-
-            chart_est = (
-                alt.Chart(estados_top)
-                .mark_bar()
-                .encode(
-                    x=alt.X(
-                        "ShareFat:Q",
-                        title="% do faturamento",
-                        axis=alt.Axis(format="~%")
+                st.markdown(
+                    html_table(
+                        city_disp[["Cliente", "Quantidade", "Faturamento"]],
+                        nowrap_cols=["Quantidade", "Faturamento"],
+                        center_headers=["Quantidade", "Faturamento"],
+                        col_widths=["54%", "18%", "28%"],
                     ),
-                    y=alt.Y(
-                        "Estado:N",
-                        sort="-x",
-                        title="Estado"
-                    ),
-                    tooltip=[
-                        alt.Tooltip("Estado:N", title="Estado"),
-                        alt.Tooltip("Valor:Q", title="Faturamento (R$)", format=",.2f"),
-                        alt.Tooltip("ShareFat:Q", title="% do faturamento", format=".1%"),
-                        alt.Tooltip("Quantidade:Q", title="Volume"),
-                        alt.Tooltip("ShareVol:Q", title="% do volume", format=".1%"),
-                    ],
+                    unsafe_allow_html=True,
                 )
-                .properties(
-                    height=max(440, 22 * len(estados_top))  # altura maior
-                )
-            )
+        except Exception:
+            st.caption("Click a map point to see that city’s customer list.")
+    else:
+        st.caption("Click a map point to see that city’s customer list.")
 
-            st.altair_chart(chart_est, width="stretch")
+st.markdown("## Distribuição por estados")
+states = compute_states_distribution(df_period)
+if states.empty:
+    st.info("No state distribution data for this period.")
+else:
+    st.markdown("#### Top 10 estados por faturamento – % do faturamento total")
+    fig_states = px.bar(
+        states,
+        x="Percent",
+        y="Estado",
+        orientation="h",
+        text=states["Percent"].map(lambda x: pct(float(x))),
+        height=520,
+    )
+    fig_states.update_layout(
+        xaxis_title="% do faturamento total",
+        yaxis_title="",
+        margin=dict(l=10, r=10, t=10, b=10),
+    )
+    fig_states.update_traces(textposition="outside", cliponaxis=False)
+    st.plotly_chart(fig_states, width="stretch")
 
-        with col_e2:
-            st.caption("Resumo – Top 10 estados")
-
-            estados_display = estados_top.copy()
-            estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
-            estados_display["% Faturamento"] = estados_display["ShareFat"].map(
-                lambda x: f"{x:.1%}"
-            )
-            estados_display["% Volume"] = estados_display["ShareVol"].map(
-                lambda x: f"{x:.1%}"
-            )
-
-            estados_display = estados_display[
-                ["Estado", "Faturamento", "% Faturamento", "Quantidade", "% Volume"]
-            ]
-
-            st.dataframe(
-                estados_display,
-                hide_index=True,
-                width="stretch",
-            )
-
-st.markdown("---")
-
-# ========= QUEBRA DE PÁGINA 1 → 2 (para impressão) =========
 st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
 
-# ==========================
-# EVOLUÇÃO – FATURAMENTO x VOLUME
-# ==========================
-st.subheader("Evolução – Faturamento x Volume")
 
-if df_rep.empty:
-    st.info("Não há vendas no período selecionado.")
+# =========================================================
+# PAGE 2
+# =========================================================
+st.markdown("## Evolução – Faturamento x Volume")
+
+evo = (
+    df_period.groupby(["Ano", "MesNum"], as_index=False)
+    .agg(Faturamento=("Valor", "sum"), Volume=("Quantidade", "sum"))
+    .sort_values(["Ano", "MesNum"])
+)
+if evo.empty:
+    st.info("No evolution data for this period.")
 else:
-    ts_rep = (
-        df_rep
-        .groupby("Competencia", as_index=False)[["Valor", "Quantidade"]]
-        .sum()
-        .sort_values("Competencia")
-    )
+    evo["Label"] = evo.apply(lambda r: month_label(int(r["Ano"]), int(r["MesNum"])), axis=1)
 
-    ts_rep["MesLabelBr"] = ts_rep["Competencia"].apply(
-        lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}"
-    )
-    x_order = ts_rep["MesLabelBr"].tolist()
-
-    base = alt.Chart(ts_rep).encode(
-        x=alt.X(
-            "MesLabelBr:N",
-            sort=x_order,
-            axis=alt.Axis(title=None),
+    fig = go.Figure()
+    fig.add_bar(x=evo["Label"], y=evo["Faturamento"], name="Faturamento", yaxis="y", opacity=0.85)
+    fig.add_trace(
+        go.Scatter(
+            x=evo["Label"],
+            y=evo["Volume"],
+            name="Volume",
+            yaxis="y2",
+            mode="lines+markers",
+            line=dict(width=3),
+            marker=dict(size=7, color="#22c55e"),
         )
     )
-
-    bars = base.mark_bar(color="#38bdf8").encode(
-        y=alt.Y(
-            "Valor:Q",
-            axis=alt.Axis(title="Faturamento (R$)"),
-        ),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("Valor:Q", title="Faturamento (R$)", format=",.2f"),
-            alt.Tooltip("Quantidade:Q", title="Volume"),
-        ],
+    fig.update_layout(
+        height=420,
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(title="", tickangle=0),
+        yaxis=dict(title="Faturamento", tickformat="~s"),
+        yaxis2=dict(title="Volume", overlaying="y", side="right"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
+    st.plotly_chart(fig, width="stretch")
 
-    line = base.mark_line(
-        color="#22c55e",
-        strokeWidth=3,
-        point=alt.OverlayMarkDef(color="#22c55e", filled=True, size=70),
-    ).encode(
-        y=alt.Y(
-            "Quantidade:Q",
-            axis=alt.Axis(title="Volume", orient="right"),
-        ),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("Valor:Q", title="Faturamento (R$)", format=",.2f"),
-            alt.Tooltip("Quantidade:Q", title="Volume"),
-        ],
+st.markdown("## Distribuição por clientes")
+
+k1, k2, k3, k4, k5 = st.columns(5, gap="medium")
+with k1:
+    st.metric("N80", f"{conc['n80']}")
+with k2:
+    st.metric("HHI", f"{conc['hhi']:.3f}")
+with k3:
+    st.metric("Top 1", pct(conc["top1"]))
+with k4:
+    st.metric("Top 3", pct(conc["top3"]))
+with k5:
+    st.metric("Top 10", pct(conc["top10"]))
+
+dist_cols = st.columns([1.15, 1.0], gap="large")
+with dist_cols[0]:
+    top10 = (
+        df_period.groupby("Cliente", as_index=False)
+        .agg(Faturamento=("Valor", "sum"))
+        .sort_values("Faturamento", ascending=False)
+        .head(10)
     )
-
-    combo_chart = alt.layer(bars, line).resolve_scale(
-        y="independent"
-    ).properties(
-        height=320,
-    )
-
-    st.altair_chart(combo_chart, width="stretch")
-
-st.markdown("---")
-
-# ==========================
-# DISTRIBUIÇÃO POR CLIENTES – SEÇÃO
-# ==========================
-st.subheader("Distribuição por clientes")
-
-if df_rep.empty or clientes_atendidos == 0:
-    st.info("Nenhum cliente com vendas no período selecionado.")
-else:
-    df_clientes = (
-        df_rep.groupby("Cliente", as_index=False)[["Valor", "Quantidade"]]
-        .sum()
-        .sort_values("Valor", ascending=False)
-    )
-    total_rep_safe = total_rep if total_rep > 0 else 1.0
-    df_clientes["Share"] = df_clientes["Valor"] / total_rep_safe
-
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("N80", f"{n80_count}", f"{n80_ratio:.0%} da carteira")
-    k2.metric("Índice de concentração", hhi_label_short, f"HHI {hhi_value:.3f}")
-    k3.metric("Top 1 cliente", f"{top1_share:.1%}")
-    k4.metric("Top 3 clientes", f"{top3_share:.1%}")
-    k5.metric("Top 10 clientes", f"{top10_share:.1%}")
-
-    st.caption(
-        f"{clientes_atendidos} clientes no período selecionado."
-    )
-
-    col_dc1, col_dc2 = st.columns([1.4, 1])
-
-    with col_dc1:
-        st.caption("Top 10 clientes por faturamento")
-        chart_clients = (
-            alt.Chart(df_clientes.head(10))
-            .mark_bar()
-            .encode(
-                x=alt.X("Valor:Q", title="Faturamento (R$)"),
-                y=alt.Y("Cliente:N", sort="-x", title="Cliente"),
-                tooltip=[
-                    alt.Tooltip("Cliente:N", title="Cliente"),
-                    alt.Tooltip("Valor:Q", title="Faturamento", format=",.2f"),
-                    alt.Tooltip("Quantidade:Q", title="Volume"),
-                ],
-            )
-            .properties(height=420)
+    if top10.empty:
+        st.info("No client data.")
+    else:
+        fig_top10 = px.bar(
+            top10.sort_values("Faturamento", ascending=True),
+            x="Faturamento",
+            y="Cliente",
+            orientation="h",
+            title="Top 10 clientes por faturamento",
+            height=420,
         )
-        st.altair_chart(chart_clients, width="stretch")
+        fig_top10.update_layout(margin=dict(l=10, r=10, t=40, b=10), xaxis_title="", yaxis_title="")
+        st.plotly_chart(fig_top10, width="stretch")
 
-    with col_dc2:
-        st.caption("Participação dos clientes (Top 10 destacados)")
-
-        df_pie = df_clientes.copy()
-        df_pie["Rank"] = df_pie["Valor"].rank(method="first", ascending=False)
-
-        df_pie["Grupo"] = df_pie.apply(
-            lambda r: r["Cliente"] if r["Rank"] <= 10 else "Outros",
-            axis=1,
-        )
-
-        dist_df = (
-            df_pie.groupby("Grupo", as_index=False)["Valor"]
-            .sum()
-        )
-        dist_df["Share"] = dist_df["Valor"] / total_rep_safe
-        dist_df = dist_df.sort_values("Share", ascending=False)
-
-        dist_df["Legenda"] = dist_df.apply(
-            lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%",
-            axis=1,
-        )
-
-        def make_text(row):
-            if row["Share"] >= 0.07:
-                return f"{row['Grupo']}<br>{row['Share']*100:.1f}%"
-            else:
-                return ""
-        dist_df["Text"] = dist_df.apply(make_text, axis=1)
-
-        order_legenda = dist_df["Legenda"].tolist()
-
-        fig = px.pie(
-            dist_df,
-            values="Valor",
-            names="Legenda",
-            category_orders={"Legenda": order_legenda},
-        )
-
-        fig.update_traces(
-            text=dist_df["Text"],
-            textposition="inside",
-            textinfo="text",
-            insidetextorientation="radial",
-        )
-
-        fig.update_layout(
-            legend=dict(
-                title="Cliente (Top 10) / Outros",
-                traceorder="normal",
-            )
-        )
-
-        st.plotly_chart(fig, width="stretch")
-
-st.markdown("---")
-
-# ==========================
-# SAÚDE DA CARTEIRA – DETALHES
-# ==========================
-st.subheader("Saúde da carteira – Detalhes")
-
-if clientes_carteira.empty:
-    st.info("Não há clientes com movimento nos períodos atual / anterior para calcular a carteira.")
-else:
-    status_counts = (
-        clientes_carteira.groupby(STATUS_COL)["Cliente"]
-        .nunique()
-        .reset_index()
-        .rename(columns={"Cliente": "QtdClientes", STATUS_COL: "Status"})
-    )
-
-    fat_status = (
-        clientes_carteira.groupby(STATUS_COL)[["ValorAtual", "ValorAnterior"]]
-        .sum()
-        .reset_index()
-        .rename(columns={STATUS_COL: "Status"})
-    )
-    fat_status["Faturamento"] = fat_status["ValorAtual"] - fat_status["ValorAnterior"]
-    fat_status = fat_status[["Status", "Faturamento"]]
-
-    status_counts = status_counts.merge(fat_status, on="Status", how="left")
-
-    total_clientes = status_counts["QtdClientes"].sum()
-    status_counts["%Clientes"] = (
-        status_counts["QtdClientes"] / total_clientes if total_clientes > 0 else 0
-    )
-
-    status_counts["Status"] = pd.Categorical(
-        status_counts["Status"], categories=STATUS_ORDER, ordered=True
-    )
-    status_counts = status_counts.sort_values("Status")
-
-    resumo_text = " • ".join(
-        f"{row.Status} {int(row.QtdClientes)}"
-        for _, row in status_counts.iterrows()
-    )
-    resumo_text += f" ({int(total_clientes)} clientes)"
-
-    st.caption(resumo_text)
-
-    col_pie, col_table = st.columns([1, 1.2])
-
-    with col_pie:
-        st.caption("Distribuição de clientes por status")
-        if total_clientes == 0:
-            st.info("Nenhum cliente com status definido.")
-        else:
-            chart_pie = (
-                alt.Chart(status_counts)
-                .mark_arc(outerRadius=120)
-                .encode(
-                    theta=alt.Theta("QtdClientes:Q"),
-                    color=alt.Color(
-                        "Status:N",
-                        legend=alt.Legend(title="Status"),
-                        scale=alt.Scale(
-                            domain=["Perdidos", "Caindo", "Estáveis", "Crescendo", "Novos"],
-                            range=["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6"],
-                        ),
-                    ),
-                    tooltip=[
-                        alt.Tooltip("Status:N", title="Status"),
-                        alt.Tooltip("QtdClientes:Q", title="Clientes"),
-                        alt.Tooltip("%Clientes:Q", title="% Clientes", format=".1%"),
-                    ],
+with dist_cols[1]:
+    pie_df = conc["pie_df"]
+    if pie_df.empty:
+        st.info("No pie chart data.")
+    else:
+        fig_pie = go.Figure(
+            data=[
+                go.Pie(
+                    labels=pie_df["Legenda"],
+                    values=pie_df["Valor"],
+                    sort=False,
+                    text=pie_df["TextInside"],
+                    textinfo="text",
+                    textposition="inside",
+                    insidetextorientation="auto",
+                    hovertemplate="%{label}<br>Valor: %{value:,.2f}<br>%{percent}<extra></extra>",
                 )
-                .properties(height=320)
-            )
-            st.altair_chart(chart_pie, width="stretch")
-
-    with col_table:
-        st.caption("Resumo por status")
-        status_counts_display = status_counts.copy()
-        status_counts_display["%Clientes"] = status_counts_display["%Clientes"].map(
-            lambda x: f"{x:.1%}"
-        )
-        status_counts_display["Faturamento"] = status_counts_display["Faturamento"].map(
-            format_brl
-        )
-
-        status_counts_display = status_counts_display[
-            ["Status", "QtdClientes", "%Clientes", "Faturamento"]
-        ]
-
-        # snapshot para uso futuro se necessário
-        status_counts_display_pdf = status_counts_display.copy()
-
-        st.dataframe(
-            status_counts_display,
-            hide_index=True,
-            width="stretch",
-        )
-
-        st.markdown(
-            (
-                f"<span style='font-size:0.8rem;opacity:0.8;'>"
-                f"<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento "
-                f"entre o período atual (<b>{current_period_label}</b>) e o período anterior "
-                f"(<b>{previous_period_label}</b>). Valores positivos indicam crescimento; "
-                f"valores negativos indicam queda.</span>"
-            ),
-            unsafe_allow_html=True,
-        )
-
-    # ========= QUEBRA DE PÁGINA 2 → 3 (para impressão) =========
-    st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
-
-    # ==========================
-    # STATUS DOS CLIENTES (LISTAS)
-    # ==========================
-    st.markdown("### Status dos clientes")
-
-    search_cliente = st.text_input(
-        "Buscar cliente",
-        value="",
-        placeholder="Digite parte do nome do cliente",
-    )
-
-    table_css = """
-    <style>
-    table.status-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 0.75rem;
-    }
-    table.status-table col:nth-child(1) { width: 30%; }
-    table.status-table col:nth-child(2) { width: 10%; }
-    table.status-table col:nth-child(3) { width: 15%; }
-    table.status-table col:nth-child(4) { width: 10%; }
-    table.status-table col:nth-child(5) { width: 17.5%; }
-    table.status-table col:nth-child(6) { width: 17.5%; }
-
-    table.status-table th,
-    table.status-table td {
-        padding: 0.2rem 0.5rem;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-        font-size: 0.85rem;
-        text-align: left;
-    }
-    table.status-table th {
-        font-weight: 600;
-    }
-    </style>
-    """
-    st.markdown(table_css, unsafe_allow_html=True)
-
-    ordered_statuses = STATUS_ORDER
-
-    for status_name in ordered_statuses:
-        df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
-
-        if search_cliente:
-            df_status = df_status[
-                df_status["Cliente"]
-                .astype(str)
-                .str.contains(search_cliente, case=False, na=False)
             ]
-
-        if df_status.empty:
-            continue
-
-        df_status["FaturamentoAtualFmt"] = df_status["ValorAtual"].map(format_brl)
-        df_status["FaturamentoAnteriorFmt"] = df_status["ValorAnterior"].map(format_brl)
-
-        df_status = df_status.sort_values("ValorAtual", ascending=False)
-
-        display_df = df_status[
-            ["Cliente", "Estado", "Cidade", STATUS_COL,
-             "FaturamentoAtualFmt", "FaturamentoAnteriorFmt"]
-        ].rename(
-            columns={
-                STATUS_COL: "Status",
-                "FaturamentoAtualFmt": f"Faturamento {current_period_label}",
-                "FaturamentoAnteriorFmt": f"Faturamento {previous_period_label}",
-            }
         )
+        fig_pie.update_layout(
+            title="Participação dos clientes (Top 10 destacados)",
+            height=420,
+            margin=dict(l=10, r=10, t=40, b=10),
+            legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
+        )
+        st.plotly_chart(fig_pie, width="stretch")
 
-        cols_status = list(display_df.columns)
+st.markdown("## Saúde da carteira – Detalhes")
 
-        html_status = "<h5>" + status_name + "</h5>"
-        html_status += "<table class='status-table'><colgroup>"
-        html_status += "<col><col><col><col><col><col></colgroup><thead><tr>"
-        html_status += "".join(f"<th>{c}</th>" for c in cols_status)
-        html_status += "</tr></thead><tbody>"
-        for _, row in display_df.iterrows():
-            html_status += "<tr>" + "".join(f"<td>{row[c]}</td>" for c in cols_status) + "</tr>"
-        html_status += "</tbody></table>"
+if sum_status.empty:
+    st.info("No portfolio data for this period.")
+else:
+    sum_disp = sum_status.copy()
+    sum_disp["Status"] = sum_disp["Status"].astype(str)
+    sum_disp["Clientes"] = sum_disp["Clientes"].astype(int)
+    sum_disp["% Clientes"] = sum_disp["PercentClientes"].map(lambda x: pct(float(x)))
+    sum_disp["Faturamento (Δ)"] = sum_disp["FaturamentoDelta"].map(brl)
+    sum_disp = sum_disp[["Status", "Clientes", "% Clientes", "Faturamento (Δ)"]]
 
-        st.markdown(html_status, unsafe_allow_html=True)
+    st.markdown("#### Resumo por status")
+    st.markdown(
+        html_table(
+            sum_disp,
+            nowrap_cols=["Clientes", "% Clientes", "Faturamento (Δ)"],
+            col_widths=["22%", "14%", "16%", "48%"],
+        ),
+        unsafe_allow_html=True,
+    )
+    st.caption("Obs.: **Faturamento (Δ)** = Atual − Anterior (selected months vs same months previous year).")
 
-st.markdown("---")
+    pie_status = sum_status.copy()
+    pie_status["Status"] = pie_status["Status"].astype(str)
+    pie_status["color"] = pie_status["Status"].map(lambda s: STATUS_COLORS.get(s, "#94a3b8"))
+
+    fig_status = go.Figure(
+        data=[
+            go.Pie(
+                labels=pie_status["Status"],
+                values=pie_status["Clientes"],
+                sort=False,
+                marker=dict(colors=pie_status["color"]),
+                textinfo="percent+label",
+            )
+        ]
+    )
+    fig_status.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(fig_status, width="stretch")
+
+st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
+
+
+# =========================================================
+# PAGE 3
+# =========================================================
+st.markdown("## Status dos clientes")
+
+search = st.text_input("Pesquisar cliente", value="", placeholder="Type part of the client name...")
+d = det_status.copy()
+if search.strip():
+    d = d[d["Cliente"].str.contains(search.strip(), case=False, na=False)]
+
+cur_period_name = f"Faturamento {PT_MONTHS[start_month]} {str(start_year)[-2:]} – {PT_MONTHS[end_month]} {str(end_year)[-2:]}"
+prev_period_name = f"Faturamento {PT_MONTHS[start_month]} {str(start_year - 1)[-2:]} – {PT_MONTHS[end_month]} {str(end_year - 1)[-2:]}"
+
+d_disp = d.copy()
+d_disp[cur_period_name] = d_disp["FaturamentoAtual"].map(brl)
+d_disp[prev_period_name] = d_disp["FaturamentoAnterior"].map(brl)
+d_disp["Δ Faturamento"] = d_disp["DeltaFaturamento"].map(brl)
+
+base_cols = ["Cliente", "Cidade", "Estado", "Status", cur_period_name, prev_period_name, "Δ Faturamento"]
+d_disp = d_disp[base_cols].copy()
+
+# fixed widths across all status tables
+col_widths_status = ["34%", "16%", "10%", "12%", "12%", "12%", "14%"]
+
+for status in STATUS_ORDER:
+    subset = d_disp[d_disp["Status"] == status].copy()
+    if subset.empty:
+        continue
+
+    st.markdown(f"### {status}")
+    st.markdown(f"<div class='small-muted'>Total de clientes: <b>{len(subset)}</b></div>", unsafe_allow_html=True)
+
+    st.markdown(
+        html_table(
+            subset,
+            nowrap_cols=[cur_period_name, prev_period_name, "Δ Faturamento"],
+            col_widths=col_widths_status,
+        ),
+        unsafe_allow_html=True,
+    )
