@@ -518,7 +518,6 @@ if df_period.empty:
     st.warning("Nenhuma venda no período selecionado.")
     st.stop()
 
-# Representantes disponíveis NO PERÍODO
 reps_period = sorted(df_period["Representante"].dropna().unique())
 if not reps_period:
     st.error("Não há representantes com vendas no período selecionado.")
@@ -529,13 +528,12 @@ rep_selected = st.sidebar.selectbox("Representante", rep_options)
 
 df_rep = df_period.copy() if rep_selected == "Todos" else df_period[df_period["Representante"] == rep_selected].copy()
 
-# PREVIOUS PERIOD (for Evolução)
 mask_prev_period = (df["Competencia"] >= prev_start) & (df["Competencia"] <= prev_end)
 df_prev_period = df.loc[mask_prev_period].copy()
 df_rep_prev = df_prev_period.copy() if rep_selected == "Todos" else df_prev_period[df_prev_period["Representante"] == rep_selected].copy()
 
 # ==========================
-# CALCULA STATUS DA CARTEIRA
+# CARTEIRA
 # ==========================
 clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp)
 
@@ -544,7 +542,7 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 # ==========================
 st.title("Insights de Vendas")
 
-titulo_rep = "Todos os representantes" if rep_selected == "Todos" else rep_selected
+titulo_rep = "Todos" if rep_selected == "Todos" else rep_selected
 st.subheader(f"Representante: **{titulo_rep}**")
 st.caption(f"Período selecionado: {current_period_label}")
 
@@ -570,7 +568,6 @@ else:
 
 media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
 
-# Distribuição por clientes
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = (
         df_rep.groupby("Cliente", as_index=False)["Valor"]
@@ -716,10 +713,7 @@ else:
 
                     for _, row in df_map.iterrows():
                         color = row["bin_color"]
-                        if metric_col == "Valor":
-                            metric_val_str = format_brl(row["Valor"])
-                        else:
-                            metric_val_str = format_un(row["Quantidade"])
+                        metric_val_str = format_brl(row["Valor"]) if metric_col == "Valor" else format_un(row["Quantidade"])
 
                         popup_html = (
                             f"<b>{row['Cidade_fat']} - {row['Estado_fat']}</b><br>"
@@ -779,7 +773,6 @@ else:
                     df_top_clients["Faturamento"] = df_top_clients["Valor"].map(format_brl)
                     df_top_display = df_top_clients[["Cliente", "Cidade", "Estado", "Faturamento"]]
 
-                    # HTML table (no scroll, always expanded)
                     st.markdown(
                         """
 <style>
@@ -888,18 +881,21 @@ else:
         estados_top["% Faturamento"] = estados_top["Valor"] / total_valor_all
         estados_top["% Volume"] = estados_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
 
-        # Right side: principais cidades
         cidades_top = (
-            df_rep.groupby(["Cidade", "Estado"], as_index=False)["Valor"]
-            .sum()
+            df_rep.groupby(["Cidade", "Estado"], as_index=False)
+            .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
             .sort_values("Valor", ascending=False)
             .head(15)
             .copy()
         )
-        cidades_top["% Faturamento"] = cidades_top["Valor"] / total_rep if total_rep > 0 else 0
+        cidades_top["% Faturamento"] = cidades_top["Valor"] / total_valor_all if total_valor_all > 0 else 0
+        cidades_top["% Volume"] = cidades_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
+
         cidades_top["Faturamento"] = cidades_top["Valor"].map(format_brl)
+        cidades_top["Volume"] = cidades_top["Quantidade"].map(format_un)
         cidades_top["% Faturamento"] = cidades_top["% Faturamento"].map(lambda x: f"{x:.1%}")
-        cidades_top_display = cidades_top[["Cidade", "Estado", "Faturamento", "% Faturamento"]]
+        cidades_top["% Volume"] = cidades_top["% Volume"].map(lambda x: f"{x:.1%}")
+        cidades_top_display = cidades_top[["Cidade", "Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
 
         left, right = st.columns([1.15, 1.0])
 
@@ -907,22 +903,23 @@ else:
             st.caption("Top 10 estados por faturamento – % do faturamento total")
 
             pie_df = estados_top.copy()
-            pie_df["Legenda"] = pie_df.apply(lambda r: f"{r['Estado']} ({r['% Faturamento']*100:.1f}%)", axis=1)
-
             fig_states = px.pie(
                 pie_df.sort_values("Valor", ascending=False),
                 values="Valor",
                 names="Estado",
                 hole=0.35,
             )
-            fig_states.update_traces(
-                textposition="inside",
-                textinfo="percent+label",
-            )
+            fig_states.update_traces(textposition="inside", textinfo="percent+label")
             fig_states.update_layout(margin=dict(l=10, r=10, t=10, b=10))
             st.plotly_chart(fig_states, width="stretch", height=520)
 
-            st.markdown("**Resumo – Top 10 estados**")
+            # SWAPPED: now cities table goes under the pie
+            st.markdown("**Principais cidades por faturamento**")
+            st.table(cidades_top_display)
+
+        with right:
+            # SWAPPED: now states summary table goes on the right
+            st.caption("Resumo – Top 10 estados")
             estados_display = estados_top.copy()
             estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
             estados_display["Volume"] = estados_display["Quantidade"].map(format_un)
@@ -930,10 +927,6 @@ else:
             estados_display["% Volume"] = estados_display["% Volume"].map(lambda x: f"{x:.1%}")
             estados_display = estados_display[["Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
             st.table(estados_display)
-
-        with right:
-            st.caption("Principais cidades por faturamento")
-            st.table(cidades_top_display)
 
 st.markdown("---")
 
@@ -1105,12 +1098,14 @@ st.markdown("---")
 # ==========================
 st.subheader("Saúde da carteira – Detalhes")
 
-# Include points ranking from header here
 c_score1, c_score2 = st.columns([0.35, 0.65])
 with c_score1:
     st.metric("Pontuação – Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
 with c_score2:
-    st.caption("A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos) no comparativo entre período atual e anterior.")
+    st.caption(
+        "A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos) "
+        "no comparativo entre período atual e anterior."
+    )
 
 if clientes_carteira.empty:
     st.info("Não há clientes com movimento nos períodos atual / anterior para calcular a carteira.")
@@ -1136,10 +1131,6 @@ else:
     status_counts["%Clientes"] = status_counts["QtdClientes"] / total_clientes if total_clientes > 0 else 0
     status_counts["Status"] = pd.Categorical(status_counts["Status"], categories=STATUS_ORDER, ordered=True)
     status_counts = status_counts.sort_values("Status")
-
-    resumo_text = " • ".join(f"{row.Status} {int(row.QtdClientes)}" for _, row in status_counts.iterrows())
-    resumo_text += f" ({int(total_clientes)} clientes)"
-    st.caption(resumo_text)
 
     col_pie, col_table = st.columns([1, 1.2])
 
