@@ -52,24 +52,17 @@ OSM_ATTR = "© OpenStreetMap contributors"
 STATUS_COL = "StatusCarteira"
 
 STATUS_WEIGHTS = {
-    "Novos": 1,
-    "Novo": 1,
-    "Crescendo": 2,
-    "CRESCENDO": 2,
-    "Estáveis": 1,
-    "Estável": 1,
-    "ESTAVEIS": 1,
-    "Caindo": -1,
-    "CAINDO": -1,
-    "Perdidos": -2,
-    "Perdido": -2,
-    "PERDIDOS": -2,
+    "Novos": 1, "Novo": 1,
+    "Crescendo": 2, "CRESCENDO": 2,
+    "Estáveis": 1, "Estável": 1, "ESTAVEIS": 1,
+    "Caindo": -1, "CAINDO": -1,
+    "Perdidos": -2, "Perdido": -2, "PERDIDOS": -2,
 }
 
 STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
 
 # verde = maior, vermelho = menor
-MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]  # green, yellow, orange, red
+MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
 
 
 # ==========================
@@ -424,6 +417,7 @@ if df.empty:
     st.warning("O arquivo de dados está vazio.")
     st.stop()
 
+
 # ==========================
 # SIDEBAR – FILTROS
 # ==========================
@@ -517,9 +511,6 @@ mask_prev_period = (df["Competencia"] >= prev_start) & (df["Competencia"] <= pre
 df_prev_period = df.loc[mask_prev_period].copy()
 df_rep_prev = df_prev_period.copy() if rep_selected == "Todos" else df_prev_period[df_prev_period["Representante"] == rep_selected].copy()
 
-# ==========================
-# CARTEIRA
-# ==========================
 clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp)
 
 # ==========================
@@ -615,14 +606,9 @@ st.subheader("Destaques do período")
 if df_rep.empty:
     st.info("Não há vendas no período selecionado.")
 else:
-    mensal_rep = (
-        df_rep.groupby(["Ano", "MesNum"], as_index=False)[["Valor", "Quantidade"]]
-        .sum()
-    )
+    mensal_rep = df_rep.groupby(["Ano", "MesNum"], as_index=False)[["Valor", "Quantidade"]].sum()
     mensal_rep["Competencia"] = pd.to_datetime(dict(year=mensal_rep["Ano"], month=mensal_rep["MesNum"], day=1))
-    mensal_rep["MesLabel"] = mensal_rep["Competencia"].apply(
-        lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}"
-    )
+    mensal_rep["MesLabel"] = mensal_rep["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
 
     best_fat = mensal_rep.loc[mensal_rep["Valor"].idxmax()]
     worst_fat = mensal_rep.loc[mensal_rep["Valor"].idxmin()]
@@ -656,9 +642,10 @@ else:
         force_leaflet_1_9_4()
         df_geo = load_geo()
 
-        df_cities = (
-            df_rep.groupby(["Estado", "Cidade"], as_index=False)
-            .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"), Clientes=("Cliente", "nunique"))
+        df_cities = df_rep.groupby(["Estado", "Cidade"], as_index=False).agg(
+            Valor=("Valor", "sum"),
+            Quantidade=("Quantidade", "sum"),
+            Clientes=("Cliente", "nunique"),
         )
         df_cities["key"] = (
             df_cities["Estado"].astype(str).str.strip().str.upper()
@@ -689,17 +676,11 @@ else:
                 with col_map:
                     center = [df_map["lat"].mean(), df_map["lon"].mean()]
                     m = folium.Map(location=center, zoom_start=5, tiles=None)
-                    folium.TileLayer(
-                        tiles=OSM_TILE_URL,
-                        attr=OSM_ATTR,
-                        name="OpenStreetMap",
-                        control=False,
-                    ).add_to(m)
+                    folium.TileLayer(tiles=OSM_TILE_URL, attr=OSM_ATTR, name="OpenStreetMap", control=False).add_to(m)
 
                     for _, row in df_map.iterrows():
                         color = row["bin_color"]
                         metric_val_str = format_brl(row["Valor"]) if metric_col == "Valor" else format_un(row["Quantidade"])
-
                         popup_html = (
                             f"<b>{row['Cidade_fat']} - {row['Estado_fat']}</b><br>"
                             f"{metric_label}: {metric_val_str}<br>"
@@ -748,7 +729,6 @@ else:
                     cov3.metric("Clientes atendidos", f"{clientes_atendidos}")
 
                     st.markdown("**Principais clientes**")
-
                     df_top_clients = (
                         df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)["Valor"]
                         .sum()
@@ -768,20 +748,20 @@ table.principais-clientes th, table.principais-clientes td {
   text-align: left;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   vertical-align: top;
+  white-space: nowrap;
 }
-table.principais-clientes th, table.principais-clientes td { white-space: nowrap; } /* avoid wrapping */
 </style>
 """,
                         unsafe_allow_html=True,
                     )
 
                     cols_top = list(df_top_display.columns)
-                    html_top = "<div style='overflow-x:auto;'><table class='principais-clientes'><thead><tr>"
+                    html_top = "<table class='principais-clientes'><thead><tr>"
                     html_top += "".join(f"<th>{c}</th>" for c in cols_top)
                     html_top += "</tr></thead><tbody>"
                     for _, r in df_top_display.iterrows():
                         html_top += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_top) + "</tr>"
-                    html_top += "</tbody></table></div>"
+                    html_top += "</tbody></table>"
                     st.markdown(html_top, unsafe_allow_html=True)
 
                     if selected_label:
@@ -813,7 +793,7 @@ table.city-table th, table.city-table td {
   padding: 0.25rem 0.5rem;
   font-size: 0.85rem;
   border-bottom: 1px solid rgba(255,255,255,0.08);
-  white-space: nowrap; /* avoid wrapping */
+  white-space: nowrap;
 }
 table.city-table th:nth-child(2), table.city-table th:nth-child(3) { text-align: center; }
 table.city-table td { text-align: left; }
@@ -824,12 +804,12 @@ table.city-table td { text-align: left; }
 
                                 with st.expander("Ver lista de clientes da cidade", expanded=True):
                                     cols_city = list(display_city.columns)
-                                    html_city = "<div style='overflow-x:auto;'><table class='city-table'><thead><tr>"
+                                    html_city = "<table class='city-table'><thead><tr>"
                                     html_city += "".join(f"<th>{c}</th>" for c in cols_city)
                                     html_city += "</tr></thead><tbody>"
                                     for _, rr in display_city.iterrows():
                                         html_city += "<tr>" + "".join(f"<td>{rr[c]}</td>" for c in cols_city) + "</tr>"
-                                    html_city += "</tbody></table></div>"
+                                    html_city += "</tbody></table>"
                                     st.markdown(html_city, unsafe_allow_html=True)
 
     except Exception as e:
@@ -838,18 +818,14 @@ table.city-table td { text-align: left; }
 st.markdown("---")
 
 # ==========================
-# DISTRIBUIÇÃO POR ESTADOS
+# DISTRIBUIÇÃO POR ESTADOS  (tables: no wrap, no scrollbars)
 # ==========================
 st.subheader("Distribuição por estados")
 
 if df_rep.empty:
     st.info("Não há vendas no período selecionado.")
 else:
-    estados_df = (
-        df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]]
-        .sum()
-        .sort_values("Valor", ascending=False)
-    )
+    estados_df = df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Valor", ascending=False)
 
     total_valor_all = float(estados_df["Valor"].sum())
     total_qtd_all = float(estados_df["Quantidade"].sum())
@@ -871,12 +847,7 @@ else:
         cidades_top["% Faturamento"] = cidades_top["Valor"] / total_valor_all if total_valor_all > 0 else 0
         cidades_top["% Volume"] = cidades_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
 
-        cidades_top["Faturamento"] = cidades_top["Valor"].map(format_brl)
-        cidades_top["Volume"] = cidades_top["Quantidade"].map(format_un)
-        cidades_top["% Faturamento"] = cidades_top["% Faturamento"].map(lambda x: f"{x:.1%}")
-        cidades_top["% Volume"] = cidades_top["% Volume"].map(lambda x: f"{x:.1%}")
-        cidades_top_display = cidades_top[["Cidade", "Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
-
+        # display states
         estados_display = estados_top.copy()
         estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
         estados_display["Volume"] = estados_display["Quantidade"].map(format_un)
@@ -884,7 +855,15 @@ else:
         estados_display["% Volume"] = estados_display["% Volume"].map(lambda x: f"{x:.1%}")
         estados_display = estados_display[["Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
 
-        left, right = st.columns([1.0, 1.35])
+        # display cities
+        cidades_top["Faturamento"] = cidades_top["Valor"].map(format_brl)
+        cidades_top["Volume"] = cidades_top["Quantidade"].map(format_un)
+        cidades_top["% Faturamento"] = cidades_top["% Faturamento"].map(lambda x: f"{x:.1%}")
+        cidades_top["% Volume"] = cidades_top["% Volume"].map(lambda x: f"{x:.1%}")
+        cidades_top_display = cidades_top[["Cidade", "Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
+
+        # Wider right to avoid wrapping on city table
+        left, right = st.columns([1.0, 1.6])
 
         with left:
             st.caption("Top 10 estados por faturamento – % do faturamento total")
@@ -899,35 +878,6 @@ else:
             fig_states.update_layout(showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
             st.plotly_chart(fig_states, width="stretch", height=520)
 
-            st.markdown("**Principais cidades por faturamento**")
-
-            # ✅ no wrap + allow horizontal scroll if needed
-            st.markdown(
-                """
-<style>
-table.cidades-resumo { width: 100%; border-collapse: collapse; }
-table.cidades-resumo th, table.cidades-resumo td {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.85rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  text-align: left;
-  white-space: nowrap; /* ✅ avoid wrapping */
-}
-</style>
-""",
-                unsafe_allow_html=True,
-            )
-
-            cols_ct = list(cidades_top_display.columns)
-            html_ct = "<div style='overflow-x:auto;'><table class='cidades-resumo'><thead><tr>"
-            html_ct += "".join(f"<th>{c}</th>" for c in cols_ct)
-            html_ct += "</tr></thead><tbody>"
-            for _, rr in cidades_top_display.iterrows():
-                html_ct += "<tr>" + "".join(f"<td>{rr[c]}</td>" for c in cols_ct) + "</tr>"
-            html_ct += "</tbody></table></div>"
-            st.markdown(html_ct, unsafe_allow_html=True)
-
-        with right:
             st.markdown("**Resumo – Top 10 estados**")
             st.markdown(
                 """
@@ -935,23 +885,49 @@ table.cidades-resumo th, table.cidades-resumo td {
 table.estados-resumo { width: 100%; border-collapse: collapse; }
 table.estados-resumo th, table.estados-resumo td {
   padding: 0.25rem 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   text-align: left;
-  white-space: nowrap; /* ✅ avoid wrapping */
+  white-space: nowrap;
 }
 </style>
 """,
                 unsafe_allow_html=True,
             )
             cols_e = list(estados_display.columns)
-            html_e = "<div style='overflow-x:auto;'><table class='estados-resumo'><thead><tr>"
+            html_e = "<table class='estados-resumo'><thead><tr>"
             html_e += "".join(f"<th>{c}</th>" for c in cols_e)
             html_e += "</tr></thead><tbody>"
             for _, r in estados_display.iterrows():
                 html_e += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_e) + "</tr>"
-            html_e += "</tbody></table></div>"
+            html_e += "</tbody></table>"
             st.markdown(html_e, unsafe_allow_html=True)
+
+        with right:
+            st.markdown("**Principais cidades por faturamento**")
+            st.markdown(
+                """
+<style>
+table.cidades-top { width: 100%; border-collapse: collapse; }
+table.cidades-top th, table.cidades-top td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.84rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap; /* ✅ no wrapping */
+}
+</style>
+""",
+                unsafe_allow_html=True,
+            )
+            cols_ct = list(cidades_top_display.columns)
+            html_ct = "<table class='cidades-top'><thead><tr>"
+            html_ct += "".join(f"<th>{c}</th>" for c in cols_ct)
+            html_ct += "</tr></thead><tbody>"
+            for _, r in cidades_top_display.iterrows():
+                html_ct += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_ct) + "</tr>"
+            html_ct += "</tbody></table>"
+            st.markdown(html_ct, unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -968,11 +944,7 @@ def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
     if df_in is None or df_in.empty:
         return None
 
-    ts = (
-        df_in.groupby("Competencia", as_index=False)[["Valor", "Quantidade"]]
-        .sum()
-        .sort_values("Competencia")
-    )
+    ts = df_in.groupby("Competencia", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Competencia")
     if ts.empty:
         return None
 
@@ -1043,7 +1015,7 @@ else:
 st.markdown("---")
 
 # ==========================
-# DISTRIBUIÇÃO POR CLIENTES
+# DISTRIBUIÇÃO POR CLIENTES  ✅ remove pie legend + no-wrap table + no scrollbars
 # ==========================
 st.subheader("Distribuição por clientes")
 
@@ -1059,7 +1031,6 @@ else:
     total_rep_safe = total_rep if total_rep > 0 else 1.0
     df_clientes_full["Share"] = df_clientes_full["Valor"] / total_rep_safe
 
-    # KPIs
     k1, k2, k3, k4, k5 = st.columns(5)
     n80_ratio = (n80_count / clientes_atendidos) if clientes_atendidos > 0 else 0.0
     k1.metric("N80", f"{n80_count}", f"{n80_ratio:.0%} da carteira")
@@ -1070,7 +1041,8 @@ else:
 
     st.caption(f"{clientes_atendidos} clientes no período selecionado.")
 
-    col_pie, col_tbl = st.columns([1.35, 1.0])
+    # Give more width to the table to avoid wrapping
+    col_pie, col_tbl = st.columns([1.10, 1.50])
 
     with col_pie:
         st.caption("Participação dos clientes (Top 10 destacados)")
@@ -1083,7 +1055,6 @@ else:
         dist_df = df_pie.groupby("Grupo", as_index=False)["Valor"].sum()
         dist_df["Share"] = dist_df["Valor"] / total_rep_safe
         dist_df = dist_df.sort_values("Share", ascending=False)
-
         dist_df["Legenda"] = dist_df.apply(lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%", axis=1)
 
         def make_text(row):
@@ -1101,11 +1072,8 @@ else:
             textinfo="text",
             insidetextorientation="radial",
         )
-        # ✅ remove label list (legend) to free space for the table on the right
-        fig.update_layout(
-            showlegend=False,
-            margin=dict(l=10, r=10, t=10, b=10),
-        )
+        # ✅ Remove legend list (no label list)
+        fig.update_layout(showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig, width="stretch", height=520)
 
     with col_tbl:
@@ -1124,11 +1092,11 @@ else:
 table.clientes-resumo { width: 100%; border-collapse: collapse; }
 table.clientes-resumo th, table.clientes-resumo td {
   padding: 0.25rem 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   text-align: left;
   vertical-align: top;
-  white-space: nowrap; /* ✅ avoid wrapping in any column */
+  white-space: nowrap;  /* ✅ ensure no wrap */
 }
 </style>
 """,
@@ -1136,12 +1104,12 @@ table.clientes-resumo th, table.clientes-resumo td {
         )
 
         cols_c = list(df_tbl.columns)
-        html_c = "<div style='overflow-x:auto;'><table class='clientes-resumo'><thead><tr>"
+        html_c = "<table class='clientes-resumo'><thead><tr>"
         html_c += "".join(f"<th>{c}</th>" for c in cols_c)
         html_c += "</tr></thead><tbody>"
         for _, r in df_tbl.iterrows():
             html_c += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_c) + "</tr>"
-        html_c += "</tbody></table></div>"
+        html_c += "</tbody></table>"
         st.markdown(html_c, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -1185,9 +1153,9 @@ else:
     status_counts["Status"] = pd.Categorical(status_counts["Status"], categories=STATUS_ORDER, ordered=True)
     status_counts = status_counts.sort_values("Status")
 
-    col_pie, col_table = st.columns([1, 1.2])
+    col_pie_s, col_table_s = st.columns([1, 1.2])
 
-    with col_pie:
+    with col_pie_s:
         st.caption("Distribuição de clientes por status")
         if total_clientes == 0:
             st.info("Nenhum cliente com status definido.")
@@ -1215,7 +1183,7 @@ else:
             )
             st.altair_chart(chart_pie, width="stretch")
 
-    with col_table:
+    with col_table_s:
         st.caption("Resumo por status")
         status_counts_display = status_counts.copy()
         status_counts_display["%Clientes"] = status_counts_display["%Clientes"].map(lambda x: f"{x:.1%}")
@@ -1258,6 +1226,7 @@ table.status-table th, table.status-table td {
     border-bottom: 1px solid rgba(255,255,255,0.08);
     font-size: 0.85rem;
     text-align: left;
+    white-space: nowrap;
 }
 table.status-table th { font-weight: 600; }
 </style>
