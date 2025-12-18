@@ -1,4 +1,7 @@
 import math
+import csv
+import re
+import unicodedata
 from datetime import datetime
 from io import StringIO
 
@@ -202,29 +205,83 @@ def get_latest_commit_sha(path_in_repo: str) -> str | None:
     return None
 
 
+def _norm_header(s: str) -> str:
+    s = str(s).strip()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "", s)
+    return s
+
+
+def _find_col(norm_map: dict, candidates: list[str]) -> str | None:
+    # exact
+    for cand in candidates:
+        if cand in norm_map:
+            return norm_map[cand]
+    # substring fallback
+    for nk, orig in norm_map.items():
+        for cand in candidates:
+            if cand in nk:
+                return orig
+    return None
+
+
 @st.cache_data(show_spinner=False, ttl=300)
 def load_geo(sha: str | None) -> pd.DataFrame:
     url = GEO_CSV_URL if not sha else f"{GEO_CSV_URL}?cb={sha}"
     r = requests.get(url, timeout=30, headers={"Cache-Control": "no-cache"})
     r.raise_for_status()
-    g = pd.read_csv(StringIO(r.text))
+    text = r.text
 
-    cols = {c.lower(): c for c in g.columns}
-    estado_c = cols.get("estado") or cols.get("uf")
-    cidade_c = cols.get("cidade")
-    lat_c = cols.get("lat") or cols.get("latitude")
-    lon_c = cols.get("lon") or cols.get("lng") or cols.get("longitude")
+    # delimiter sniff (handles ; separated files)
+    sep = ","
+    try:
+        sample = text[:4096]
+        dialect = csv.Sniffer().sniff(sample, delimiters=[",", ";", "\t", "|"])
+        sep = dialect.delimiter
+    except Exception:
+        # fallback: detect common cases
+        if ";" in text.splitlines()[0]:
+            sep = ";"
+        elif "\t" in text.splitlines()[0]:
+            sep = "\t"
+        elif "|" in text.splitlines()[0]:
+            sep = "|"
+
+    g = pd.read_csv(StringIO(text), sep=sep)
+
+    # If still collapsed into 1 column, try ';'
+    if len(g.columns) == 1 and ";" in g.columns[0]:
+        g = pd.read_csv(StringIO(text), sep=";")
+
+    norm_map = {_norm_header(c): c for c in g.columns}
+
+    estado_c = _find_col(norm_map, ["estado", "uf", "siglauf", "state"])
+    cidade_c = _find_col(norm_map, ["cidade", "municipio", "city", "nomemunicipio", "municipionome", "nomecidade"])
+    lat_c = _find_col(norm_map, ["lat", "latitude", "y"])
+    lon_c = _find_col(norm_map, ["lon", "lng", "long", "longitude", "x"])
 
     if not (estado_c and cidade_c and lat_c and lon_c):
-        raise KeyError("cidades_br_geo.csv must contain Estado/UF, Cidade, lat, lon columns")
+        raise KeyError(
+            "cidades_br_geo.csv must contain Estado/UF, Cidade/Municipio, lat/latitude, lon/longitude columns. "
+            f"Found columns: {list(g.columns)}"
+        )
 
     g = g[[estado_c, cidade_c, lat_c, lon_c]].copy()
     g.columns = ["Estado", "Cidade", "lat", "lon"]
+
     g["Estado"] = g["Estado"].astype(str).str.strip().str.upper()
     g["Cidade"] = g["Cidade"].astype(str).str.strip().str.upper()
+
+    # handle decimal commas
+    g["lat"] = g["lat"].astype(str).str.replace(",", ".", regex=False)
+    g["lon"] = g["lon"].astype(str).str.replace(",", ".", regex=False)
+
     g["lat"] = pd.to_numeric(g["lat"], errors="coerce")
     g["lon"] = pd.to_numeric(g["lon"], errors="coerce")
     g = g.dropna(subset=["lat", "lon"])
+
     return g
 
 
@@ -345,7 +402,7 @@ def compute_client_concentration(df_period: pd.DataFrame):
     top3 = float(c["share"].head(3).sum()) if len(c) else 0.0
     top10 = float(c["share"].head(10).sum()) if len(c) else 0.0
 
-    # Pie: Top 10 + Outros (represents all remaining clients)
+    # Pie: Top 10 + Outros
     top = c.head(10).copy()
     rest_val = float(c["Valor"].iloc[10:].sum()) if len(c) > 10 else 0.0
     if rest_val > 0:
@@ -354,7 +411,6 @@ def compute_client_concentration(df_period: pd.DataFrame):
     top["Percent"] = top["Valor"] / total
     top["Legenda"] = top.apply(lambda r: f"{str(r['Cliente'])[:28]} {pct(float(r['Percent']))}", axis=1)
 
-    # IMPORTANT: no multiline f-strings here (this fixes your SyntaxError)
     def inside_text(row):
         p = float(row["Percent"])
         if row["Cliente"] == "Outros":
@@ -365,7 +421,6 @@ def compute_client_concentration(df_period: pd.DataFrame):
 
     top["TextInside"] = top.apply(inside_text, axis=1)
 
-    # Sort by value (desc) and keep "Outros" last
     if "Outros" in top["Cliente"].values:
         top_no_outros = top[top["Cliente"] != "Outros"].sort_values("Valor", ascending=False)
         outros = top[top["Cliente"] == "Outros"]
@@ -386,7 +441,6 @@ def compute_states_distribution(df_period: pd.DataFrame):
 
 
 def carteira_status(df_all: pd.DataFrame, sy: int, sm: int, ey: int, em: int, representante: str | None):
-    """Portfolio status comparing selected period vs same months in previous year."""
     cur = filter_df_period(df_all, sy, sm, ey, em)
     prev = filter_df_period(df_all, sy - 1, sm, ey - 1, em)
 
@@ -442,7 +496,6 @@ def carteira_status(df_all: pd.DataFrame, sy: int, sm: int, ey: int, em: int, re
 
 
 def compute_carteira_score(summary_df: pd.DataFrame) -> int:
-    """0–100 score based on status composition."""
     if summary_df is None or summary_df.empty:
         return 0
 
@@ -529,7 +582,7 @@ def build_city_map(df_period: pd.DataFrame, geo: pd.DataFrame, metric: str):
             Clientes=("Cliente", "nunique"),
         )
     )
-    if g.empty:
+    if g.empty or geo.empty:
         m = folium.Map(location=[-14.2, -51.9], zoom_start=4, tiles="cartodbpositron")
         return m, g, []
 
@@ -654,7 +707,7 @@ except Exception as e:
 
 
 # =========================================================
-# Sidebar filters (period + representative with 'Todos')
+# Sidebar filters
 # =========================================================
 years = sorted([int(y) for y in df["Ano"].dropna().unique().tolist()])
 if not years:
@@ -671,27 +724,16 @@ with st.sidebar:
     cA, cB = st.columns(2)
     with cA:
         start_year = st.selectbox("Ano inicial", years, index=years.index(max_year))
-        start_month = st.selectbox(
-            "Mês inicial",
-            list(range(1, 13)),
-            index=default_sm - 1,
-            format_func=lambda x: PT_MONTHS[x],
-        )
+        start_month = st.selectbox("Mês inicial", list(range(1, 13)), index=default_sm - 1, format_func=lambda x: PT_MONTHS[x])
     with cB:
         end_year = st.selectbox("Ano final", years, index=years.index(max_year))
-        end_month = st.selectbox(
-            "Mês final",
-            list(range(1, 13)),
-            index=default_em - 1,
-            format_func=lambda x: PT_MONTHS[x],
-        )
+        end_month = st.selectbox("Mês final", list(range(1, 13)), index=default_em - 1, format_func=lambda x: PT_MONTHS[x])
 
     if period_key(end_year, end_month) < period_key(start_year, start_month):
         start_year, end_year = end_year, start_year
         start_month, end_month = end_month, start_month
 
     df_period_for_rep = filter_df_period(df, start_year, start_month, end_year, end_month)
-
     reps = sorted(df_period_for_rep["Representante"].dropna().unique().tolist()) if not df_period_for_rep.empty else []
     reps = ["Todos"] + reps
     representante = st.selectbox("Representante", reps, index=0)
@@ -705,7 +747,7 @@ rep_title = "Todos os representantes" if representante == "Todos" else represent
 
 
 # =========================================================
-# Compute data for sections
+# Compute sections
 # =========================================================
 metrics = compute_basic_metrics(df_period, start_year, start_month, end_year, end_month)
 destaques = compute_destaques(df_period)
@@ -745,7 +787,6 @@ else:
         st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("## Mapa de Clientes")
-
 map_metric = st.radio("Métrica do mapa", ["Faturamento", "Volume"], horizontal=True, key="map_metric")
 
 col_map, col_right = st.columns([1.0, 1.25], gap="large")
@@ -805,10 +846,7 @@ with col_right:
                 city_rows = df_period.copy()
                 city_rows["CidadeU"] = city_rows["Cidade"].astype(str).str.strip().str.upper()
                 city_rows["EstadoU"] = city_rows["Estado"].astype(str).str.strip().str.upper()
-                city_rows = city_rows[
-                    (city_rows["CidadeU"] == str(cidade).upper())
-                    & (city_rows["EstadoU"] == str(estado).upper())
-                ]
+                city_rows = city_rows[(city_rows["CidadeU"] == str(cidade).upper()) & (city_rows["EstadoU"] == str(estado).upper())]
 
                 city_clients = (
                     city_rows.groupby("Cliente", as_index=False)
@@ -1024,7 +1062,6 @@ d_disp["Δ Faturamento"] = d_disp["DeltaFaturamento"].map(brl)
 base_cols = ["Cliente", "Cidade", "Estado", "Status", cur_period_name, prev_period_name, "Δ Faturamento"]
 d_disp = d_disp[base_cols].copy()
 
-# fixed widths across all status tables
 col_widths_status = ["34%", "16%", "10%", "12%", "12%", "12%", "14%"]
 
 for status in STATUS_ORDER:
