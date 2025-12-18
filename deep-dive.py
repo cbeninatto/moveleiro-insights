@@ -23,22 +23,11 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-@page {
-  size: A4 portrait;
-  margin: 1.5cm;
-}
+@page { size: A4 portrait; margin: 1.5cm; }
 @media print {
-  html, body {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  [data-testid="stSidebar"], header, footer {
-      display: none !important;
-  }
-  .page-break {
-      break-before: page;
-      page-break-before: always;
-  }
+  html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  [data-testid="stSidebar"], header, footer { display: none !important; }
+  .page-break { break-before: page; page-break-before: always; }
 }
 </style>
 """,
@@ -887,7 +876,6 @@ else:
         cidades_top["% Volume"] = cidades_top["% Volume"].map(lambda x: f"{x:.1%}")
         cidades_top_display = cidades_top[["Cidade", "Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
 
-        # Right table: only requested columns
         estados_display = estados_top.copy()
         estados_display["Faturamento"] = estados_display["Valor"].map(format_brl)
         estados_display["Volume"] = estados_display["Quantidade"].map(format_un)
@@ -895,7 +883,6 @@ else:
         estados_display["% Volume"] = estados_display["% Volume"].map(lambda x: f"{x:.1%}")
         estados_display = estados_display[["Estado", "Faturamento", "% Faturamento", "Volume", "% Volume"]]
 
-        # Wider right column (table), legend removed to avoid layout squeeze
         left, right = st.columns([1.0, 1.35])
 
         with left:
@@ -908,19 +895,14 @@ else:
                 hole=0.35,
             )
             fig_states.update_traces(textposition="inside", textinfo="percent+label")
-            fig_states.update_layout(
-                showlegend=False,  # ✅ remove labels list on the right
-                margin=dict(l=10, r=10, t=10, b=10),
-            )
+            fig_states.update_layout(showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
             st.plotly_chart(fig_states, width="stretch", height=520)
 
             st.markdown("**Principais cidades por faturamento**")
             st.table(cidades_top_display)
 
         with right:
-            # HTML table to avoid header wrapping
             st.markdown("**Resumo – Top 10 estados**")
-
             st.markdown(
                 """
 <style>
@@ -930,13 +912,12 @@ table.estados-resumo th, table.estados-resumo td {
   font-size: 0.85rem;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   text-align: left;
-  white-space: nowrap; /* ✅ avoid wrapping */
+  white-space: nowrap;
 }
 </style>
 """,
                 unsafe_allow_html=True,
             )
-
             cols_e = list(estados_display.columns)
             html_e = "<table class='estados-resumo'><thead><tr>"
             html_e += "".join(f"<th>{c}</th>" for c in cols_e)
@@ -1036,23 +1017,24 @@ else:
 st.markdown("---")
 
 # ==========================
-# DISTRIBUIÇÃO POR CLIENTES
+# DISTRIBUIÇÃO POR CLIENTES  ✅ UPDATED
 # ==========================
 st.subheader("Distribuição por clientes")
 
 if df_rep.empty or clientes_atendidos == 0:
     st.info("Nenhum cliente com vendas no período selecionado.")
 else:
-    df_clientes = (
-        df_rep.groupby("Cliente", as_index=False)[["Valor", "Quantidade"]]
-        .sum()
+    # Aggregate with city/state to support the table on the right
+    df_clientes_full = (
+        df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)
+        .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
         .sort_values("Valor", ascending=False)
     )
 
     total_rep_safe = total_rep if total_rep > 0 else 1.0
-    df_clientes["Share"] = df_clientes["Valor"] / total_rep_safe
-    df_clientes["VolumeFmt"] = df_clientes["Quantidade"].map(format_un)
+    df_clientes_full["Share"] = df_clientes_full["Valor"] / total_rep_safe
 
+    # KPIs
     k1, k2, k3, k4, k5 = st.columns(5)
     n80_ratio = (n80_count / clientes_atendidos) if clientes_atendidos > 0 else 0.0
     k1.metric("N80", f"{n80_count}", f"{n80_ratio:.0%} da carteira")
@@ -1063,40 +1045,27 @@ else:
 
     st.caption(f"{clientes_atendidos} clientes no período selecionado.")
 
-    col_dc1, col_dc2 = st.columns([1.4, 1])
+    # Two-column: big pie on the left, rich table on the right
+    col_pie, col_tbl = st.columns([1.35, 1.0])
 
-    with col_dc1:
-        st.caption("Top 10 clientes por faturamento")
-        chart_clients = (
-            alt.Chart(df_clientes.head(10))
-            .mark_bar()
-            .encode(
-                x=alt.X("Valor:Q", title="Faturamento (R$)"),
-                y=alt.Y("Cliente:N", sort="-x", title="Cliente"),
-                tooltip=[
-                    alt.Tooltip("Cliente:N", title="Cliente"),
-                    alt.Tooltip("Valor:Q", title="Faturamento (R$)", format=",.2f"),
-                    alt.Tooltip("VolumeFmt:N", title="Volume"),
-                ],
-            )
-            .properties(height=420)
-        )
-        st.altair_chart(chart_clients, width="stretch")
-
-    with col_dc2:
+    with col_pie:
         st.caption("Participação dos clientes (Top 10 destacados)")
 
-        df_pie = df_clientes.copy()
-        df_pie["Rank"] = df_pie["Valor"].rank(method="first", ascending=False)
+        # Pie: Top 10 clients labeled, everything else aggregated as 'Outros'
+        df_pie = df_clientes_full[["Cliente", "Valor"]].copy()
+        df_pie = df_pie.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
+        df_pie["Rank"] = range(1, len(df_pie) + 1)
         df_pie["Grupo"] = df_pie.apply(lambda r: r["Cliente"] if r["Rank"] <= 10 else "Outros", axis=1)
 
         dist_df = df_pie.groupby("Grupo", as_index=False)["Valor"].sum()
         dist_df["Share"] = dist_df["Valor"] / total_rep_safe
         dist_df = dist_df.sort_values("Share", ascending=False)
 
+        # legend order: highest -> lowest
         dist_df["Legenda"] = dist_df.apply(lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%", axis=1)
 
         def make_text(row):
+            # label only for meaningful slices (avoid messy placement on tiny ones)
             if row["Share"] >= 0.07:
                 return f"{row['Grupo']}<br>{row['Share']*100:.1f}%"
             return ""
@@ -1105,9 +1074,61 @@ else:
         order_legenda = dist_df["Legenda"].tolist()
 
         fig = px.pie(dist_df, values="Valor", names="Legenda", category_orders={"Legenda": order_legenda})
-        fig.update_traces(text=dist_df["Text"], textposition="inside", textinfo="text", insidetextorientation="radial")
-        fig.update_layout(legend=dict(title="Cliente (Top 10) / Outros", traceorder="normal"))
-        st.plotly_chart(fig, width="stretch")
+        fig.update_traces(
+            text=dist_df["Text"],
+            textposition="inside",
+            textinfo="text",
+            insidetextorientation="radial",
+        )
+        fig.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(title="Cliente (Top 10) / Outros", traceorder="normal"),
+        )
+        st.plotly_chart(fig, width="stretch", height=520)
+
+    with col_tbl:
+        st.caption("Resumo – clientes (mais detalhado)")
+
+        df_tbl = df_clientes_full.copy()
+        df_tbl["Faturamento"] = df_tbl["Valor"].map(format_brl)
+        df_tbl["% Faturamento"] = df_tbl["Share"].map(lambda x: f"{x:.1%}")
+        df_tbl["Volume"] = df_tbl["Quantidade"].map(format_un)
+
+        # Show Top 15 to add breadth without overcrowding
+        df_tbl = df_tbl.head(15)[["Cliente", "Cidade", "Estado", "Faturamento", "% Faturamento", "Volume"]]
+
+        st.markdown(
+            """
+<style>
+table.clientes-resumo { width: 100%; border-collapse: collapse; }
+table.clientes-resumo th, table.clientes-resumo td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  vertical-align: top;
+}
+table.clientes-resumo td:nth-child(4),
+table.clientes-resumo th:nth-child(4),
+table.clientes-resumo td:nth-child(5),
+table.clientes-resumo th:nth-child(5),
+table.clientes-resumo td:nth-child(6),
+table.clientes-resumo th:nth-child(6) {
+  white-space: nowrap;
+}
+</style>
+""",
+            unsafe_allow_html=True,
+        )
+
+        cols_c = list(df_tbl.columns)
+        html_c = "<table class='clientes-resumo'><thead><tr>"
+        html_c += "".join(f"<th>{c}</th>" for c in cols_c)
+        html_c += "</tr></thead><tbody>"
+        for _, r in df_tbl.iterrows():
+            html_c += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_c) + "</tr>"
+        html_c += "</tbody></table>"
+        st.markdown(html_c, unsafe_allow_html=True)
 
 st.markdown("---")
 
