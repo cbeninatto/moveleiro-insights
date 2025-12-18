@@ -11,18 +11,6 @@ import requests
 import re
 import unicodedata
 
-# Tentativa de importar reportlab (não usamos mais no layout, mas deixo aqui se você quiser reaproveitar no futuro)
-try:
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.units import cm
-    REPORTLAB_AVAILABLE = True
-except ImportError:
-    REPORTLAB_AVAILABLE = False
-    A4 = None
-    canvas = None
-    cm = 1
-
 # ==========================
 # CONFIG
 # ==========================
@@ -75,6 +63,11 @@ CITY_GEO_CSV_URL = (
     "cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv"
 )
 
+# === MAP REQUIREMENTS (as requested) ===
+LEAFLET_VERSION = "1.9.4"
+OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+OSM_ATTR = "© OpenStreetMap contributors"
+
 STATUS_COL = "StatusCarteira"
 
 STATUS_WEIGHTS = {
@@ -97,7 +90,40 @@ STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
 # ==========================
 # MAP BINNING (match dashboard_deep_dive_map.html)
 # ==========================
-MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]  # verde, amarelo, laranja, vermelho
+# NOTE: verde = maior, vermelho = menor (as you requested earlier)
+MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]  # green, yellow, orange, red
+
+
+def force_leaflet_1_9_4():
+    """
+    Folium defaults to Leaflet 1.6.0 in many versions.
+    This forces Folium to load Leaflet 1.9.4 (JS + CSS) globally.
+    """
+    try:
+        import folium.folium as ff
+
+        # Replace Leaflet JS/CSS entries (keep other deps untouched)
+        new_js = []
+        for name, url in ff._default_js:
+            if "leaflet" in name.lower():
+                new_js.append(("leaflet", f"https://unpkg.com/leaflet@{LEAFLET_VERSION}/dist/leaflet.js"))
+            else:
+                new_js.append((name, url))
+
+        new_css = []
+        for name, url in ff._default_css:
+            if "leaflet" in name.lower():
+                new_css.append(("leaflet_css", f"https://unpkg.com/leaflet@{LEAFLET_VERSION}/dist/leaflet.css"))
+            else:
+                new_css.append((name, url))
+
+        ff._default_js = new_js
+        ff._default_css = new_css
+
+    except Exception:
+        # If Folium internals differ, we don't break the app.
+        # But in most Folium versions used on Streamlit Cloud, this works.
+        pass
 
 
 def build_dynamic_bins(values, is_valor: bool):
@@ -436,25 +462,22 @@ def load_geo() -> pd.DataFrame:
     norm_map = {_norm_col(c): c for c in df_geo.columns}
 
     def pick(candidates):
-        # exact normalized hit
         for cand in candidates:
             if cand in norm_map:
                 return norm_map[cand]
-        # substring fallback
         for nk, orig in norm_map.items():
             for cand in candidates:
                 if cand in nk:
                     return orig
         return None
 
-    # candidates are normalized (no accents/punctuation)
     estado_col = pick([
         "estado", "uf", "siglauf", "ufsigla", "unidadefederativa",
         "estadouf", "ufestado", "coduf", "codigoestado", "codestado",
     ])
     cidade_col = pick([
-        "cidade", "municipio", "municipio_nome", "nomemunicipio", "nmmunicipio",
-        "nomecidade", "cidade_nome", "mun", "nmmun", "municipionome",
+        "cidade", "municipio", "nomemunicipio", "nmmunicipio",
+        "nomecidade", "cidade_nome", "municipionome",
     ])
     lat_col = pick(["lat", "latitude", "y", "coordy", "coordenaday"])
     lon_col = pick(["lon", "lng", "long", "longitude", "x", "coordx", "coordenadax"])
@@ -485,7 +508,6 @@ def load_geo() -> pd.DataFrame:
         }
     )
 
-    # support decimal commas
     df_geo["lat"] = df_geo["lat"].astype(str).str.replace(",", ".", regex=False)
     df_geo["lon"] = df_geo["lon"].astype(str).str.replace(",", ".", regex=False)
 
@@ -612,13 +634,6 @@ if rep_selected == "Todos":
 else:
     df_rep = df_period[df_period["Representante"] == rep_selected].copy()
 
-# Variáveis auxiliares (se quiser reaproveitar depois para PDF estático)
-df_top_clients_pdf = None
-estados_top_pdf = None
-status_counts_display_pdf = None
-destaques_info = None
-df_top_cities_pdf = None
-
 # ==========================
 # CALCULA STATUS DA CARTEIRA
 # ==========================
@@ -665,7 +680,7 @@ total_meses_periodo = len(meses_periodo)
 
 media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
 
-# Distribuição por clientes: N80, HHI, Top shares
+# Distribuição por clientes
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = (
         df_rep.groupby("Cliente", as_index=False)["Valor"]
@@ -761,13 +776,6 @@ else:
     best_vol = mensal_rep.loc[mensal_rep["Quantidade"].idxmax()]
     worst_vol = mensal_rep.loc[mensal_rep["Quantidade"].idxmin()]
 
-    destaques_info = {
-        "best_fat": {"mes": best_fat["MesLabel"], "valor": float(best_fat["Valor"])},
-        "worst_fat": {"mes": worst_fat["MesLabel"], "valor": float(worst_fat["Valor"])},
-        "best_vol": {"mes": best_vol["MesLabel"], "qtd": float(best_vol["Quantidade"])},
-        "worst_vol": {"mes": worst_vol["MesLabel"], "qtd": float(worst_vol["Quantidade"])},
-    }
-
     col_d1, col_d2 = st.columns(2)
 
     with col_d1:
@@ -798,6 +806,9 @@ if df_rep.empty:
     st.info("Não há vendas no período selecionado.")
 else:
     try:
+        # >>> FORCE Leaflet 1.9.4 (your requirement)
+        force_leaflet_1_9_4()
+
         df_geo = load_geo()
 
         df_cities = (
@@ -808,9 +819,6 @@ else:
                 Clientes=("Cliente", "nunique"),
             )
         )
-
-        if not df_cities.empty:
-            df_top_cities_pdf = df_cities.sort_values("Valor", ascending=False).head(10).copy()
 
         df_cities["key"] = (
             df_cities["Estado"].astype(str).str.strip().str.upper()
@@ -869,7 +877,15 @@ else:
 
                 with col_map:
                     center = [df_map["lat"].mean(), df_map["lon"].mean()]
-                    m = folium.Map(location=center, zoom_start=5, tiles="cartodbpositron")
+
+                    # >>> IMPORTANT: OSM tiles only (your requirement)
+                    m = folium.Map(location=center, zoom_start=5, tiles=None)
+                    folium.TileLayer(
+                        tiles=OSM_TILE_URL,
+                        attr=OSM_ATTR,
+                        name="OpenStreetMap",
+                        control=False,
+                    ).add_to(m)
 
                     for _, row in df_map.iterrows():
                         color = row["bin_color"]
@@ -933,13 +949,10 @@ else:
                         df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)["Valor"]
                         .sum()
                         .sort_values("Valor", ascending=False)
-                        .head(15)  # 15 linhas
+                        .head(15)
                     )
                     df_top_clients["Faturamento"] = df_top_clients["Valor"].map(format_brl)
                     df_top_display = df_top_clients[["Cliente", "Cidade", "Estado", "Faturamento"]]
-
-                    # para possível uso futuro (PDF): top 10
-                    df_top_clients_pdf = df_top_clients.head(10).copy()
 
                     clientes_table_css = """
                     <style>
@@ -1066,9 +1079,6 @@ else:
             estados_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
         )
 
-        # para possível uso futuro (PDF)
-        estados_top_pdf = estados_top.copy()
-
         col_e1, col_e2 = st.columns([1.3, 1])
 
         with col_e1:
@@ -1088,7 +1098,7 @@ else:
                         alt.Tooltip("ShareVol:Q", title="% do volume", format=".1%"),
                     ],
                 )
-                .properties(height=max(440, 22 * len(estados_top)))  # altura maior
+                .properties(height=max(440, 22 * len(estados_top)))
             )
 
             st.altair_chart(chart_est, width="stretch")
@@ -1333,7 +1343,6 @@ else:
         status_counts_display["Faturamento"] = status_counts_display["Faturamento"].map(format_brl)
 
         status_counts_display = status_counts_display[["Status", "QtdClientes", "%Clientes", "Faturamento"]]
-        status_counts_display_pdf = status_counts_display.copy()
 
         st.dataframe(status_counts_display, hide_index=True, width="stretch")
 
@@ -1390,9 +1399,7 @@ else:
     """
     st.markdown(table_css, unsafe_allow_html=True)
 
-    ordered_statuses = STATUS_ORDER
-
-    for status_name in ordered_statuses:
+    for status_name in STATUS_ORDER:
         df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
 
         if search_cliente:
