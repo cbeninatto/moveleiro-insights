@@ -360,11 +360,9 @@ def compute_client_concentration(df_period: pd.DataFrame):
     def inside_text(row):
         p = float(row["Percent"])
         if row["Cliente"] == "Outros":
-            return f"Outros
-{pct(p)}"
+            return f"Outros\\n{pct(p)}"
         if p >= 0.06:
-            return f"{str(row['Cliente'])[:20]}
-{pct(p)}"
+            return f"{str(row['Cliente'])[:20]}\\n{pct(p)}"
         return ""
 
     top["TextInside"] = top.apply(inside_text, axis=1)
