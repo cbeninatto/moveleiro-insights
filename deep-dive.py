@@ -769,19 +769,19 @@ table.principais-clientes th, table.principais-clientes td {
   border-bottom: 1px solid rgba(255,255,255,0.08);
   vertical-align: top;
 }
-table.principais-clientes td:nth-child(4), table.principais-clientes th:nth-child(4) { white-space: nowrap; }
+table.principais-clientes th, table.principais-clientes td { white-space: nowrap; } /* avoid wrapping */
 </style>
 """,
                         unsafe_allow_html=True,
                     )
 
                     cols_top = list(df_top_display.columns)
-                    html_top = "<table class='principais-clientes'><thead><tr>"
+                    html_top = "<div style='overflow-x:auto;'><table class='principais-clientes'><thead><tr>"
                     html_top += "".join(f"<th>{c}</th>" for c in cols_top)
                     html_top += "</tr></thead><tbody>"
                     for _, r in df_top_display.iterrows():
                         html_top += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_top) + "</tr>"
-                    html_top += "</tbody></table>"
+                    html_top += "</tbody></table></div>"
                     st.markdown(html_top, unsafe_allow_html=True)
 
                     if selected_label:
@@ -813,6 +813,7 @@ table.city-table th, table.city-table td {
   padding: 0.25rem 0.5rem;
   font-size: 0.85rem;
   border-bottom: 1px solid rgba(255,255,255,0.08);
+  white-space: nowrap; /* avoid wrapping */
 }
 table.city-table th:nth-child(2), table.city-table th:nth-child(3) { text-align: center; }
 table.city-table td { text-align: left; }
@@ -823,12 +824,12 @@ table.city-table td { text-align: left; }
 
                                 with st.expander("Ver lista de clientes da cidade", expanded=True):
                                     cols_city = list(display_city.columns)
-                                    html_city = "<table class='city-table'><thead><tr>"
+                                    html_city = "<div style='overflow-x:auto;'><table class='city-table'><thead><tr>"
                                     html_city += "".join(f"<th>{c}</th>" for c in cols_city)
                                     html_city += "</tr></thead><tbody>"
                                     for _, rr in display_city.iterrows():
                                         html_city += "<tr>" + "".join(f"<td>{rr[c]}</td>" for c in cols_city) + "</tr>"
-                                    html_city += "</tbody></table>"
+                                    html_city += "</tbody></table></div>"
                                     st.markdown(html_city, unsafe_allow_html=True)
 
     except Exception as e:
@@ -899,7 +900,32 @@ else:
             st.plotly_chart(fig_states, width="stretch", height=520)
 
             st.markdown("**Principais cidades por faturamento**")
-            st.table(cidades_top_display)
+
+            # ✅ no wrap + allow horizontal scroll if needed
+            st.markdown(
+                """
+<style>
+table.cidades-resumo { width: 100%; border-collapse: collapse; }
+table.cidades-resumo th, table.cidades-resumo td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap; /* ✅ avoid wrapping */
+}
+</style>
+""",
+                unsafe_allow_html=True,
+            )
+
+            cols_ct = list(cidades_top_display.columns)
+            html_ct = "<div style='overflow-x:auto;'><table class='cidades-resumo'><thead><tr>"
+            html_ct += "".join(f"<th>{c}</th>" for c in cols_ct)
+            html_ct += "</tr></thead><tbody>"
+            for _, rr in cidades_top_display.iterrows():
+                html_ct += "<tr>" + "".join(f"<td>{rr[c]}</td>" for c in cols_ct) + "</tr>"
+            html_ct += "</tbody></table></div>"
+            st.markdown(html_ct, unsafe_allow_html=True)
 
         with right:
             st.markdown("**Resumo – Top 10 estados**")
@@ -912,19 +938,19 @@ table.estados-resumo th, table.estados-resumo td {
   font-size: 0.85rem;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   text-align: left;
-  white-space: nowrap;
+  white-space: nowrap; /* ✅ avoid wrapping */
 }
 </style>
 """,
                 unsafe_allow_html=True,
             )
             cols_e = list(estados_display.columns)
-            html_e = "<table class='estados-resumo'><thead><tr>"
+            html_e = "<div style='overflow-x:auto;'><table class='estados-resumo'><thead><tr>"
             html_e += "".join(f"<th>{c}</th>" for c in cols_e)
             html_e += "</tr></thead><tbody>"
             for _, r in estados_display.iterrows():
                 html_e += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_e) + "</tr>"
-            html_e += "</tbody></table>"
+            html_e += "</tbody></table></div>"
             st.markdown(html_e, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -1017,14 +1043,13 @@ else:
 st.markdown("---")
 
 # ==========================
-# DISTRIBUIÇÃO POR CLIENTES  ✅ UPDATED
+# DISTRIBUIÇÃO POR CLIENTES
 # ==========================
 st.subheader("Distribuição por clientes")
 
 if df_rep.empty or clientes_atendidos == 0:
     st.info("Nenhum cliente com vendas no período selecionado.")
 else:
-    # Aggregate with city/state to support the table on the right
     df_clientes_full = (
         df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)
         .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
@@ -1045,13 +1070,11 @@ else:
 
     st.caption(f"{clientes_atendidos} clientes no período selecionado.")
 
-    # Two-column: big pie on the left, rich table on the right
     col_pie, col_tbl = st.columns([1.35, 1.0])
 
     with col_pie:
         st.caption("Participação dos clientes (Top 10 destacados)")
 
-        # Pie: Top 10 clients labeled, everything else aggregated as 'Outros'
         df_pie = df_clientes_full[["Cliente", "Valor"]].copy()
         df_pie = df_pie.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
         df_pie["Rank"] = range(1, len(df_pie) + 1)
@@ -1061,11 +1084,9 @@ else:
         dist_df["Share"] = dist_df["Valor"] / total_rep_safe
         dist_df = dist_df.sort_values("Share", ascending=False)
 
-        # legend order: highest -> lowest
         dist_df["Legenda"] = dist_df.apply(lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%", axis=1)
 
         def make_text(row):
-            # label only for meaningful slices (avoid messy placement on tiny ones)
             if row["Share"] >= 0.07:
                 return f"{row['Grupo']}<br>{row['Share']*100:.1f}%"
             return ""
@@ -1080,9 +1101,10 @@ else:
             textinfo="text",
             insidetextorientation="radial",
         )
+        # ✅ remove label list (legend) to free space for the table on the right
         fig.update_layout(
+            showlegend=False,
             margin=dict(l=10, r=10, t=10, b=10),
-            legend=dict(title="Cliente (Top 10) / Outros", traceorder="normal"),
         )
         st.plotly_chart(fig, width="stretch", height=520)
 
@@ -1094,7 +1116,6 @@ else:
         df_tbl["% Faturamento"] = df_tbl["Share"].map(lambda x: f"{x:.1%}")
         df_tbl["Volume"] = df_tbl["Quantidade"].map(format_un)
 
-        # Show Top 15 to add breadth without overcrowding
         df_tbl = df_tbl.head(15)[["Cliente", "Cidade", "Estado", "Faturamento", "% Faturamento", "Volume"]]
 
         st.markdown(
@@ -1107,14 +1128,7 @@ table.clientes-resumo th, table.clientes-resumo td {
   border-bottom: 1px solid rgba(255,255,255,0.08);
   text-align: left;
   vertical-align: top;
-}
-table.clientes-resumo td:nth-child(4),
-table.clientes-resumo th:nth-child(4),
-table.clientes-resumo td:nth-child(5),
-table.clientes-resumo th:nth-child(5),
-table.clientes-resumo td:nth-child(6),
-table.clientes-resumo th:nth-child(6) {
-  white-space: nowrap;
+  white-space: nowrap; /* ✅ avoid wrapping in any column */
 }
 </style>
 """,
@@ -1122,12 +1136,12 @@ table.clientes-resumo th:nth-child(6) {
         )
 
         cols_c = list(df_tbl.columns)
-        html_c = "<table class='clientes-resumo'><thead><tr>"
+        html_c = "<div style='overflow-x:auto;'><table class='clientes-resumo'><thead><tr>"
         html_c += "".join(f"<th>{c}</th>" for c in cols_c)
         html_c += "</tr></thead><tbody>"
         for _, r in df_tbl.iterrows():
             html_c += "<tr>" + "".join(f"<td>{r[c]}</td>" for c in cols_c) + "</tr>"
-        html_c += "</tbody></table>"
+        html_c += "</tbody></table></div>"
         st.markdown(html_c, unsafe_allow_html=True)
 
 st.markdown("---")
