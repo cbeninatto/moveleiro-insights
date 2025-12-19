@@ -22,8 +22,11 @@
   <style>
     :root{
       --bg: #0b0f14;
-      --panel: rgba(255,255,255,0.04);
-      --panel2: rgba(255,255,255,0.06);
+
+      /* Solid “Olympus-like” surfaces (no tall-gradient banding) */
+      --panel: rgba(255,255,255,0.045);
+      --panel2: rgba(255,255,255,0.060);
+
       --stroke: rgba(255,255,255,0.08);
       --text: rgba(255,255,255,0.92);
       --muted: rgba(255,255,255,0.70);
@@ -40,18 +43,37 @@
       --r: 18px;
 
       --sidebarW: 320px;
+
+      /* Table fills to avoid “random” bands */
+      --tblHead: rgba(0,0,0,0.22);
+      --tblRowEven: rgba(255,255,255,0.020);
+      --tblRowOdd: rgba(255,255,255,0.000);
     }
 
     *{ box-sizing: border-box; }
     html,body{ height:100%; }
+
+    /* FIX #1: stable page background (subtle, fixed) */
     body{
       margin:0;
-      background: radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,0.14), transparent 60%),
-                  radial-gradient(900px 500px at 80% 0%, rgba(34,197,94,0.10), transparent 65%),
-                  var(--bg);
+      background: var(--bg);
       color: var(--text);
       font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      background:
+        radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,0.12), transparent 60%),
+        radial-gradient(900px 500px at 80% 0%, rgba(34,197,94,0.09), transparent 65%);
+      opacity: 1;
+      z-index: 0;
+    }
+
+    /* Everything above the fixed background */
+    .app{ position:relative; z-index:1; }
 
     /* ====== LAYOUT (sidebar collapsible) ====== */
     .app{
@@ -126,15 +148,33 @@
     }
     .divider{ height:1px; background: var(--stroke); margin: 14px 0; }
 
-    /* Cards */
+    /* FIX #2: Cards are SOLID (no tall gradients that create banding) */
     .card{
-      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+      position: relative;
+      background: var(--panel);
       border: 1px solid var(--stroke);
       border-radius: var(--r);
       box-shadow: var(--shadow);
       padding: 14px 14px;
+      overflow: hidden;
     }
+    /* subtle top sheen, fixed height so it won't band on tall tables */
+    .card::before{
+      content:"";
+      position:absolute;
+      left:0; right:0; top:0;
+      height: 140px;
+      background:
+        radial-gradient(600px 220px at 15% 0%, rgba(56,189,248,0.10), transparent 60%),
+        radial-gradient(520px 220px at 85% 0%, rgba(34,197,94,0.08), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,0.06), transparent);
+      pointer-events:none;
+      opacity: 0.8;
+    }
+    .card > *{ position: relative; }
+
     .card.tight{ padding: 12px 12px; }
+    .plot-card{ padding: 10px 10px; }
 
     /* KPI row */
     .kpis{
@@ -196,7 +236,7 @@
 
     /* Map */
     #map{
-      height: 820px; /* same intention as your app (tall) */
+      height: 820px;
       border-radius: 14px;
       overflow:hidden;
       border: 1px solid var(--stroke);
@@ -241,12 +281,22 @@
       border: 1px solid rgba(255,255,255,0.18);
     }
 
-    /* Tables (no scroll, no wrap) */
+    /* ===== TABLES (FIX #3) =====
+       Give tables their own stable backgrounds so the card sheen never “bands” behind rows */
     table{
       width:100%;
       border-collapse: collapse;
       table-layout: fixed;
+      background: transparent;
+      border-radius: 14px;
+      overflow: hidden;
     }
+    thead th{
+      background: var(--tblHead);
+    }
+    tbody tr:nth-child(odd) td{ background: var(--tblRowOdd); }
+    tbody tr:nth-child(even) td{ background: var(--tblRowEven); }
+
     th,td{
       border-bottom: 1px solid var(--stroke);
       padding: 8px 10px;
@@ -264,13 +314,13 @@
     }
     .table-note{ margin-top: 8px; color: var(--muted2); font-size: 12px; }
 
-    /* Principais clientes table: allow more room for faturamento */
+    /* Principais clientes table */
     .tbl-clients col:nth-child(1){ width: 44%; }
     .tbl-clients col:nth-child(2){ width: 22%; }
     .tbl-clients col:nth-child(3){ width: 14%; }
     .tbl-clients col:nth-child(4){ width: 20%; }
 
-    /* City list table (click city) */
+    /* City list table */
     .tbl-city col:nth-child(1){ width: 54%; }
     .tbl-city col:nth-child(2){ width: 23%; }
     .tbl-city col:nth-child(3){ width: 23%; }
@@ -284,7 +334,7 @@
     .tbl-estados col:nth-child(4){ width: 22%; }
     .tbl-estados col:nth-child(5){ width: 16%; }
 
-    /* Cidades table full width + top clients columns */
+    /* Cidades table */
     .tbl-cidades col:nth-child(1){ width: 16%; }
     .tbl-cidades col:nth-child(2){ width: 10%; }
     .tbl-cidades col:nth-child(3){ width: 14%; }
@@ -305,7 +355,7 @@
     .tbl-clientes-resumo col:nth-child(5){ width: 12%; }
     .tbl-clientes-resumo col:nth-child(6){ width: 10%; }
 
-    /* Status tables: fixed col widths across all */
+    /* Status tables */
     .status-wrap h3{
       font-size: 15px;
       margin: 12px 0 6px 0;
@@ -318,7 +368,7 @@
     .tbl-status col:nth-child(5){ width: 17%; }
     .tbl-status col:nth-child(6){ width: 17%; }
 
-    /* Inline info row (evolução labels) */
+    /* Inline info row */
     .inline-info{
       display:flex;
       flex-wrap:wrap;
@@ -364,13 +414,11 @@
       font-weight:600;
     }
 
-    /* Plotly container cards */
-    .plot-card{ padding: 10px 10px; }
-
     /* Print (A4) */
     @page { size: A4 portrait; margin: 1.2cm; }
     @media print{
       body{ background: #0b0f14 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      body::before{ display:none !important; }
       .sidebar, .topbar, .map-controls, .field, .btn, .no-print { display:none !important; }
       .app{ grid-template-columns: 0px 1fr !important; }
       .card{ box-shadow:none !important; }
@@ -771,8 +819,8 @@
     // ==========================
     // STATE
     // ==========================
-    let RAW = [];            // raw faturamento rows
-    let GEO = [];            // geo rows normalized: {key, Estado, Cidade, lat, lon}
+    let RAW = [];
+    let GEO = [];
     let map = null;
     let mapLayerGroup = null;
     let selectedCityKey = null;
@@ -814,7 +862,6 @@
     // Date helpers
     // ==========================
     function compDate(year, monthNum){
-      // monthNum 1-12
       return new Date(Date.UTC(year, monthNum-1, 1));
     }
     function addMonths(d, months){
@@ -835,7 +882,6 @@
     // CSV load
     // ==========================
     async function fetchText(url){
-      // cache-buster so updates reflect immediately
       const cb = Date.now();
       const sep = url.includes("?") ? "&" : "?";
       const u = url + sep + "cb=" + cb;
@@ -869,7 +915,6 @@
       for (const cand of candidates){
         if (normMap.has(cand)) return normMap.get(cand);
       }
-      // fallback contains
       for (const [nk, orig] of normMap.entries()){
         for (const cand of candidates){
           if (nk.includes(cand)) return orig;
@@ -885,13 +930,11 @@
       const [fatText, geoText] = await Promise.all([fetchText(GITHUB_CSV_URL), fetchText(CITY_GEO_CSV_URL)]);
       const [fatRows, geoRows] = await Promise.all([parseCSV(fatText), parseCSV(geoText)]);
 
-      // Validate expected faturamento columns
       const expected = ["Codigo","Descricao","Quantidade","Valor","Mes","Ano","ClienteCodigo","Cliente","Estado","Cidade","RepresentanteCodigo","Representante","Categoria","SourcePDF"];
       const cols = fatRows.length ? Object.keys(fatRows[0]) : [];
       const missing = expected.filter(c => !cols.includes(c));
       if (missing.length) throw new Error("CSV do GitHub não tem as colunas esperadas: " + missing.join(", "));
 
-      // Normalize faturamento types + Competencia
       RAW = fatRows.map(r=>{
         const Ano = Number(r.Ano);
         const MesNum = Number(r.Mes);
@@ -901,7 +944,6 @@
         return { ...r, Ano, MesNum, Valor, Quantidade, Competencia };
       }).filter(r=>Number.isFinite(r.Ano) && Number.isFinite(r.MesNum) && r.Competencia instanceof Date);
 
-      // Normalize GEO columns robustly
       const geoCols = geoRows.length ? Object.keys(geoRows[0]) : [];
       const estadoCol = pickCol(geoCols, ["estado","uf","siglauf","ufsigla","unidadefederativa","estadouf","ufestado","coduf"]);
       const cidadeCol = pickCol(geoCols, ["cidade","municipio","nomemunicipio","nmmunicipio","nomecidade","cidadenome","municipionome"]);
@@ -948,21 +990,15 @@
       }
       return m;
     }
-
     function sum(arr, fn){
       let s=0;
       for (const x of arr) s += Number(fn(x)||0);
       return s;
     }
-
     function uniqueCount(arr, fn){
       const s = new Set();
       for (const x of arr) s.add(fn(x));
       return s.size;
-    }
-
-    function sortDesc(arr, fn){
-      return [...arr].sort((a,b)=> (fn(b)||0) - (fn(a)||0));
     }
 
     function buildDynamicBins(values, isValor){
@@ -1024,7 +1060,7 @@
     }
 
     // ==========================
-    // Carteira computation (same logic as app.py)
+    // Carteira computation
     // ==========================
     function buildCarteiraStatus(allRows, repSelected, startComp, endComp){
       const repRows = (repSelected==="Todos")
@@ -1107,7 +1143,6 @@
       let isc = (scoreBruto + 2) / 4 * 100;
       isc = Math.max(0, Math.min(100, isc));
 
-      // churn cap logic (same as app)
       const baseAnterior = df.filter(r=>r.vp>0);
       const baseTotal = baseAnterior.reduce((acc,r)=>acc+r.PesoReceita, 0);
       const receitaPerdida = df.filter(r=>String(r[STATUS_COL]||"").toUpperCase().includes("PERDID"))
@@ -1202,12 +1237,10 @@
         return;
       }
 
-      // Fit bounds
       const latlngs = dfMap.map(r=>[r.lat, r.lon]);
       const bounds = L.latLngBounds(latlngs);
       map.fitBounds(bounds.pad(0.18));
 
-      // Legend
       let legendHTML = `<b>Legenda – ${esc(metricLabel)}</b>`;
       for (const b of bins){
         legendHTML += `
@@ -1383,14 +1416,13 @@
       const reps = Array.from(new Set(dfPeriod.map(r=>String(r.Representante||"")).filter(Boolean))).sort();
       const options = ["Todos", ...reps];
 
-      // preserve selection if still valid
       const prev = repSelectEl.value || "Todos";
       repSelectEl.innerHTML = options.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join("");
       repSelectEl.value = options.includes(prev) ? prev : "Todos";
     }
 
     function recomputeAndRender(){
-      const { startComp, endComp, rep } = getFiltersFromUI();
+      const { startComp, endComp } = getFiltersFromUI();
       if (!validatePeriod(startComp, endComp)){
         alert("Período inicial não pode ser maior que o período final.");
         return;
@@ -1403,36 +1435,28 @@
       const currentLabel = periodLabel(startComp, endComp);
       const prevLabel = periodLabel(prevStart, prevEnd);
 
-      // Filter period
       const dfPeriod = RAW.filter(r => r.Competencia >= startComp && r.Competencia <= endComp);
       if (!dfPeriod.length){
-        repHeaderEl.innerHTML = `Representante: <b>${esc(rep==="Todos" ? "Todos" : rep)}</b>`;
+        repHeaderEl.innerHTML = `Representante: <b>Todos</b>`;
         periodHeaderEl.textContent = `Período selecionado: ${currentLabel}`;
         kpisEl.innerHTML = `<div class="card"><div class="caption">Nenhuma venda no período selecionado.</div></div>`;
         return;
       }
 
-      // Rep options depend on dates (your requirement)
       rebuildRepOptionsForPeriod(dfPeriod);
 
-      const repSel = repSelectEl.value || rep;
-
+      const repSel = repSelectEl.value || "Todos";
       const dfRep = (repSel==="Todos") ? dfPeriod : dfPeriod.filter(r=>String(r.Representante||"")===repSel);
       const dfPrevPeriod = RAW.filter(r => r.Competencia >= prevStart && r.Competencia <= prevEnd);
       const dfRepPrev = (repSel==="Todos") ? dfPrevPeriod : dfPrevPeriod.filter(r=>String(r.Representante||"")===repSel);
 
-      // Save for city click
       window.__CTX = { dfRep };
 
-      // HEADER
       repHeaderEl.innerHTML = `Representante: <b>${esc(repSel==="Todos" ? "Todos" : repSel)}</b>`;
       periodHeaderEl.textContent = `Período selecionado: ${currentLabel}`;
 
-      // KPIs
       const totalRep = sum(dfRep, r=>r.Valor);
-      const totalVol = sum(dfRep, r=>r.Quantidade);
 
-      // months with sale
       const byMonthKey = groupBy(dfRep, r => `${r.Ano}-${r.MesNum}`);
       let mesesComVenda = 0;
       for (const arr of byMonthKey.values()){
@@ -1440,7 +1464,6 @@
       }
       const mediaMensal = mesesComVenda>0 ? totalRep/mesesComVenda : 0;
 
-      // clients distribution (HHI, N80 etc)
       const byClient = groupBy(dfRep, r => String(r.Cliente||""));
       const clientAgg = [];
       for (const [cliente, arr] of byClient.entries()){
@@ -1464,13 +1487,11 @@
         else hhiLabelShort = "Alta";
       }
 
-      // Carteira
       const clientesCarteira = buildCarteiraStatus(RAW, repSel, startComp, endComp);
       const {score: carteiraScore, label: carteiraLabel} = computeCarteiraScore(clientesCarteira);
 
       renderKPIs({ totalRep, mediaMensal, hhiLabelShort, n80Count, carteiraScore, carteiraLabel, clientesAtendidos });
 
-      // Destaques
       const mensalMap = new Map();
       for (const r of dfRep){
         const k = `${r.Ano}-${r.MesNum}`;
@@ -1495,14 +1516,12 @@
 
       renderDestaques({ mensal, bestFat, worstFat, bestVol, worstVol });
 
-      // Coverage
       const cityPairs = new Set(dfRep.map(r=>`${String(r.Estado||"")}||${String(r.Cidade||"")}`).filter(x=>!x.startsWith("||")));
       const estados = new Set(dfRep.map(r=>String(r.Estado||"")).filter(Boolean));
       covCitiesEl.textContent = String(cityPairs.size);
       covStatesEl.textContent = String(estados.size);
       covClientsEl.textContent = String(clientesAtendidos);
 
-      // Principais clientes (top 15, no scroll)
       const byClientLoc = groupBy(dfRep, r => `${String(r.Cliente||"")}||${String(r.Cidade||"")}||${String(r.Estado||"")}`);
       const topClients = [];
       for (const [k, arr] of byClientLoc.entries()){
@@ -1521,7 +1540,6 @@
         </tr>
       `).join("");
 
-      // Map prep (merge geo)
       const byCity = groupBy(dfRep, r => `${String(r.Estado||"").trim().toUpperCase()}|${String(r.Cidade||"").trim().toUpperCase()}`);
       const cityAgg = [];
       for (const [key, arr] of byCity.entries()){
@@ -1547,7 +1565,6 @@
 
       renderMap({ dfMap, metricCol, metricLabel, bins });
 
-      // Distribuição por estados
       const byEstado = groupBy(dfRep, r=>String(r.Estado||""));
       const estadosAgg = [];
       for (const [Estado, arr] of byEstado.entries()){
@@ -1560,10 +1577,7 @@
       const totalValorAll = estadosAgg.reduce((acc,r)=>acc+r.Valor,0);
       const totalQtdAll = estadosAgg.reduce((acc,r)=>acc+r.Quantidade,0);
 
-      // Pie (no legend)
-      const stLabels = top10Estados.map(r=>r.Estado);
-      const stValues = top10Estados.map(r=>r.Valor);
-      plotPie("statesPie", stLabels, stValues, {
+      plotPie("statesPie", top10Estados.map(r=>r.Estado), top10Estados.map(r=>r.Valor), {
         showLegend:false,
         height:560,
         hole:0.35,
@@ -1574,7 +1588,6 @@
         textinfo:"text"
       });
 
-      // Table
       statesTableBodyEl.innerHTML = top10Estados.map(r=>{
         const pFat = totalValorAll>0 ? r.Valor/totalValorAll : 0;
         const pVol = totalQtdAll>0 ? r.Quantidade/totalQtdAll : 0;
@@ -1589,7 +1602,6 @@
         `;
       }).join("");
 
-      // Principais cidades por faturamento (top 15) + top 3 clients columns
       const byCidadeEstado = groupBy(dfRep, r=>`${String(r.Cidade||"")}||${String(r.Estado||"")}`);
       const cidadesAgg = [];
       for (const [k, arr] of byCidadeEstado.entries()){
@@ -1604,7 +1616,6 @@
       cidadesAgg.sort((a,b)=>b.Valor-a.Valor);
       const top15Cidades = cidadesAgg.slice(0,15);
 
-      // top 3 clients per city
       const byCityClient = groupBy(dfRep, r=>`${String(r.Cidade||"")}||${String(r.Estado||"")}||${String(r.Cliente||"")}`);
       const cityClientAgg = [];
       for (const [k, arr] of byCityClient.entries()){
@@ -1652,7 +1663,6 @@
         `;
       }).join("");
 
-      // Evolução charts (current + prev)
       function buildTS(rows){
         const g = groupBy(rows, r=>`${r.Ano}-${r.MesNum}`);
         const ts = [];
@@ -1679,7 +1689,6 @@
       evoPrevInfoEl.innerHTML = `<b>Período anterior:</b> ${esc(prevLabel)} &nbsp;•&nbsp; <b>Faturamento:</b> ${esc(formatBRLCompact(sum(dfRepPrev,x=>x.Valor)))} &nbsp;•&nbsp; <b>Volume:</b> ${esc(formatUN(sum(dfRepPrev,x=>x.Quantidade)))}`;
       plotCombo("evoPrev", tsPrev.map(r=>r.MesLabel), tsPrev.map(r=>r.Valor), tsPrev.map(r=>r.Quantidade));
 
-      // Categorias
       const currCatG = groupBy(dfRep, r=>String(r.Categoria||""));
       const prevCatG = groupBy(dfRepPrev, r=>String(r.Categoria||""));
       const catSet = new Set([...currCatG.keys(), ...prevCatG.keys()]);
@@ -1695,7 +1704,7 @@
       catRows.sort((a,b)=>b.ValorAtual-a.ValorAtual);
 
       const totalCat = catRows.reduce((acc,r)=>acc+r.ValorAtual,0);
-      // Pie data: top10 + Outras
+
       let pieCat = catRows.map(r=>({name:r.Categoria, value:r.ValorAtual})).filter(r=>r.value>0);
       pieCat.sort((a,b)=>b.value-a.value);
       if (pieCat.length > 10){
@@ -1713,7 +1722,6 @@
         showLegend:false, height:560, hole:0.35, text:catText, textinfo:"text"
       });
 
-      // Cat table
       catTableBodyEl.innerHTML = catRows.filter(r=>r.ValorAtual>0 || r.ValorAnterior>0).map(r=>{
         const pct = totalCat>0 ? r.ValorAtual/totalCat : 0;
         const variacao = r.ValorAtual - r.ValorAnterior;
@@ -1735,7 +1743,6 @@
         `;
       }).join("");
 
-      // Distribuição por clientes section
       const top1Share = shares.slice(0,1).reduce((a,b)=>a+b,0);
       const top3Share = shares.slice(0,3).reduce((a,b)=>a+b,0);
       const top10Share = shares.slice(0,10).reduce((a,b)=>a+b,0);
@@ -1755,7 +1762,6 @@
         </div>
       `).join("");
 
-      // Clients pie: top10 + Outros (no legend)
       const clientVals = clientAgg.map(r=>({name:r.Cliente, value:r.Valor})).filter(r=>r.value>0);
       clientVals.sort((a,b)=>b.value-a.value);
       let pieClients = clientVals;
@@ -1767,7 +1773,6 @@
       }
       const pieClientsTotal = pieClients.reduce((acc,r)=>acc+r.value,0);
 
-      // Order by value desc already; build inside text only for big slices
       const pieClientLabels = pieClients.map(r=> shorten(r.name, 22));
       const pieClientValues = pieClients.map(r=> r.value);
       const pieClientText = pieClients.map(r=>{
@@ -1778,16 +1783,13 @@
         return "";
       });
 
-      plotPie("clientsPie", pieClientLabels.map((lbl,i)=>`${lbl} ${(pieClientsTotal>0?(pieClientValues[i]/pieClientsTotal*100):0).toFixed(1)}%`), pieClientValues, {
-        showLegend:false,
-        height:560,
-        hole:0.0,
-        text: pieClientText,
-        textinfo:"text"
-      });
+      plotPie(
+        "clientsPie",
+        pieClientLabels.map((lbl,i)=>`${lbl} ${(pieClientsTotal>0?(pieClientValues[i]/pieClientsTotal*100):0).toFixed(1)}%`),
+        pieClientValues,
+        { showLegend:false, height:560, hole:0.0, text: pieClientText, textinfo:"text" }
+      );
 
-      // Clients table (top 15 detailed)
-      // Build full detailed list: Cliente, Cidade, Estado, Faturamento, % Fat, Volume
       const dfClientFull = [];
       for (const [k, arr] of byClientLoc.entries()){
         const [Cliente, Cidade, Estado] = k.split("||");
@@ -1813,11 +1815,9 @@
         `;
       }).join("");
 
-      // Saúde da carteira – detalhes
       carteiraScoreEl.textContent = `${Math.round(carteiraScore)} / 100`;
       carteiraLabelEl.textContent = carteiraLabel;
 
-      // status distribution + resumo
       const statusG = groupBy(clientesCarteira, r=>String(r[STATUS_COL]||""));
       const statusCounts = [];
       let totalClientesStatus = 0;
@@ -1829,7 +1829,6 @@
         statusCounts.push({ Status:s, QtdClientes:qtd, FatDelta:fatDelta });
       }
 
-      // Pie
       const pieStatusLabels = statusCounts.map(r=>r.Status);
       const pieStatusValues = statusCounts.map(r=>r.QtdClientes);
       const pieStatusTotal = pieStatusValues.reduce((a,b)=>a+b,0);
@@ -1838,7 +1837,6 @@
         return (share>=0.10) ? `${r.Status}<br>${(share*100).toFixed(0)}%` : "";
       });
 
-      // custom colors order: Perdidos red, Caindo orange, Estáveis yellow, Crescendo green, Novos blue
       const statusColorMap = { "Perdidos":"#ef4444", "Caindo":"#f97316", "Estáveis":"#eab308", "Crescendo":"#22c55e", "Novos":"#3b82f6" };
       Plotly.newPlot("statusPie", [{
         type:"pie",
@@ -1861,7 +1859,6 @@
         legend:{font:{color:"rgba(255,255,255,0.75)"}, orientation:"h", y:-0.05}
       }, {displayModeBar:false, responsive:true});
 
-      // Resumo table (ordered)
       statusResumoBodyEl.innerHTML = statusCounts.map(r=>{
         const pct = totalClientesStatus>0 ? r.QtdClientes/totalClientesStatus : 0;
         return `
@@ -1878,7 +1875,6 @@
         `<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento entre o período atual (<b>${esc(currentLabel)}</b>) `+
         `e o período anterior (<b>${esc(prevLabel)}</b>). Valores positivos indicam crescimento; valores negativos indicam queda.`;
 
-      // Status dos clientes (full list, search)
       const search = (searchClienteEl.value || "").trim().toLowerCase();
       const statusBuckets = new Map(STATUS_ORDER.map(s=>[s, []]));
       for (const r of clientesCarteira){
@@ -1887,7 +1883,6 @@
         if (search && !String(r.Cliente||"").toLowerCase().includes(search)) continue;
         statusBuckets.get(s).push(r);
       }
-      // sort each status by ValorAtual desc
       for (const s of STATUS_ORDER){
         statusBuckets.get(s).sort((a,b)=>(Number(b.ValorAtual||0)-Number(a.ValorAtual||0)));
       }
@@ -1928,13 +1923,11 @@
           </tbody>
         `;
         statusTablesEl.appendChild(tbl);
+
         const spacer = document.createElement("div");
         spacer.style.height = "10px";
         statusTablesEl.appendChild(spacer);
       }
-
-      // Re-render map if metric changed via radio without hitting Apply
-      // (handled by radio change listener too)
     }
 
     // ==========================
@@ -1952,7 +1945,6 @@
       startYearEl.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join("");
       endYearEl.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join("");
 
-      // default months based on last year available months
       const monthsLastYear = RAW.filter(r=>r.Ano===lastYear).map(r=>r.MesNum);
       const minM = Math.min(...monthsLastYear);
       const maxM = Math.max(...monthsLastYear);
@@ -1962,7 +1954,6 @@
       startYearEl.value = String(lastYear);
       endYearEl.value = String(lastYear);
 
-      // initial rep options based on default period
       const startComp = compDate(lastYear, minM);
       const endComp = compDate(lastYear, maxM);
       const dfPeriod = RAW.filter(r => r.Competencia >= startComp && r.Competencia <= endComp);
@@ -1976,7 +1967,6 @@
     // ==========================
     toggleSidebarBtn.addEventListener("click", ()=>{
       appEl.classList.toggle("sidebar-collapsed");
-      // ensure plotly resizes
       setTimeout(()=>{ Plotly.Plots.resize("statesPie"); Plotly.Plots.resize("evoCurrent"); Plotly.Plots.resize("evoPrev"); Plotly.Plots.resize("catPie"); Plotly.Plots.resize("clientsPie"); Plotly.Plots.resize("statusPie"); }, 200);
       setTimeout(()=>{ if (map) map.invalidateSize(); }, 220);
     });
@@ -1985,19 +1975,16 @@
 
     applyBtn.addEventListener("click", ()=>{
       recomputeAndRender();
-      // close sidebar after applying (optional)
       appEl.classList.add("sidebar-collapsed");
       setTimeout(()=>{ if (map) map.invalidateSize(); }, 220);
     });
 
     document.getElementById("mapMetricRadio").addEventListener("change", ()=>{
-      // immediate map update without full recompute
       recomputeAndRender();
       setTimeout(()=>{ if (map) map.invalidateSize(); }, 120);
     });
 
     searchClienteEl.addEventListener("input", ()=>{
-      // only re-render status tables quickly (simplest: recompute entire view)
       recomputeAndRender();
     });
 
