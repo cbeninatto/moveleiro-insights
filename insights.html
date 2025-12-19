@@ -5,2050 +5,2151 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Insights de Vendas</title>
 
-  <!-- Leaflet 1.9.4 (fixed) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Fonts (similar to Streamlit / modern dashboards) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <!-- PapaParse -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Leaflet 1.9.4 (required) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
 
   <!-- Plotly -->
-  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+  <!-- Papa Parse for CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <style>
     :root{
-      --bg:#0b1220;
-      --panel:#0f1b2f;
-      --panel2:#0c1628;
-      --text:#e6eefc;
-      --muted:rgba(230,238,252,0.72);
-      --muted2:rgba(230,238,252,0.55);
-      --border:rgba(255,255,255,0.09);
-      --shadow:0 10px 30px rgba(0,0,0,0.35);
-      --radius:18px;
+      /* Streamlit-dark-ish tokens */
+      --bg: #0e1117;
+      --panel: #111827;
+      --card: #0f172a;
+      --card2: #111c33;
+      --border: rgba(255,255,255,0.08);
+      --border2: rgba(255,255,255,0.12);
+      --text: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.62);
+      --muted2: rgba(255,255,255,0.45);
+      --accent: #22c55e;      /* green */
+      --accent2: #60a5fa;     /* blue */
+      --warn: #f59e0b;        /* orange */
+      --danger: #ef4444;      /* red */
+      --yellow: #facc15;      /* yellow */
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+      --radius: 18px;
+      --radius2: 14px;
 
-      --blue:#38bdf8;
-      --green:#22c55e;
-      --yellow:#eab308;
-      --orange:#f97316;
-      --red:#ef4444;
-      --indigo:#3b82f6;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --font: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
 
     *{ box-sizing:border-box; }
-    body{
+    html, body{
+      height: 100%;
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      background: radial-gradient(1200px 900px at 20% -10%, rgba(56,189,248,0.12), transparent 55%),
-                  radial-gradient(1100px 800px at 95% 10%, rgba(34,197,94,0.10), transparent 55%),
-                  linear-gradient(180deg, #071024, #050b17 70%);
-      color:var(--text);
+      background: radial-gradient(1200px 700px at 30% -10%, rgba(96,165,250,0.12), transparent 60%),
+                  radial-gradient(900px 600px at 80% 10%, rgba(34,197,94,0.10), transparent 55%),
+                  var(--bg);
+      color: var(--text);
+      font-family: var(--font);
     }
 
-    a { color: var(--blue); text-decoration:none; }
+    /* Layout */
     .app{
-      display:grid;
-      grid-template-columns: 320px 1fr;
+      display:flex;
       min-height:100vh;
+      width:100%;
     }
 
-    /* Collapsible sidebar */
     .sidebar{
-      background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 35%),
-                  rgba(15,27,47,0.70);
-      border-right:1px solid var(--border);
-      padding:18px 16px;
-      position:sticky;
+      width: 320px;
+      min-width: 320px;
+      padding: 18px 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0));
+      border-right: 1px solid var(--border);
+      position: sticky;
       top:0;
-      height:100vh;
+      height: 100vh;
       overflow:auto;
-      transition: width 180ms ease, padding 180ms ease;
     }
-    .sidebar.collapsed{
-      width:64px;
-      padding:18px 10px;
-    }
-    .sidebar .hide-when-collapsed{
-      display:block;
-    }
-    .sidebar.collapsed .hide-when-collapsed{
-      display:none;
-    }
-    .sidebar .toggle{
+
+    .sidebarHeader{
       display:flex;
       align-items:center;
-      gap:10px;
       justify-content:space-between;
-      margin-bottom:14px;
+      gap:12px;
+      margin-bottom: 14px;
     }
-    .btn{
-      border:1px solid var(--border);
-      background: rgba(255,255,255,0.04);
-      color: var(--text);
-      padding:10px 12px;
-      border-radius:14px;
+    .sidebarTitle{
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      font-size: 14px;
+      color: rgba(255,255,255,0.86);
+    }
+    .collapseBtn{
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: rgba(255,255,255,0.85);
+      border-radius: 12px;
+      padding: 8px 10px;
       cursor:pointer;
-      transition: transform 120ms ease, background 120ms ease;
-      user-select:none;
+      font-size: 12px;
     }
-    .btn:hover{ background: rgba(255,255,255,0.07); transform: translateY(-1px); }
-    .btn:active{ transform: translateY(0); }
+    .collapseBtn:hover{ background: rgba(255,255,255,0.06); }
 
-    .sidebar h3{
-      margin:6px 0 8px;
-      font-size:14px;
-      letter-spacing:.3px;
-      color: var(--muted);
-      font-weight:650;
-      text-transform: uppercase;
+    .sidebar.collapsed{
+      width: 64px;
+      min-width: 64px;
+      padding: 18px 10px;
     }
-
-    .field{
-      margin:10px 0 14px;
-    }
-    label{
-      display:block;
-      font-size:12px;
-      color:var(--muted2);
-      margin-bottom:6px;
-    }
-    select, input[type="text"]{
-      width:100%;
-      padding:10px 10px;
-      border-radius:14px;
-      border:1px solid var(--border);
-      background: rgba(10,18,33,0.55);
-      color: var(--text);
-      outline:none;
-    }
-    .row2{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px;
+    .sidebar.collapsed .sidebarBody,
+    .sidebar.collapsed .sidebarTitleText{
+      display:none;
     }
 
     .main{
-      padding:22px 22px 40px;
+      flex:1;
+      padding: 22px 22px 60px 22px;
+      max-width: 1600px;
+      margin: 0 auto;
     }
 
-    .topbar{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:16px;
-      margin-bottom: 14px;
-    }
-    .title h1{
-      margin:0;
-      font-size:28px;
-      letter-spacing:-0.5px;
-    }
-    .title .sub{
-      margin-top:6px;
-      color:var(--muted);
-      font-size:13px;
-    }
-
-    .actions{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-
-    .page{
-      background: rgba(255,255,255,0.02);
-      border:1px solid var(--border);
+    /* Cards / sections */
+    .section{
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      border: 1px solid var(--border);
       border-radius: var(--radius);
+      padding: 18px;
       box-shadow: var(--shadow);
-      padding:18px;
-      margin-bottom:18px;
+      margin-bottom: 18px;
     }
 
-    .section-title{
-      margin:0 0 10px;
-      font-size:16px;
-      font-weight:750;
-      letter-spacing:.2px;
+    .titleRow{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap: 14px;
+      margin-bottom: 6px;
     }
-    .divider{
-      height:1px;
-      background: var(--border);
-      margin:14px 0;
+    h1{
+      margin:0;
+      font-size: 34px;
+      letter-spacing: -0.6px;
+      line-height: 1.1;
     }
-
-    /* KPIs */
-    .kpis{
-      display:grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap:12px;
-      margin-top:10px;
-    }
-    .card{
-      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
-      border:1px solid var(--border);
-      border-radius: 16px;
-      padding:12px 12px 10px;
-      min-height: 92px;
-      overflow:hidden;
-    }
-    .card .k-label{
-      color: var(--muted2);
-      font-size:12px;
-      margin-bottom:6px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .card .k-value{
-      font-size:20px;
-      font-weight:800;
-      letter-spacing:-0.2px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .card .k-delta{
-      margin-top:6px;
+    .subtitle{
+      margin-top: 6px;
       color: var(--muted);
-      font-size:12px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      font-size: 13px;
+    }
+    .metaLine{
+      color: var(--muted2);
+      font-size: 12px;
+      font-family: var(--mono);
     }
 
-    /* Destaques */
-    .two-col{
+    .grid{
       display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:14px;
+      gap: 14px;
     }
-    .bullet{
-      color:var(--muted);
-      line-height:1.55;
-      font-size:13px;
-    }
-    .bullet b{ color:var(--text); }
 
-    /* Map + right column */
-    .map-grid{
-      display:grid;
-      grid-template-columns: 0.80fr 1.20fr;
-      gap:14px;
-      align-items:start;
+    /* KPIs top row: 5 columns */
+    .kpiGrid{
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      align-items: stretch;
     }
+    @media (max-width: 1200px){
+      .kpiGrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    .kpiCard{
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01));
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
+      padding: 14px 14px 12px 14px;
+      min-height: 92px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      gap: 8px;
+      overflow: hidden; /* prevents ugly overflow */
+    }
+    .kpiLabel{
+      font-size: 12.5px;
+      color: rgba(255,255,255,0.75);
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .kpiValue{
+      font-size: 30px;
+      line-height: 1.08;
+      font-weight: 750;
+      letter-spacing: -0.4px;
+      white-space: normal;          /* allow wrap instead of cropping */
+      overflow-wrap: anywhere;      /* never crop */
+    }
+    .kpiSub{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap: wrap;
+    }
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 650;
+      background: rgba(34,197,94,0.12);
+      color: rgba(34,197,94,0.98);
+      border: 1px solid rgba(34,197,94,0.18);
+    }
+    .chip.neutral{
+      background: rgba(96,165,250,0.12);
+      color: rgba(96,165,250,0.98);
+      border-color: rgba(96,165,250,0.18);
+    }
+    .chip.warn{
+      background: rgba(245,158,11,0.14);
+      color: rgba(245,158,11,0.98);
+      border-color: rgba(245,158,11,0.22);
+    }
+    .chip.danger{
+      background: rgba(239,68,68,0.14);
+      color: rgba(239,68,68,0.98);
+      border-color: rgba(239,68,68,0.22);
+    }
+
+    .sectionHeader{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .sectionTitle{
+      font-size: 18px;
+      font-weight: 750;
+      letter-spacing: -0.2px;
+      margin:0;
+    }
+    .sectionNote{
+      color: var(--muted);
+      font-size: 12px;
+      margin:0;
+    }
+
+    /* Two column layouts */
+    .twoCol{
+      display:grid;
+      grid-template-columns: 1.8fr 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+    @media (max-width: 1200px){
+      .twoCol{ grid-template-columns: 1fr; }
+      .sidebar{ display:none; }
+    }
+
+    /* Map */
     #map{
-      height: 800px;
       width: 100%;
-      border-radius: 16px;
-      border:1px solid var(--border);
+      height: 520px; /* taller */
+      border-radius: var(--radius2);
+      border: 1px solid var(--border);
       overflow:hidden;
     }
-    .legend{
-      margin-top:10px;
-      font-size:12px;
-      color:var(--muted);
+    .mapLegend{
+      margin-top: 10px;
+      display:flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items:center;
+      color: var(--muted);
+      font-size: 12px;
     }
-    .legend .row{
-      display:flex; align-items:center; gap:8px;
-      margin-top:6px;
+    .legendItem{
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
     }
     .swatch{
-      width:12px; height:12px; border-radius:3px;
-      border:1px solid rgba(255,255,255,0.22);
-      flex:0 0 auto;
+      width: 12px;
+      height: 12px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,0.25);
     }
 
-    .coverage{
+    .rightStack{
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+    }
+
+    .statsRow3{
       display:grid;
-      grid-template-columns: repeat(3, minmax(0,1fr));
-      gap:12px;
-      margin-bottom:10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 2px;
+    }
+    .miniStat{
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+      border-radius: 14px;
+      padding: 10px 10px 8px 10px;
+    }
+    .miniStatLabel{
+      color: rgba(255,255,255,0.72);
+      font-size: 12px;
+      font-weight: 650;
+      margin-bottom: 6px;
+    }
+    .miniStatValue{
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
     }
 
-    /* Tables (no scrollbars) */
+    /* Tables */
     table{
       width:100%;
       border-collapse: collapse;
-      table-layout: fixed;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow:hidden;
+      background: rgba(0,0,0,0.12);
     }
-    th, td{
-      border-bottom:1px solid var(--border);
-      padding:8px 8px;
-      font-size:12.5px;
+    thead th{
       text-align:left;
-      vertical-align:top;
-      color:var(--text);
+      font-size: 12px;
+      color: rgba(255,255,255,0.72);
+      padding: 10px 10px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      font-weight: 750;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
     }
-    th{
-      color: var(--muted);
-      font-weight:700;
-      font-size:12px;
-      white-space:nowrap;
+    tbody td{
+      padding: 9px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 12.5px;
+      color: rgba(255,255,255,0.86);
+      vertical-align: top;
     }
-    .nowrap{ white-space:nowrap; }
-    .muted{ color: var(--muted); }
-    .small{ font-size:12px; color:var(--muted); }
+    tbody tr:last-child td{ border-bottom: none; }
 
-    /* City clients expander */
-    .expander{
-      border:1px solid var(--border);
-      border-radius: 16px;
-      padding:10px 12px;
-      margin-top:12px;
-      background: rgba(255,255,255,0.02);
+    .tdNum{
+      font-family: var(--mono);
+      white-space: nowrap; /* numeric columns never wrap */
     }
-    .expander-header{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      cursor:pointer;
-      user-select:none;
-    }
-    .expander-header b{ font-size:13px; }
-    .expander-body{ margin-top:10px; display:none; }
-    .expander.open .expander-body{ display:block; }
 
-    /* Charts container */
+    /* avoid wrapping in specific tables unless needed */
+    .noWrap td, .noWrap th { white-space: nowrap; }
+    .allowWrap td.colWrap { white-space: normal; }
+
+    /* Charts */
     .chart{
       width:100%;
-      height: 360px;
-      border:1px solid var(--border);
-      border-radius: 16px;
-      overflow:hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius2);
       background: rgba(255,255,255,0.02);
+      padding: 10px;
     }
-    .chart.tall{ height: 560px; }
+    .chartTall{ min-height: 520px; }
+    .chartMed{ min-height: 380px; }
 
-    .chart-row{
+    .periodHeader{
+      display:flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: rgba(255,255,255,0.86);
+      font-weight: 750;
+    }
+    .periodHeader small{
+      color: var(--muted);
+      font-weight: 600;
+      font-family: var(--mono);
+    }
+
+    /* Status colors */
+    .statusTag{
+      display:inline-flex;
+      align-items:center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 750;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+      white-space: nowrap;
+    }
+    .sNovos{ color: rgba(96,165,250,1); border-color: rgba(96,165,250,0.25); background: rgba(96,165,250,0.10); }
+    .sCresc{ color: rgba(34,197,94,1); border-color: rgba(34,197,94,0.25); background: rgba(34,197,94,0.10); }
+    .sEstab{ color: rgba(250,204,21,1); border-color: rgba(250,204,21,0.25); background: rgba(250,204,21,0.08); }
+    .sCaind{ color: rgba(245,158,11,1); border-color: rgba(245,158,11,0.25); background: rgba(245,158,11,0.10); }
+    .sPerd{  color: rgba(239,68,68,1); border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.10); }
+
+    /* Search input */
+    .searchRow{
+      display:flex;
+      gap: 10px;
+      align-items:center;
+      flex-wrap: wrap;
+      margin: 8px 0 10px 0;
+    }
+    input[type="text"], select{
+      width: 100%;
+      padding: 10px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: rgba(255,255,255,0.92);
+      outline:none;
+      font-size: 13px;
+    }
+    label{
+      display:block;
+      font-size: 12px;
+      color: rgba(255,255,255,0.70);
+      margin: 10px 0 6px 0;
+      font-weight: 650;
+      letter-spacing: 0.2px;
+    }
+    .row2{
       display:grid;
       grid-template-columns: 1fr 1fr;
-      gap:14px;
-      align-items:start;
+      gap: 10px;
     }
-    .wide-row{
-      display:grid;
-      grid-template-columns: 1.0fr 1.25fr;
-      gap:14px;
-      align-items:start;
+    .btn{
+      width: 100%;
+      margin-top: 12px;
+      padding: 11px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(34,197,94,0.25);
+      background: rgba(34,197,94,0.14);
+      color: rgba(34,197,94,1);
+      font-weight: 800;
+      cursor:pointer;
+      letter-spacing: 0.2px;
+    }
+    .btn:hover{ background: rgba(34,197,94,0.18); }
+
+    .divider{
+      height:1px;
+      background: var(--border);
+      margin: 14px 0;
     }
 
-    .kpi-row-5{
-      display:grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap:12px;
-      margin: 10px 0 12px;
+    /* Print */
+    @page{
+      size: A4 portrait;
+      margin: 1.2cm;
     }
+    @media print{
+      body{
+        background: #ffffff !important;
+        color:#111 !important;
+      }
+      .app{ display:block; }
+      .sidebar{ display:none !important; }
+      .main{
+        max-width: none;
+        margin:0;
+        padding:0;
+      }
+      .section{
+        box-shadow:none;
+        background:#fff !important;
+        border: 1px solid #ddd !important;
+        color:#111 !important;
+      }
+      .kpiCard, .miniStat{
+        background:#fff !important;
+        border:1px solid #ddd !important;
+      }
+      .kpiLabel, .sectionNote, .subtitle, .metaLine{ color:#333 !important; }
+      table{ border-color:#ddd !important; background:#fff !important; }
+      thead th{ background:#f5f5f5 !important; color:#222 !important; border-color:#ddd !important; }
+      tbody td{ color:#111 !important; border-color:#eee !important; }
 
-    .status-grid{
-      display:grid;
-      grid-template-columns: 1fr 1.2fr;
-      gap:14px;
-      align-items:start;
-    }
+      /* enforce page layout */
+      .pageBreak{
+        page-break-before: always;
+        break-before: page;
+      }
 
-    .note{
-      margin-top:8px;
-      font-size:12px;
-      color: var(--muted);
-      line-height:1.45;
-    }
+      /* prevent awkward splits */
+      .section{ break-inside: avoid; page-break-inside: avoid; }
+      table{ break-inside: avoid; page-break-inside: avoid; }
 
-    /* Status tables fixed columns aligned across all status tables */
-    .status-block{
-      margin-top:12px;
-    }
-    .status-block h4{
-      margin: 14px 0 8px;
-      font-size:14px;
-      letter-spacing:.1px;
-    }
-    .status-table{ table-layout:fixed; width:100%; }
-    .status-table col:nth-child(1){ width:30%; }
-    .status-table col:nth-child(2){ width:10%; }
-    .status-table col:nth-child(3){ width:15%; }
-    .status-table col:nth-child(4){ width:10%; }
-    .status-table col:nth-child(5){ width:17.5%; }
-    .status-table col:nth-child(6){ width:17.5%; }
+      /* charts print background */
+      .chart{ background:#fff !important; border-color:#ddd !important; }
 
-    /* Keep alignment but allow Cliente to wrap (no ellipsis) */
-    .status-table th, .status-table td{
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-    .status-table td:nth-child(1),
-    .status-table th:nth-child(1){
-      white-space:normal;
-      overflow:visible;
-      text-overflow:clip;
-      word-break:break-word;
-    }
-
-    /* Print layout */
-    @page { size: A4 portrait; margin: 1.3cm; }
-    @media print {
-      .app{ grid-template-columns: 1fr; }
-      .sidebar, .actions, .toggle, .btn-print-hide { display:none !important; }
-      .main{ padding:0; }
-      .page{ box-shadow:none; border:0; border-radius:0; page-break-after: always; break-after: page; }
-      .page:last-child{ page-break-after: auto; break-after: auto; }
-      body{ background:#fff; color:#000; }
-      .page{ background:#fff; }
-      th, td{ border-bottom: 1px solid #ddd; color:#000; }
-      .card{ border:1px solid #ddd; background:#fff; }
-      .muted, .small, .note{ color:#333; }
-      #map{ border:1px solid #ddd; }
-    }
-
-    /* Responsive */
-    @media (max-width: 1200px){
-      .app{ grid-template-columns: 1fr; }
-      .sidebar{ position:relative; height:auto; }
-      .kpis{ grid-template-columns: repeat(2, minmax(0,1fr)); }
-      .map-grid{ grid-template-columns: 1fr; }
-      #map{ height:520px; }
-      .chart-row, .wide-row, .status-grid, .two-col{ grid-template-columns: 1fr; }
-      .kpi-row-5{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+      /* map prints nicely */
+      #map{ border-color:#ddd !important; }
     }
   </style>
 </head>
 
 <body>
-  <div class="app">
-    <!-- SIDEBAR -->
-    <aside class="sidebar" id="sidebar">
-      <div class="toggle">
-        <button class="btn" id="toggleSidebar" title="Expandir/Recolher filtros">☰</button>
-        <div class="hide-when-collapsed" style="flex:1; text-align:right;">
-          <button class="btn btn-print-hide" id="printBtn">Imprimir / PDF</button>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebarHeader">
+      <div class="sidebarTitle">
+        <span class="sidebarTitleText">Filtros</span>
+      </div>
+      <button class="collapseBtn" id="collapseBtn">⟷</button>
+    </div>
+
+    <div class="sidebarBody">
+      <div class="metaLine">Dados do GitHub (auto-refresh)</div>
+
+      <div class="divider"></div>
+
+      <label for="repSelect">Representante</label>
+      <select id="repSelect"></select>
+
+      <div class="row2">
+        <div>
+          <label for="startMonth">Mês início</label>
+          <select id="startMonth"></select>
+        </div>
+        <div>
+          <label for="startYear">Ano início</label>
+          <select id="startYear"></select>
         </div>
       </div>
 
-      <div class="hide-when-collapsed">
-        <h3>Filtros</h3>
-
-        <div class="field">
-          <label>Período inicial</label>
-          <div class="row2">
-            <select id="startMonth"></select>
-            <select id="startYear"></select>
-          </div>
+      <div class="row2">
+        <div>
+          <label for="endMonth">Mês fim</label>
+          <select id="endMonth"></select>
         </div>
-
-        <div class="field">
-          <label>Período final</label>
-          <div class="row2">
-            <select id="endMonth"></select>
-            <select id="endYear"></select>
-          </div>
+        <div>
+          <label for="endYear">Ano fim</label>
+          <select id="endYear"></select>
         </div>
-
-        <div class="field">
-          <label>Representante</label>
-          <select id="repSelect"></select>
-        </div>
-
-        <div class="field">
-          <label>Métrica do mapa</label>
-          <select id="mapMetric">
-            <option value="Valor">Faturamento</option>
-            <option value="Quantidade">Volume</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>Buscar cliente (Status dos clientes)</label>
-          <input id="statusSearch" type="text" placeholder="Digite parte do nome do cliente" />
-        </div>
-
-        <div class="field">
-          <div class="small">
-            Fonte: CSV do GitHub (auto-atualiza com cache-busting).
-          </div>
-        </div>
-
       </div>
-    </aside>
 
-    <!-- MAIN -->
-    <main class="main">
-      <div class="topbar">
-        <div class="title">
+      <button class="btn" id="applyBtn">Aplicar</button>
+
+      <div class="divider"></div>
+      <div class="metaLine" id="dataFreshness">Carregando…</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <!-- PAGE 1 -->
+    <section class="section" id="titleSection">
+      <div class="titleRow">
+        <div>
           <h1>Insights de Vendas</h1>
-          <div class="sub" id="subtitle">Carregando...</div>
+          <div class="subtitle" id="titleSub">—</div>
         </div>
-        <div class="actions">
-          <button class="btn btn-print-hide" id="refreshBtn">Atualizar dados</button>
-          <button class="btn btn-print-hide" id="printBtn2">Imprimir / PDF</button>
+        <div class="metaLine" id="periodLine">—</div>
+      </div>
+    </section>
+
+    <section class="section" id="kpiSection">
+      <div class="grid kpiGrid" id="kpiGrid"></div>
+    </section>
+
+    <section class="section" id="highlightsSection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Destaques do período</h2>
+        <p class="sectionNote">Melhor/pior mês em faturamento e volume (período selecionado)</p>
+      </div>
+      <div class="twoCol" style="grid-template-columns: 1fr 1fr;">
+        <div class="kpiCard">
+          <div class="kpiLabel">Faturamento</div>
+          <div class="kpiValue" id="hiFat">—</div>
+          <div class="kpiSub" id="hiFatSub">—</div>
+        </div>
+        <div class="kpiCard">
+          <div class="kpiLabel">Volume</div>
+          <div class="kpiValue" id="hiVol">—</div>
+          <div class="kpiSub" id="hiVolSub">—</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="mapSection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Mapa de Clientes</h2>
+        <p class="sectionNote">Clique em uma cidade para ver a lista de clientes</p>
+      </div>
+
+      <div class="twoCol">
+        <div>
+          <div id="map"></div>
+          <div class="mapLegend" id="mapLegend"></div>
+
+          <div style="margin-top:12px;" id="cityDetailsWrap"></div>
+        </div>
+
+        <div class="rightStack">
+          <div class="sectionHeader" style="margin-bottom: 6px;">
+            <h3 class="sectionTitle" style="font-size:16px; margin:0;">Cobertura</h3>
+            <p class="sectionNote" style="margin:0;">Resumo do período</p>
+          </div>
+
+          <div class="statsRow3">
+            <div class="miniStat">
+              <div class="miniStatLabel">Cidades atendidas</div>
+              <div class="miniStatValue" id="covCities">—</div>
+            </div>
+            <div class="miniStat">
+              <div class="miniStatLabel">Estados atendidos</div>
+              <div class="miniStatValue" id="covStates">—</div>
+            </div>
+            <div class="miniStat">
+              <div class="miniStatLabel">Clientes atendidos</div>
+              <div class="miniStatValue" id="covClients">—</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="sectionHeader" style="margin-bottom: 8px;">
+            <h3 class="sectionTitle" style="font-size:16px; margin:0;">Principais clientes</h3>
+            <p class="sectionNote" style="margin:0;">Top 15 (sem scroll)</p>
+          </div>
+          <div id="topClientsTable"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="statesSection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Distribuição por estados</h2>
+        <p class="sectionNote">Top 10 estados por faturamento – % do faturamento total</p>
+      </div>
+
+      <div class="chart chartTall" id="statesPie"></div>
+
+      <div style="margin-top: 12px;">
+        <div class="sectionHeader">
+          <h3 class="sectionTitle" style="font-size:16px;">Principais cidades por faturamento</h3>
+          <p class="sectionNote">Top cidades + Top 3 clientes (colunas separadas)</p>
+        </div>
+        <div id="topCitiesTable"></div>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div class="sectionHeader">
+          <h3 class="sectionTitle" style="font-size:16px;">Resumo – Top 10 estados</h3>
+          <p class="sectionNote">Estado, Faturamento, % Faturamento, Volume, % Volume</p>
+        </div>
+        <div id="statesTable"></div>
+      </div>
+    </section>
+
+    <!-- PAGE 2 -->
+    <div class="pageBreak"></div>
+
+    <section class="section" id="evolutionSection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Evolução – Faturamento x Volume</h2>
+        <p class="sectionNote">Barras = Faturamento | Linha = Volume (un) | 2 eixos</p>
+      </div>
+
+      <div class="periodHeader" style="margin: 4px 0 8px 0;">
+        <div id="curPeriodHdr">Período atual: — <small id="curTotals">—</small></div>
+      </div>
+      <div class="chart chartMed" id="evoCurrent"></div>
+
+      <div class="periodHeader" style="margin: 14px 0 8px 0;">
+        <div id="prevPeriodHdr">Período anterior: — <small id="prevTotals">—</small></div>
+      </div>
+      <div class="chart chartMed" id="evoPrev"></div>
+    </section>
+
+    <section class="section" id="categorySection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Categorias vendidas</h2>
+        <p class="sectionNote">Participação e comparação com o período anterior</p>
+      </div>
+
+      <div class="twoCol" style="grid-template-columns: 1.2fr 1fr;">
+        <div class="chart chartMed" id="catPie"></div>
+        <div id="catTable"></div>
+      </div>
+    </section>
+
+    <section class="section" id="clientsDistSection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Distribuição por clientes</h2>
+        <p class="sectionNote">Participação dos clientes (Top 10 destacados) + Resumo detalhado</p>
+      </div>
+
+      <div class="twoCol" style="grid-template-columns: 1.2fr 1fr;">
+        <div class="chart chartMed" id="clientsPie"></div>
+        <div id="clientsSummaryTable"></div>
+      </div>
+    </section>
+
+    <section class="section" id="healthSection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Saúde da carteira – Detalhes</h2>
+        <p class="sectionNote" id="healthNote">
+          A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos) no comparativo entre período atual e anterior.
+        </p>
+      </div>
+
+      <div class="twoCol" style="grid-template-columns: 1fr 1fr;">
+        <div class="kpiCard">
+          <div class="kpiLabel">Saúde da carteira (score)</div>
+          <div class="kpiValue" id="healthScore">—</div>
+          <div class="kpiSub" id="healthChip">—</div>
+        </div>
+        <div class="kpiCard">
+          <div class="kpiLabel">Distribuição por status</div>
+          <div class="kpiValue" style="font-size: 18px; line-height: 1.3; font-weight: 700;" id="statusCountsLine">—</div>
+          <div class="kpiSub" style="color: var(--muted); font-size: 12px;" id="statusCountsSub">—</div>
         </div>
       </div>
 
-      <!-- PAGE 1 -->
-      <section class="page" id="page1">
-        <h2 class="section-title" id="repTitle">Representante: ...</h2>
-
-        <div class="kpis" id="kpis"></div>
-
-        <div class="divider"></div>
-
-        <h2 class="section-title">Destaques do período</h2>
-        <div class="two-col" id="highlights"></div>
-
-        <div class="divider"></div>
-
-        <h2 class="section-title">Mapa de Clientes</h2>
-        <div class="map-grid">
-          <div>
-            <div id="map"></div>
-            <div class="legend" id="mapLegend"></div>
-          </div>
-          <div>
-            <div class="coverage" id="coverageKpis"></div>
-
-            <div class="divider"></div>
-            <h3 class="section-title" style="margin-top:0;">Principais clientes</h3>
-            <div id="topClientsTable"></div>
-
-            <div class="expander" id="cityExpander" style="display:none;">
-              <div class="expander-header" id="cityExpanderHeader">
-                <b id="cityExpanderTitle">Ver lista de clientes da cidade</b>
-                <span class="muted">▼</span>
-              </div>
-              <div class="expander-body" id="cityExpanderBody"></div>
-            </div>
-
-          </div>
+      <div style="margin-top: 14px;">
+        <div class="sectionHeader">
+          <h3 class="sectionTitle" style="font-size:16px;">Resumo por status</h3>
+          <p class="sectionNote">Inclui variação de faturamento (R$) entre os períodos</p>
         </div>
+        <div id="statusSummaryTable"></div>
+        <p class="sectionNote" style="margin-top: 8px;">
+          Observação: <b>Variação (R$)</b> = (Faturamento do período atual) − (Faturamento do período anterior). Valores positivos indicam crescimento; negativos indicam retração.
+        </p>
+      </div>
+    </section>
 
-        <div class="divider"></div>
+    <!-- PAGE 3 -->
+    <div class="pageBreak"></div>
 
-        <h2 class="section-title">Distribuição por estados</h2>
-        <div class="wide-row">
-          <div>
-            <div class="small" style="margin-bottom:8px;">Top 10 estados por faturamento – % do faturamento total</div>
-            <div class="chart tall" id="statesPie"></div>
-          </div>
-          <div>
-            <h3 class="section-title" style="margin-top:0;">Resumo – Top 10 estados</h3>
-            <div id="statesTable"></div>
-          </div>
+    <section class="section" id="statusClientsSection">
+      <div class="sectionHeader">
+        <h2 class="sectionTitle">Status dos clientes</h2>
+        <p class="sectionNote">Lista completa por status (sem scroll). Use a busca para filtrar.</p>
+      </div>
+
+      <div class="searchRow">
+        <div style="flex:1; min-width: 240px;">
+          <label for="clientSearch" style="margin-top:0;">Buscar cliente</label>
+          <input id="clientSearch" type="text" placeholder="Digite parte do nome do cliente…" />
         </div>
+      </div>
 
-        <div class="divider"></div>
+      <div id="statusTablesWrap"></div>
+    </section>
 
-        <h3 class="section-title">Principais cidades por faturamento</h3>
-        <div id="citiesTable"></div>
-      </section>
+  </main>
+</div>
 
-      <!-- PAGE 2 -->
-      <section class="page" id="page2">
-        <h2 class="section-title">Evolução – Faturamento x Volume</h2>
+<script>
+/* =======================
+   CONFIG
+======================= */
+const URL_FATURAMENTO = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/refs/heads/main/data/relatorio_faturamento.csv";
+const URL_CIDADES_GEO = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv";
 
-        <div class="small" id="evoCurrLabel" style="margin:6px 0 8px;"></div>
-        <div class="chart" id="evoCurr"></div>
+/* =======================
+   HELPERS
+======================= */
+const MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
 
-        <div class="small" id="evoPrevLabel" style="margin:14px 0 8px;"></div>
-        <div class="chart" id="evoPrev"></div>
+function monthLabel(m){ return MONTHS_PT[(m-1+12)%12]; }
 
-        <div class="divider"></div>
+function pad2(n){ return String(n).padStart(2,"0"); }
 
-        <h2 class="section-title">Categorias vendidas</h2>
-        <div class="wide-row">
-          <div>
-            <div class="small" style="margin-bottom:8px;">Participação por categoria</div>
-            <div class="chart tall" id="catPie"></div>
-          </div>
-          <div>
-            <div class="small" style="margin-bottom:8px;">Resumo – Categorias (com crescimento vs. período anterior)</div>
-            <div id="catTable"></div>
-          </div>
+function formatInt(n){
+  const x = Number(n||0);
+  return x.toLocaleString("pt-BR");
+}
+
+function formatVolume(n){
+  return `${formatInt(n)} un`;
+}
+
+function formatBRL(n){
+  const x = Number(n||0);
+  return x.toLocaleString("pt-BR",{style:"currency", currency:"BRL"});
+}
+
+function formatPct(x){
+  const v = Number(x||0);
+  return (v*100).toLocaleString("pt-BR",{minimumFractionDigits:1, maximumFractionDigits:1}) + "%";
+}
+
+function yyyymm(ano, mes){
+  return (ano*100) + mes;
+}
+
+function addMonths(ano, mes, delta){
+  // mes 1..12
+  let total = (ano*12 + (mes-1)) + delta;
+  const newAno = Math.floor(total/12);
+  const newMes = (total%12) + 1;
+  return { ano:newAno, mes:newMes };
+}
+
+function monthsDiffInclusive(a1,m1,a2,m2){
+  // inclusive number of months from start to end
+  const start = a1*12 + (m1-1);
+  const end = a2*12 + (m2-1);
+  return (end - start) + 1;
+}
+
+function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+/* =======================
+   CSV LOAD + NORMALIZATION
+======================= */
+function normalizeHeader(h){
+  return String(h||"").trim().toLowerCase()
+    .replaceAll("ç","c")
+    .replaceAll("ã","a")
+    .replaceAll("á","a")
+    .replaceAll("à","a")
+    .replaceAll("â","a")
+    .replaceAll("é","e")
+    .replaceAll("ê","e")
+    .replaceAll("í","i")
+    .replaceAll("ó","o")
+    .replaceAll("ô","o")
+    .replaceAll("õ","o")
+    .replaceAll("ú","u")
+    .replaceAll("ü","u")
+    .replaceAll(" ","")
+    .replaceAll("_","");
+}
+
+function pickCol(map, candidates){
+  for(const c of candidates){
+    const key = normalizeHeader(c);
+    if(map[key]) return map[key];
+  }
+  return null;
+}
+
+function buildHeaderMap(headers){
+  const m = {};
+  headers.forEach(h => { m[normalizeHeader(h)] = h; });
+  return m;
+}
+
+async function fetchCSV(url){
+  const bust = (url.includes("?") ? "&" : "?") + "v=" + Date.now();
+  const res = await fetch(url + bust, { cache: "no-store" });
+  if(!res.ok) throw new Error(`HTTP ${res.status} ao baixar CSV`);
+  return await res.text();
+}
+
+function parseCSV(text){
+  return new Promise((resolve, reject) => {
+    Papa.parse(text, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: false,
+      complete: (results) => resolve(results),
+      error: (err) => reject(err),
+    });
+  });
+}
+
+/* =======================
+   GLOBAL STATE
+======================= */
+let RAW = [];
+let GEO = [];
+let map = null;
+let markersLayer = null;
+
+let currentFiltered = [];
+let prevFiltered = [];
+
+let currentStatus = []; // per-client status rows
+
+/* =======================
+   UI POPULATE
+======================= */
+function setOptions(selectEl, values, selectedValue){
+  selectEl.innerHTML = "";
+  values.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v.value;
+    opt.textContent = v.label;
+    if(String(v.value) === String(selectedValue)) opt.selected = true;
+    selectEl.appendChild(opt);
+  });
+}
+
+function uniqueSorted(arr){
+  return Array.from(new Set(arr)).sort((a,b)=> (a>b?1:-1));
+}
+
+function getAvailableYears(data){
+  return uniqueSorted(data.map(r => Number(r.Ano)).filter(n=>Number.isFinite(n)));
+}
+
+function getAvailableMonthsForYear(data, year){
+  const months = data.filter(r=>Number(r.Ano)===Number(year)).map(r=>Number(r.Mes)).filter(n=>Number.isFinite(n));
+  return uniqueSorted(months);
+}
+
+function repList(data){
+  const reps = uniqueSorted(data.map(r => String(r.Representante||"").trim()).filter(Boolean));
+  return ["Todos", ...reps];
+}
+
+/* =======================
+   CORE COMPUTATIONS
+======================= */
+function filterByPeriod(data, rep, sAno, sMes, eAno, eMes){
+  const s = yyyymm(sAno, sMes);
+  const e = yyyymm(eAno, eMes);
+  return data.filter(r => {
+    const ano = Number(r.Ano), mes = Number(r.Mes);
+    if(!Number.isFinite(ano) || !Number.isFinite(mes)) return false;
+    const ym = yyyymm(ano, mes);
+    if(ym < s || ym > e) return false;
+    if(rep && rep !== "Todos"){
+      return String(r.Representante||"").trim() === rep;
+    }
+    return true;
+  });
+}
+
+function sumField(data, field){
+  return data.reduce((acc,r)=> acc + (Number(r[field])||0), 0);
+}
+
+function groupBy(data, keyFn){
+  const m = new Map();
+  for(const r of data){
+    const k = keyFn(r);
+    if(!m.has(k)) m.set(k, []);
+    m.get(k).push(r);
+  }
+  return m;
+}
+
+function aggMonthly(data){
+  const m = new Map(); // ym -> {Ano,Mes,Valor,Quantidade}
+  for(const r of data){
+    const ano = Number(r.Ano), mes = Number(r.Mes);
+    const ym = yyyymm(ano, mes);
+    if(!m.has(ym)) m.set(ym, { Ano: ano, Mes: mes, Valor:0, Quantidade:0 });
+    const o = m.get(ym);
+    o.Valor += (Number(r.Valor)||0);
+    o.Quantidade += (Number(r.Quantidade)||0);
+  }
+  return Array.from(m.values()).sort((a,b)=> yyyymm(a.Ano,a.Mes) - yyyymm(b.Ano,b.Mes));
+}
+
+function concentrationMetricsByClient(data){
+  const byClient = groupBy(data, r => String(r.Cliente||"").trim());
+  const arr = [];
+  for(const [k, rows] of byClient.entries()){
+    if(!k) continue;
+    arr.push({
+      Cliente: k,
+      Valor: sumField(rows, "Valor"),
+      Quantidade: sumField(rows, "Quantidade"),
+      Cidade: String(rows[0].Cidade||""),
+      Estado: String(rows[0].Estado||""),
+    });
+  }
+  arr.sort((a,b)=> b.Valor - a.Valor);
+  const total = arr.reduce((a,x)=> a+x.Valor, 0) || 1;
+
+  // N80: number of clients to reach 80%
+  let cum=0, n80=0;
+  for(const x of arr){
+    cum += x.Valor;
+    n80++;
+    if(cum/total >= 0.80) break;
+  }
+
+  // HHI (0..1)
+  const hhi = arr.reduce((acc,x)=> {
+    const s = x.Valor/total;
+    return acc + s*s;
+  }, 0);
+
+  const top1 = arr[0] ? (arr[0].Valor/total) : 0;
+  const top3 = arr.slice(0,3).reduce((a,x)=> a+x.Valor,0)/total;
+  const top10 = arr.slice(0,10).reduce((a,x)=> a+x.Valor,0)/total;
+
+  // qualitative label
+  let concLabel = "Concentração moderada";
+  if(hhi < 0.10) concLabel = "Baixa concentração";
+  else if(hhi < 0.18) concLabel = "Concentração moderada";
+  else concLabel = "Alta concentração";
+
+  return { arr, total, n80, hhi, top1, top3, top10, concLabel };
+}
+
+function computePrevPeriod(sAno, sMes, eAno, eMes){
+  const len = monthsDiffInclusive(sAno,sMes,eAno,eMes);
+  // prev end = month before start
+  const prevEnd = addMonths(sAno, sMes, -1);
+  const prevStart = addMonths(prevEnd.ano, prevEnd.mes, -(len-1));
+  return { sAno: prevStart.ano, sMes: prevStart.mes, eAno: prevEnd.ano, eMes: prevEnd.mes, len };
+}
+
+function statusByClient(cur, prev){
+  const curMap = new Map();
+  for(const r of cur){
+    const c = String(r.Cliente||"").trim();
+    if(!c) continue;
+    if(!curMap.has(c)) curMap.set(c, { Cliente:c, Valor:0, Quantidade:0, Cidade:String(r.Cidade||""), Estado:String(r.Estado||"") });
+    const o = curMap.get(c);
+    o.Valor += (Number(r.Valor)||0);
+    o.Quantidade += (Number(r.Quantidade)||0);
+    if(!o.Cidade) o.Cidade = String(r.Cidade||"");
+    if(!o.Estado) o.Estado = String(r.Estado||"");
+  }
+
+  const prevMap = new Map();
+  for(const r of prev){
+    const c = String(r.Cliente||"").trim();
+    if(!c) continue;
+    if(!prevMap.has(c)) prevMap.set(c, { Cliente:c, Valor:0, Quantidade:0, Cidade:String(r.Cidade||""), Estado:String(r.Estado||"") });
+    const o = prevMap.get(c);
+    o.Valor += (Number(r.Valor)||0);
+    o.Quantidade += (Number(r.Quantidade)||0);
+    if(!o.Cidade) o.Cidade = String(r.Cidade||"");
+    if(!o.Estado) o.Estado = String(r.Estado||"");
+  }
+
+  const allClients = new Set([...curMap.keys(), ...prevMap.keys()]);
+  const rows = [];
+  for(const c of allClients){
+    const A = curMap.get(c) || { Cliente:c, Valor:0, Quantidade:0, Cidade:"", Estado:"" };
+    const B = prevMap.get(c) || { Cliente:c, Valor:0, Quantidade:0, Cidade:"", Estado:"" };
+
+    const curV = A.Valor||0, prevV = B.Valor||0;
+    let status = "Estáveis";
+
+    if(prevV === 0 && curV > 0) status = "Novos";
+    else if(curV === 0 && prevV > 0) status = "Perdidos";
+    else {
+      const ratio = prevV === 0 ? 999 : (curV/prevV);
+      if(ratio >= 1.15) status = "Crescendo";
+      else if(ratio <= 0.85) status = "Caindo";
+      else status = "Estáveis";
+    }
+
+    rows.push({
+      Status: status,
+      Cliente: c,
+      Cidade: A.Cidade || B.Cidade || "",
+      Estado: A.Estado || B.Estado || "",
+      VolumeAtual: A.Quantidade||0,
+      VolumeAnterior: B.Quantidade||0,
+      FaturamentoAtual: curV,
+      FaturamentoAnterior: prevV,
+      Variacao: curV - prevV
+    });
+  }
+
+  // order by status priority
+  const order = { "Novos":1, "Crescendo":2, "Estáveis":3, "Caindo":4, "Perdidos":5 };
+  rows.sort((a,b)=>{
+    const oa = order[a.Status]||99, ob = order[b.Status]||99;
+    if(oa !== ob) return oa - ob;
+    return (b.FaturamentoAtual - a.FaturamentoAtual);
+  });
+
+  return rows;
+}
+
+function computeCarteiraScore(statusRows){
+  // Weighted by faturamento share: good statuses push up, bad push down
+  const weights = {
+    "Novos": 0.8,
+    "Crescendo": 1.2,
+    "Estáveis": 1.0,
+    "Caindo": -0.8,
+    "Perdidos": -1.2
+  };
+  const totalCur = statusRows.reduce((a,r)=> a + (r.FaturamentoAtual||0), 0) || 1;
+  const contrib = statusRows.reduce((a,r)=>{
+    const w = weights[r.Status] ?? 0;
+    const share = (r.FaturamentoAtual||0)/totalCur;
+    return a + (w * share);
+  }, 0);
+
+  // Map contrib roughly into 0..100
+  // contrib ~ [-1.2..1.2] => score ~ [0..100]
+  let score = 50 + (contrib * 35);
+  score = clamp(score, 0, 100);
+
+  let label = "Neutra";
+  if(score >= 70) label = "Saudável";
+  else if(score >= 55) label = "Neutra";
+  else if(score >= 40) label = "Atenção";
+  else label = "Crítica";
+
+  return { score: Math.round(score), label };
+}
+
+/* =======================
+   MAP (Leaflet)
+======================= */
+function normalizeGeoRows(geo){
+  // Accept many possible column names
+  // Need: Estado/UF, Cidade, lat, lon
+  if(!geo.length) return [];
+
+  const headers = Object.keys(geo[0]);
+  const mapH = buildHeaderMap(headers);
+
+  const colUF = pickCol(mapH, ["UF","Estado","Estado/UF","SiglaUF","uf","estado"]);
+  const colCidade = pickCol(mapH, ["Cidade","Municipio","Município","cidade","municipio"]);
+  const colLat = pickCol(mapH, ["lat","latitude","Latitude","LAT"]);
+  const colLon = pickCol(mapH, ["lon","lng","longitude","Longitude","LON","Long"]);
+
+  if(!colUF || !colCidade || !colLat || !colLon){
+    throw new Error("cidades_br_geo.csv must contain Estado/UF, Cidade, lat, lon columns (names can vary).");
+  }
+
+  return geo.map(r => ({
+    UF: String(r[colUF]||"").trim().toUpperCase(),
+    Cidade: String(r[colCidade]||"").trim().toUpperCase(),
+    lat: Number(String(r[colLat]||"").replace(",", ".")),
+    lon: Number(String(r[colLon]||"").replace(",", "."))
+  })).filter(x => x.UF && x.Cidade && Number.isFinite(x.lat) && Number.isFinite(x.lon));
+}
+
+function colorForValue(v, vmin, vmax){
+  // Inverted to match your request: Green = higher, Red = lower
+  if(vmax <= vmin) return "#22c55e";
+  const t = (v - vmin) / (vmax - vmin);
+  // interpolate red->orange->yellow->green (t:0..1)
+  const stops = [
+    {t:0.00, c:[239,68,68]},   // red
+    {t:0.35, c:[245,158,11]},  // orange
+    {t:0.65, c:[250,204,21]},  // yellow
+    {t:1.00, c:[34,197,94]},   // green
+  ];
+  let a=stops[0], b=stops[stops.length-1];
+  for(let i=0;i<stops.length-1;i++){
+    if(t>=stops[i].t && t<=stops[i+1].t){ a=stops[i]; b=stops[i+1]; break; }
+  }
+  const u = (t - a.t) / (b.t - a.t);
+  const r = Math.round(a.c[0] + (b.c[0]-a.c[0])*u);
+  const g = Math.round(a.c[1] + (b.c[1]-a.c[1])*u);
+  const bl = Math.round(a.c[2] + (b.c[2]-a.c[2])*u);
+  return `rgb(${r},${g},${bl})`;
+}
+
+function buildMapLegend(vmin, vmax){
+  const ranges = [
+    { label: "Baixo", t: 0.00 },
+    { label: "Médio", t: 0.50 },
+    { label: "Alto",  t: 1.00 },
+  ];
+  const el = document.getElementById("mapLegend");
+  el.innerHTML = "";
+  ranges.forEach(r => {
+    const v = vmin + (vmax-vmin)*r.t;
+    const item = document.createElement("div");
+    item.className = "legendItem";
+    const sw = document.createElement("div");
+    sw.className = "swatch";
+    sw.style.background = colorForValue(v, vmin, vmax);
+    item.appendChild(sw);
+    const txt = document.createElement("div");
+    txt.textContent = r.label;
+    item.appendChild(txt);
+    el.appendChild(item);
+  });
+  const note = document.createElement("div");
+  note.className = "legendItem";
+  note.textContent = "Cores: vermelho = menor | verde = maior";
+  el.appendChild(note);
+}
+
+function initMap(){
+  if(map) return;
+  map = L.map("map", { zoomControl: true }).setView([-14.2350, -51.9253], 4);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+}
+
+function renderMap(filtered){
+  initMap();
+  markersLayer.clearLayers();
+
+  // group by city+UF
+  const byCity = new Map();
+  for(const r of filtered){
+    const uf = String(r.Estado||"").trim().toUpperCase();
+    const city = String(r.Cidade||"").trim().toUpperCase();
+    if(!uf || !city) continue;
+    const key = uf + "||" + city;
+    if(!byCity.has(key)) byCity.set(key, { UF:uf, Cidade:city, Valor:0, Quantidade:0, Rows:[] });
+    const o = byCity.get(key);
+    o.Valor += (Number(r.Valor)||0);
+    o.Quantidade += (Number(r.Quantidade)||0);
+    o.Rows.push(r);
+  }
+
+  // join with geo
+  const geoMap = new Map();
+  for(const g of GEO){
+    geoMap.set(g.UF+"||"+g.Cidade, g);
+  }
+
+  const points = [];
+  for(const [k, v] of byCity.entries()){
+    const g = geoMap.get(k);
+    if(!g) continue;
+    points.push({ ...v, lat:g.lat, lon:g.lon });
+  }
+
+  // bounds
+  if(points.length){
+    const latlngs = points.map(p => [p.lat, p.lon]);
+    map.fitBounds(latlngs, { padding:[40,40] });
+  } else {
+    map.setView([-14.2350, -51.9253], 4);
+  }
+
+  const vals = points.map(p=>p.Valor);
+  const vmin = vals.length ? Math.min(...vals) : 0;
+  const vmax = vals.length ? Math.max(...vals) : 1;
+
+  buildMapLegend(vmin, vmax);
+
+  points.forEach(p=>{
+    const color = colorForValue(p.Valor, vmin, vmax);
+    const marker = L.circleMarker([p.lat,p.lon],{
+      radius: 8,
+      fillColor: color,
+      fillOpacity: 0.9,
+      color: "rgba(0,0,0,0.35)",
+      weight: 1
+    });
+
+    const popupHtml =
+      `<div style="font-family: ${getComputedStyle(document.body).fontFamily};">
+        <div style="font-weight:800; margin-bottom:4px;">${p.Cidade} - ${p.UF}</div>
+        <div style="color:#111; font-size:12px;">
+          <div><b>Faturamento:</b> ${formatBRL(p.Valor)}</div>
+          <div><b>Volume:</b> ${formatVolume(p.Quantidade)}</div>
+          <div style="margin-top:6px; font-size:11px;">Clique para ver clientes</div>
         </div>
+      </div>`;
 
-        <div class="divider"></div>
+    marker.bindPopup(popupHtml);
+    marker.on("click", ()=>{
+      renderCityDetails(p);
+    });
+    marker.addTo(markersLayer);
+  });
+}
 
-        <h2 class="section-title">Distribuição por clientes</h2>
-        <div class="kpi-row-5" id="clientKpis"></div>
-        <div class="wide-row">
-          <div>
-            <div class="small" style="margin-bottom:8px;">Participação dos clientes (Top 10 destacados)</div>
-            <div class="chart tall" id="clientsPie"></div>
-          </div>
-          <div>
-            <div class="small" style="margin-bottom:8px;">Resumo – clientes (mais detalhado)</div>
-            <div id="clientsTable"></div>
-          </div>
-        </div>
+function renderCityDetails(cityAgg){
+  // table: Cliente, Quantidade, Faturamento
+  const rows = cityAgg.Rows.slice();
+  const byClient = groupBy(rows, r => String(r.Cliente||"").trim());
+  const arr = [];
+  for(const [c, rs] of byClient.entries()){
+    if(!c) continue;
+    arr.push({
+      Cliente: c,
+      Quantidade: sumField(rs,"Quantidade"),
+      Faturamento: sumField(rs,"Valor")
+    });
+  }
+  arr.sort((a,b)=> b.Faturamento - a.Faturamento);
 
-        <div class="divider"></div>
+  const wrap = document.getElementById("cityDetailsWrap");
+  const id = "cityDetails";
+  wrap.innerHTML = `
+    <div class="sectionHeader" style="margin: 6px 0 8px 0;">
+      <h3 class="sectionTitle" style="font-size:16px;">Clientes em ${cityAgg.Cidade} - ${cityAgg.UF}</h3>
+      <p class="sectionNote">Lista completa</p>
+    </div>
+    <table class="noWrap">
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th style="text-align:center;">Quantidade</th>
+          <th style="text-align:center;">Faturamento</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${arr.map(r=>`
+          <tr>
+            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
+            <td class="tdNum" style="text-align:left;">${formatVolume(r.Quantidade)}</td>
+            <td class="tdNum" style="text-align:left;">${formatBRL(r.Faturamento)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
 
-        <h2 class="section-title">Saúde da carteira – Detalhes</h2>
-        <div class="status-grid">
-          <div>
-            <div class="card" style="min-height:auto;">
-              <div class="k-label">Pontuação – Saúde da carteira</div>
-              <div class="k-value" id="carteiraScore">--</div>
-              <div class="k-delta" id="carteiraLabel">--</div>
-              <div class="note" id="carteiraExplain">
-                A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos)
-                no comparativo entre período atual e anterior.
-              </div>
-            </div>
+/* =======================
+   PLOTLY THEMING
+======================= */
+function plotlyLayoutBase(title){
+  return {
+    title: { text: title||"", font:{color:"rgba(255,255,255,0.86)", size:14}, x:0.02 },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "rgba(255,255,255,0.86)", family: "Inter, sans-serif" },
+    margin: { l: 56, r: 56, t: 44, b: 40 },
+    legend: { orientation: "h", y: -0.18, x: 0, font:{size:11} },
+    xaxis: { gridcolor: "rgba(255,255,255,0.08)", zerolinecolor:"rgba(255,255,255,0.12)" },
+    yaxis: { gridcolor: "rgba(255,255,255,0.08)", zerolinecolor:"rgba(255,255,255,0.12)" },
+  };
+}
 
-            <div class="divider"></div>
-            <div class="small" style="margin-bottom:8px;">Distribuição de clientes por status</div>
-            <div class="chart" id="statusPie"></div>
-          </div>
+/* =======================
+   RENDERING
+======================= */
+function escapeHtml(str){
+  return String(str||"")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
 
-          <div>
-            <div class="small" style="margin-bottom:8px;">Resumo por status</div>
-            <div id="statusSummaryTable"></div>
-            <div class="note" id="statusObs"></div>
-          </div>
-        </div>
-      </section>
+function buildKpis(repName, cur, prevInfo, conc, health){
+  const total = sumField(cur, "Valor");
+  const vol = sumField(cur, "Quantidade");
+  const months = aggMonthly(cur).length || 1;
+  const avg = total / months;
 
-      <!-- PAGE 3 -->
-      <section class="page" id="page3">
-        <h2 class="section-title">Status dos clientes</h2>
-        <div class="small" style="margin-bottom:10px;">Use o campo “Buscar cliente” nos filtros para filtrar os clientes nesta seção.</div>
+  const clients = uniqueSorted(cur.map(r=>String(r.Cliente||"").trim()).filter(Boolean)).length;
 
-        <div id="statusLists"></div>
-      </section>
+  // Distribuição label
+  const distLabel = conc.concLabel;
 
-    </main>
-  </div>
+  const healthChipClass = (health.label==="Saudável") ? "chip" :
+                          (health.label==="Neutra") ? "chip neutral" :
+                          (health.label==="Atenção") ? "chip warn" : "chip danger";
 
-  <script>
-    // ==========================
-    // DATA SOURCES
-    // ==========================
-    const GITHUB_CSV_URL =
-      "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/main/data/relatorio_faturamento.csv";
-    const CITY_GEO_CSV_URL =
-      "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv";
+  const kpis = [
+    { label:"Total período", value: formatBRL(total), sub: `<span class="metaLine">${formatVolume(vol)}</span>` },
+    { label:"Média mensal", value: formatBRL(avg), sub: `<span class="metaLine">${months} meses com venda</span>` },
+    { label:"Distribuição por clientes", value: distLabel, sub: `<span class="chip">N80: ${conc.n80} clientes</span>` },
+    { label:"Saúde da carteira", value: `${health.score} / 100`, sub: `<span class="${healthChipClass}">↑ ${health.label}</span>` },
+    { label:"Clientes atendidos", value: formatInt(clients), sub: `<span class="metaLine">únicos no período</span>` },
+  ];
 
-    // ==========================
-    // CONSTANTS
-    // ==========================
-    const MONTHS = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
-    const MONTH_NAME_TO_NUM = Object.fromEntries(MONTHS.map((m,i)=>[m,i+1]));
-    const STATUS_ORDER = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
-    const STATUS_WEIGHTS = {
-      "Novos": 1, "Novo": 1,
-      "Crescendo": 2,
-      "Estáveis": 1, "Estável": 1, "Estaveis": 1,
-      "Caindo": -1,
-      "Perdidos": -2, "Perdido": -2
+  const grid = document.getElementById("kpiGrid");
+  grid.innerHTML = kpis.map(k=>`
+    <div class="kpiCard">
+      <div class="kpiLabel">${k.label}</div>
+      <div class="kpiValue">${k.value}</div>
+      <div class="kpiSub">${k.sub||""}</div>
+    </div>
+  `).join("");
+}
+
+function renderHighlights(monthly){
+  if(!monthly.length){
+    document.getElementById("hiFat").textContent = "—";
+    document.getElementById("hiVol").textContent = "—";
+    return;
+  }
+  // best/worst by Valor and Quantidade
+  const bestFat = monthly.reduce((a,b)=> (b.Valor>a.Valor?b:a), monthly[0]);
+  const worstFat = monthly.reduce((a,b)=> (b.Valor<a.Valor?b:a), monthly[0]);
+  const bestVol = monthly.reduce((a,b)=> (b.Quantidade>a.Quantidade?b:a), monthly[0]);
+  const worstVol = monthly.reduce((a,b)=> (b.Quantidade<a.Quantidade?b:a), monthly[0]);
+
+  const bfLbl = `${monthLabel(bestFat.Mes)} ${String(bestFat.Ano).slice(-2)}`;
+  const wfLbl = `${monthLabel(worstFat.Mes)} ${String(worstFat.Ano).slice(-2)}`;
+  const bvLbl = `${monthLabel(bestVol.Mes)} ${String(bestVol.Ano).slice(-2)}`;
+  const wvLbl = `${monthLabel(worstVol.Mes)} ${String(worstVol.Ano).slice(-2)}`;
+
+  document.getElementById("hiFat").textContent = `Melhor: ${bfLbl}`;
+  document.getElementById("hiFatSub").innerHTML = `
+    <span class="chip">↑ ${formatBRL(bestFat.Valor)}</span>
+    <span class="chip danger">↓ ${wfLbl}: ${formatBRL(worstFat.Valor)}</span>
+  `;
+
+  document.getElementById("hiVol").textContent = `Melhor: ${bvLbl}`;
+  document.getElementById("hiVolSub").innerHTML = `
+    <span class="chip">↑ ${formatVolume(bestVol.Quantidade)}</span>
+    <span class="chip danger">↓ ${wvLbl}: ${formatVolume(worstVol.Quantidade)}</span>
+  `;
+}
+
+function renderCoverage(cur){
+  const cities = uniqueSorted(cur.map(r=>String(r.Cidade||"").trim()).filter(Boolean)).length;
+  const states = uniqueSorted(cur.map(r=>String(r.Estado||"").trim()).filter(Boolean)).length;
+  const clients = uniqueSorted(cur.map(r=>String(r.Cliente||"").trim()).filter(Boolean)).length;
+
+  document.getElementById("covCities").textContent = formatInt(cities);
+  document.getElementById("covStates").textContent = formatInt(states);
+  document.getElementById("covClients").textContent = formatInt(clients);
+}
+
+function renderTopClients(cur){
+  const byClient = concentrationMetricsByClient(cur).arr.slice(0,15);
+  const html = `
+    <table class="noWrap allowWrap">
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Cidade</th>
+          <th>Estado</th>
+          <th>Faturamento</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${byClient.map(r=>`
+          <tr>
+            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
+            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cidade||"")}</td>
+            <td class="tdNum">${escapeHtml(r.Estado||"")}</td>
+            <td class="tdNum">${formatBRL(r.Valor)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  document.getElementById("topClientsTable").innerHTML = html;
+}
+
+function renderStatesPieAndTables(cur){
+  // top 10 states by faturamento
+  const byUF = groupBy(cur, r=>String(r.Estado||"").trim().toUpperCase());
+  const arr = [];
+  for(const [uf, rows] of byUF.entries()){
+    if(!uf) continue;
+    arr.push({
+      Estado: uf,
+      Valor: sumField(rows,"Valor"),
+      Volume: sumField(rows,"Quantidade"),
+      Rows: rows
+    });
+  }
+  arr.sort((a,b)=> b.Valor-a.Valor);
+  const total = arr.reduce((a,x)=>a+x.Valor,0) || 1;
+  const totalVol = arr.reduce((a,x)=>a+x.Volume,0) || 1;
+
+  const top10 = arr.slice(0,10);
+  const rest = arr.slice(10);
+  const restVal = rest.reduce((a,x)=>a+x.Valor,0);
+  const restVol = rest.reduce((a,x)=>a+x.Volume,0);
+
+  const labels = top10.map(x=>x.Estado).concat(restVal>0?["Outros"]:[]);
+  const values = top10.map(x=>x.Valor).concat(restVal>0?[restVal]:[]);
+  const perc = top10.map(x=>x.Valor/total).concat(restVal>0?[restVal/total]:[]);
+
+  // show inside labels only if slice >= 6%
+  const text = labels.map((lab,i)=>{
+    const p = perc[i] || 0;
+    if(p >= 0.06) return `${lab}<br>${formatPct(p)}`;
+    return "";
+  });
+
+  const data = [{
+    type:"pie",
+    labels,
+    values,
+    text,
+    textinfo:"text",
+    textposition:"inside",
+    insidetextorientation:"radial",
+    hovertemplate:"%{label}<br>%{value:,.0f} (R$)<br>%{percent}<extra></extra>",
+    sort:false,
+    direction:"clockwise",
+    marker:{ line:{color:"rgba(0,0,0,0.15)", width:1} },
+    showlegend:false
+  }];
+
+  const layout = plotlyLayoutBase("");
+  layout.margin = { l: 12, r: 12, t: 12, b: 12 };
+
+  Plotly.newPlot("statesPie", data, layout, {displayModeBar:false, responsive:true});
+
+  // Table: Resumo – Top 10 estados
+  const statesTableHtml = `
+    <table class="noWrap">
+      <thead>
+        <tr>
+          <th>Estado</th>
+          <th>Faturamento</th>
+          <th>% Faturamento</th>
+          <th>Volume</th>
+          <th>% Volume</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${top10.map(x=>`
+          <tr>
+            <td class="tdNum">${escapeHtml(x.Estado)}</td>
+            <td class="tdNum">${formatBRL(x.Valor)}</td>
+            <td class="tdNum">${formatPct(x.Valor/total)}</td>
+            <td class="tdNum">${formatVolume(x.Volume)}</td>
+            <td class="tdNum">${formatPct(x.Volume/totalVol)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  document.getElementById("statesTable").innerHTML = statesTableHtml;
+
+  // Top cities by faturamento + top 3 clients (separate columns)
+  const byCity = new Map(); // key UF||Cidade
+  for(const r of cur){
+    const uf = String(r.Estado||"").trim().toUpperCase();
+    const city = String(r.Cidade||"").trim().toUpperCase();
+    if(!uf || !city) continue;
+    const key = uf+"||"+city;
+    if(!byCity.has(key)) byCity.set(key, { Estado:uf, Cidade:city, Valor:0, Volume:0, Rows:[] });
+    const o = byCity.get(key);
+    o.Valor += (Number(r.Valor)||0);
+    o.Volume += (Number(r.Quantidade)||0);
+    o.Rows.push(r);
+  }
+  const cityArr = Array.from(byCity.values()).sort((a,b)=> b.Valor - a.Valor).slice(0,20);
+
+  // build top 3 clients columns
+  const rowsHtml = cityArr.map(city=>{
+    const byC = groupBy(city.Rows, r=>String(r.Cliente||"").trim());
+    const carr = [];
+    for(const [c, rs] of byC.entries()){
+      if(!c) continue;
+      carr.push({ Cliente:c, Valor: sumField(rs,"Valor") });
+    }
+    carr.sort((a,b)=> b.Valor - a.Valor);
+    const t1 = carr[0] ? `${carr[0].Cliente} (${formatBRL(carr[0].Valor)})` : "";
+    const t2 = carr[1] ? `${carr[1].Cliente} (${formatBRL(carr[1].Valor)})` : "";
+    const t3 = carr[2] ? `${carr[2].Cliente} (${formatBRL(carr[2].Valor)})` : "";
+
+    return `
+      <tr>
+        <td class="colWrap" style="white-space:normal;">${escapeHtml(city.Cidade)}</td>
+        <td class="tdNum">${escapeHtml(city.Estado)}</td>
+        <td class="tdNum">${formatBRL(city.Valor)}</td>
+        <td class="tdNum">${formatVolume(city.Volume)}</td>
+        <td class="tdNum">${formatPct(city.Volume/totalVol)}</td>
+        <td class="colWrap" style="white-space:normal;">${escapeHtml(t1)}</td>
+        <td class="colWrap" style="white-space:normal;">${escapeHtml(t2)}</td>
+        <td class="colWrap" style="white-space:normal;">${escapeHtml(t3)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  const topCitiesHtml = `
+    <table class="allowWrap">
+      <thead>
+        <tr>
+          <th>Cidade</th>
+          <th>Estado</th>
+          <th>Faturamento</th>
+          <th>Volume</th>
+          <th>% Volume</th>
+          <th>Top 1 cliente (R$)</th>
+          <th>Top 2 cliente (R$)</th>
+          <th>Top 3 cliente (R$)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  `;
+  document.getElementById("topCitiesTable").innerHTML = topCitiesHtml;
+}
+
+function renderEvolution(curMonthly, prevMonthly, curLabel, prevLabel, curTotalsText, prevTotalsText){
+  document.getElementById("curPeriodHdr").childNodes[0].textContent = `Período atual: ${curLabel} `;
+  document.getElementById("prevPeriodHdr").childNodes[0].textContent = `Período anterior: ${prevLabel} `;
+
+  document.getElementById("curTotals").textContent = curTotalsText;
+  document.getElementById("prevTotals").textContent = prevTotalsText;
+
+  function makeEvoChart(divId, monthly){
+    const x = monthly.map(r => monthLabel(r.Mes));
+    const fatur = monthly.map(r => r.Valor);
+    const vol = monthly.map(r => r.Quantidade);
+
+    const bars = {
+      type: "bar",
+      x,
+      y: fatur,
+      name: "Faturamento",
+      marker: { color: "rgba(96,165,250,0.85)" },
+      yaxis: "y1",
+      hovertemplate: "%{x}<br>Faturamento: %{y:,.0f}<extra></extra>"
     };
-    const MAP_BIN_COLORS = ["#22c55e","#eab308","#f97316","#ef4444"]; // green high, red low
-
-    // ==========================
-    // STATE
-    // ==========================
-    const state = {
-      rows: [],
-      geo: [],
-      selectedCity: null,
-      map: null,
-      mapLayer: null,
-      lastRepOptions: []
+    const line = {
+      type: "scatter",
+      mode: "lines+markers",
+      x,
+      y: vol,
+      name: "Volume (un)",
+      line: { color: "rgba(34,197,94,0.95)", width: 3 }, /* 2pt+ feel */
+      marker: { color: "rgba(34,197,94,0.95)", size: 7 },
+      yaxis: "y2",
+      hovertemplate: "%{x}<br>Volume: %{y:,.0f} un<extra></extra>"
     };
 
-    // ==========================
-    // UTILITIES
-    // ==========================
-    function esc(s){
-      return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
-
-    function brl(value){
-      const v = Number(value || 0);
-      return v.toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
-    }
-    function brlSigned(value){
-      const v = Number(value || 0);
-      const sign = v < 0 ? "-" : "";
-      return sign + brl(Math.abs(v));
-    }
-    function brlCompact(value){
-      const v = Number(value || 0);
-      const av = Math.abs(v);
-      if (av >= 1e9) return "R$ " + (v/1e9).toFixed(1).replace(".",",") + " bi";
-      if (av >= 1e6) return "R$ " + (v/1e6).toFixed(1).replace(".",",") + " mi";
-      if (av >= 1e3) return "R$ " + (v/1e3).toFixed(1).replace(".",",") + " mil";
-      return brl(v);
-    }
-    function formatUn(value){
-      const v = Math.round(Number(value || 0));
-      return v.toLocaleString("pt-BR") + " un";
-    }
-
-    function toKey(estado, cidade){
-      return (String(estado||"").trim().toUpperCase() + "|" + String(cidade||"").trim().toUpperCase());
-    }
-
-    function monthLabel(dateObj){
-      const m = dateObj.getMonth()+1;
-      const y2 = String(dateObj.getFullYear()).slice(-2);
-      return `${MONTHS[m-1]} ${y2}`;
-    }
-
-    function addMonths(dateObj, delta){
-      const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
-      d.setMonth(d.getMonth() + delta);
-      return new Date(d.getFullYear(), d.getMonth(), 1);
-    }
-
-    function monthsDiffInclusive(a,b){
-      const ay = a.getFullYear(), am = a.getMonth();
-      const by = b.getFullYear(), bm = b.getMonth();
-      return (by-ay)*12 + (bm-am) + 1;
-    }
-
-    function parseNumberBR(v){
-      if (v === null || v === undefined) return 0;
-      const s = String(v).trim();
-      if (!s) return 0;
-      const s2 = s.replace(/\./g,".").replace(",",".");
-      const n = Number(s2);
-      return Number.isFinite(n) ? n : 0;
-    }
-
-    function groupBy(arr, keyFn){
-      const m = new Map();
-      for (const it of arr){
-        const k = keyFn(it);
-        if (!m.has(k)) m.set(k, []);
-        m.get(k).push(it);
-      }
-      return m;
-    }
-
-    function sum(arr, fn){
-      let t=0;
-      for (const x of arr) t += Number(fn(x) || 0);
-      return t;
-    }
-
-    // ==========================
-    // GEO CSV NORMALIZATION
-    // ==========================
-    function normCol(s){
-      return String(s||"")
-        .trim()
-        .normalize("NFKD").replace(/[\u0300-\u036f]/g,"")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g,"");
-    }
-
-    function pickColumn(cols, candidates){
-      const normMap = new Map(cols.map(c => [normCol(c), c]));
-      for (const cand of candidates){
-        if (normMap.has(cand)) return normMap.get(cand);
-      }
-      for (const [nk,orig] of normMap.entries()){
-        for (const cand of candidates){
-          if (nk.includes(cand)) return orig;
-        }
-      }
-      return null;
-    }
-
-    // ==========================
-    // LOAD DATA
-    // ==========================
-    async function fetchCSV(url){
-      const cb = Date.now();
-      const full = url + (url.includes("?") ? "&" : "?") + "cb=" + cb;
-      const res = await fetch(full, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Falha ao carregar: ${res.status} ${res.statusText}`);
-      const text = await res.text();
-      return new Promise((resolve, reject) => {
-        Papa.parse(text, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (results) => resolve(results.data),
-          error: (err) => reject(err)
-        });
-      });
-    }
-
-    async function loadAll(){
-      const [rawRows, rawGeo] = await Promise.all([
-        fetchCSV(GITHUB_CSV_URL),
-        fetchCSV(CITY_GEO_CSV_URL)
-      ]);
-
-      const needed = ["Codigo","Descricao","Quantidade","Valor","Mes","Ano","Cliente","Estado","Cidade","Representante","Categoria"];
-      const cols = rawRows.length ? Object.keys(rawRows[0]) : [];
-      for (const c of needed){
-        if (!cols.includes(c)){
-          throw new Error("CSV do faturamento não tem a coluna esperada: " + c);
-        }
-      }
-
-      const rows = rawRows.map(r => {
-        const ano = Number(r.Ano);
-        const mes = Number(r.Mes);
-        const comp = new Date(ano, (mes-1), 1);
-        return {
-          Codigo: r.Codigo,
-          Descricao: r.Descricao,
-          Quantidade: parseNumberBR(r.Quantidade),
-          Valor: parseNumberBR(r.Valor),
-          Mes: mes,
-          Ano: ano,
-          Competencia: comp,
-          Cliente: r.Cliente,
-          Estado: r.Estado,
-          Cidade: r.Cidade,
-          Representante: r.Representante,
-          Categoria: r.Categoria
-        };
-      });
-
-      const geoCols = rawGeo.length ? Object.keys(rawGeo[0]) : [];
-      const estadoCol = pickColumn(geoCols, ["estado","uf","siglauf","ufsigla","estadouf"]);
-      const cidadeCol = pickColumn(geoCols, ["cidade","municipio","nmmunicipio","nomemunicipio"]);
-      const latCol    = pickColumn(geoCols, ["lat","latitude","y","coordy"]);
-      const lonCol    = pickColumn(geoCols, ["lon","lng","longitude","x","coordx"]);
-
-      if (!estadoCol || !cidadeCol || !latCol || !lonCol){
-        throw new Error(
-          "cidades_br_geo.csv must contain Estado/UF, Cidade, lat, lon columns. " +
-          "Colunas encontradas: " + geoCols.join(", ")
-        );
-      }
-
-      const geo = rawGeo
-        .map(g => {
-          const lat = Number(String(g[latCol] ?? "").replace(",","."));
-          const lon = Number(String(g[lonCol] ?? "").replace(",","."));
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-          const estado = String(g[estadoCol] ?? "").trim();
-          const cidade = String(g[cidadeCol] ?? "").trim();
-          return { Estado: estado, Cidade: cidade, lat, lon, key: toKey(estado, cidade) };
-        })
-        .filter(Boolean);
-
-      state.rows = rows;
-      state.geo = geo;
-    }
-
-    // ==========================
-    // FILTER OPTIONS
-    // ==========================
-    function getYearsAvailable(rows){
-      const years = [...new Set(rows.map(r=>r.Ano).filter(Number.isFinite))].sort((a,b)=>a-b);
-      return years;
-    }
-
-    function setSelectOptions(selectEl, options, selected){
-      selectEl.innerHTML = "";
-      for (const opt of options){
-        const o = document.createElement("option");
-        o.value = String(opt.value ?? opt);
-        o.textContent = String(opt.label ?? opt);
-        selectEl.appendChild(o);
-      }
-      if (selected !== undefined && selected !== null){
-        selectEl.value = String(selected);
-      }
-    }
-
-    // ==========================
-    // CORE COMPUTATIONS
-    // ==========================
-    function filterByPeriod(rows, startComp, endComp){
-      return rows.filter(r => r.Competencia >= startComp && r.Competencia <= endComp);
-    }
-
-    function buildCarteiraStatus(rowsAll, rep, startComp, endComp){
-      const repRows = (rep === "Todos") ? rowsAll : rowsAll.filter(r => r.Representante === rep);
-      if (!repRows.length) return [];
-
-      const span = monthsDiffInclusive(startComp, endComp);
-      const prevEnd = addMonths(startComp, -1);
-      const prevStart = addMonths(prevEnd, -(span-1));
-
-      const curr = repRows.filter(r => r.Competencia >= startComp && r.Competencia <= endComp);
-      const prev = repRows.filter(r => r.Competencia >= prevStart && r.Competencia <= prevEnd);
-
-      const currByClient = groupBy(curr, r=>r.Cliente);
-      const prevByClient = groupBy(prev, r=>r.Cliente);
-
-      const allClients = new Set([...currByClient.keys(), ...prevByClient.keys()]);
-      const out = [];
-
-      for (const cliente of allClients){
-        const cRows = currByClient.get(cliente) || [];
-        const pRows = prevByClient.get(cliente) || [];
-
-        const valorAtual = sum(cRows, x=>x.Valor);
-        const valorAnterior = sum(pRows, x=>x.Valor);
-
-        const estadoAtual = cRows.find(x=>x.Estado)?.Estado ?? "";
-        const cidadeAtual = cRows.find(x=>x.Cidade)?.Cidade ?? "";
-        const estadoAnterior = pRows.find(x=>x.Estado)?.Estado ?? "";
-        const cidadeAnterior = pRows.find(x=>x.Cidade)?.Cidade ?? "";
-
-        const Estado = estadoAtual || estadoAnterior || "";
-        const Cidade = cidadeAtual || cidadeAnterior || "";
-
-        let status = "Estáveis";
-        if (valorAtual > 0 && valorAnterior === 0) status = "Novos";
-        else if (valorAtual === 0 && valorAnterior > 0) status = "Perdidos";
-        else if (valorAtual > 0 && valorAnterior > 0){
-          const ratio = valorAnterior !== 0 ? (valorAtual / valorAnterior) : 0;
-          if (ratio >= 1.2) status = "Crescendo";
-          else if (ratio <= 0.8) status = "Caindo";
-          else status = "Estáveis";
-        }
-
-        if (valorAtual > 0 || valorAnterior > 0){
-          out.push({ Cliente: cliente, Estado, Cidade, ValorAtual: valorAtual, ValorAnterior: valorAnterior, Status: status });
-        }
-      }
-
-      return out;
-    }
-
-    function computeCarteiraScore(carteira){
-      if (!carteira.length) return { score: 50, label: "Neutra" };
-
-      const rows = carteira.map(r => ({
-        ...r,
-        ValorAtual: Number(r.ValorAtual||0),
-        ValorAnterior: Number(r.ValorAnterior||0),
-        PesoReceita: Math.max(Number(r.ValorAtual||0), Number(r.ValorAnterior||0), 0)
-      }));
-
-      const total = sum(rows, r=>r.PesoReceita);
-      if (total <= 0) return { score: 50, label: "Neutra" };
-
-      const byStatus = groupBy(rows, r=>r.Status);
-      let scoreBruto = 0;
-
-      for (const [status, items] of byStatus.entries()){
-        const receita = sum(items, x=>x.PesoReceita);
-        const w = STATUS_WEIGHTS[status] ?? 0;
-        scoreBruto += w * (receita / total);
-      }
-
-      let score = (scoreBruto + 2) / 4 * 100;
-      score = Math.max(0, Math.min(100, score));
-
-      const baseAnterior = rows.filter(r=>r.ValorAnterior > 0);
-      const baseTotal = sum(baseAnterior, r=>r.PesoReceita);
-      const perdidos = rows.filter(r=>String(r.Status||"").toLowerCase().startsWith("perdid"));
-      const receitaPerdida = sum(perdidos, r=>r.PesoReceita);
-      const churn = baseTotal > 0 ? (receitaPerdida/baseTotal) : 0;
-
-      if (churn > 0.20 && score >= 70) score = 69;
-
-      let label = "Neutra";
-      if (score < 30) label = "Crítica";
-      else if (score < 50) label = "Alerta";
-      else if (score < 70) label = "Neutra";
-      else label = "Saudável";
-
-      return { score: Math.round(score), label };
-    }
-
-    function computeClientDistribution(repRows){
-      const totalValor = sum(repRows, r=>r.Valor);
-      const byClient = groupBy(repRows, r=>r.Cliente);
-
-      const arr = [];
-      for (const [cliente, items] of byClient.entries()){
-        const valor = sum(items, x=>x.Valor);
-        const qtd = sum(items, x=>x.Quantidade);
-        const estado = items.find(x=>x.Estado)?.Estado ?? "";
-        const cidade = items.find(x=>x.Cidade)?.Cidade ?? "";
-        arr.push({ Cliente: cliente, Estado: estado, Cidade: cidade, Valor: valor, Quantidade: qtd, Share: totalValor>0 ? valor/totalValor : 0 });
-      }
-      arr.sort((a,b)=>b.Valor-a.Valor);
-      return { totalValor, arr };
-    }
-
-    function computeN80AndHHI(clientArr, totalValor){
-      if (!clientArr.length || totalValor <= 0){
-        return { n80:0, hhi:0, hhiLabel:"Sem dados", top1:0, top3:0, top10:0 };
-      }
-      const shares = clientArr.map(c=>c.Valor/totalValor);
-      let cum=0, n80=0;
-      for (let i=0;i<shares.length;i++){
-        cum += shares[i];
-        n80 = i+1;
-        if (cum >= 0.8) break;
-      }
-      const hhi = shares.reduce((acc,s)=>acc + s*s, 0);
-      let hhiLabel = "Alta";
-      if (hhi < 0.10) hhiLabel = "Baixa";
-      else if (hhi < 0.20) hhiLabel = "Moderada";
-
-      const top1 = shares.slice(0,1).reduce((a,b)=>a+b,0);
-      const top3 = shares.slice(0,3).reduce((a,b)=>a+b,0);
-      const top10 = shares.slice(0,10).reduce((a,b)=>a+b,0);
-
-      return { n80, hhi, hhiLabel, top1, top3, top10 };
-    }
-
-    function buildDynamicBins(values, isValor){
-      const cleaned = values.filter(v => Number.isFinite(v) && v >= 0).slice().sort((a,b)=>a-b);
-      function fmt(v){
-        if (isValor) return "R$ " + Math.round(v).toLocaleString("pt-BR");
-        return Math.round(v).toLocaleString("pt-BR") + " un";
-      }
-      if (!cleaned.length){
-        return isValor ? [
-          {min:1_000_000, color:MAP_BIN_COLORS[0], label:"R$ 1.000.000+"},
-          {min:500_000, color:MAP_BIN_COLORS[1], label:"R$ 500.000 - 999.999"},
-          {min:250_000, color:MAP_BIN_COLORS[2], label:"R$ 250.000 - 499.999"},
-          {min:0, color:MAP_BIN_COLORS[3], label:"R$ 0 - 249.999"},
-        ] : [
-          {min:10_000, color:MAP_BIN_COLORS[0], label:"10.000 un+"},
-          {min:5_000, color:MAP_BIN_COLORS[1], label:"5.000 - 9.999 un"},
-          {min:2_500, color:MAP_BIN_COLORS[2], label:"2.500 - 4.999 un"},
-          {min:0, color:MAP_BIN_COLORS[3], label:"0 - 2.499 un"},
-        ];
-      }
-      const n = cleaned.length;
-      const idx = p => Math.floor(p*(n-1));
-      const q1 = cleaned[idx(0.25)];
-      const q2 = cleaned[idx(0.5)];
-      const q3 = cleaned[idx(0.75)];
-      const minv = cleaned[0];
-      const t0 = Math.max(0, minv);
-      const t1 = Math.max(t0, q1);
-      const t2 = Math.max(t1, q2);
-      const t3 = Math.max(t2, q3);
-
-      return [
-        {min:t3, color:MAP_BIN_COLORS[0], label:`${fmt(t3)}+`},
-        {min:t2, color:MAP_BIN_COLORS[1], label:`${fmt(t2)} - ${fmt(t3)}`},
-        {min:t1, color:MAP_BIN_COLORS[2], label:`${fmt(t1)} - ${fmt(t2)}`},
-        {min:t0, color:MAP_BIN_COLORS[3], label:`${fmt(t0)} - ${fmt(t1)}`},
-      ];
-    }
-
-    function binFor(v, bins){
-      for (const b of bins){
-        if (v >= b.min) return b;
-      }
-      return bins[bins.length-1];
-    }
-
-    // ==========================
-    // RENDERING HELPERS
-    // ==========================
-    function setSubtitle(rep, currLabel){
-      document.getElementById("subtitle").textContent = `Período selecionado: ${currLabel}`;
-      document.getElementById("repTitle").textContent = `Representante: ${rep === "Todos" ? "Todos" : rep}`;
-      document.getElementById("repTitle").title = rep;
-    }
-
-    function renderKPIs({total, media, distLabel, n80, score, scoreLabel, clientesAtendidos}){
-      const el = document.getElementById("kpis");
-      el.innerHTML = "";
-
-      const cards = [
-        {label:"Total período", value: brlCompact(total), delta:""},
-        {label:"Média mensal", value: brlCompact(media), delta:""},
-        {label:"Distribuição por clientes", value: distLabel, delta:`N80: ${n80} clientes`},
-        {label:"Saúde da carteira", value: `${score} / 100`, delta: scoreLabel},
-        {label:"Clientes atendidos", value: String(clientesAtendidos), delta:""}
-      ];
-
-      for (const c of cards){
-        const d = document.createElement("div");
-        d.className = "card";
-        d.innerHTML = `
-          <div class="k-label" title="${esc(c.label)}">${esc(c.label)}</div>
-          <div class="k-value" title="${esc(c.value)}">${esc(c.value)}</div>
-          <div class="k-delta" title="${esc(c.delta)}">${esc(c.delta)}</div>
-        `;
-        el.appendChild(d);
-      }
-    }
-
-    function renderHighlights(repRows){
-      const wrap = document.getElementById("highlights");
-      wrap.innerHTML = "";
-
-      if (!repRows.length){
-        wrap.innerHTML = `<div class="bullet muted">Não há vendas no período selecionado.</div>`;
-        return;
-      }
-
-      const byMonth = groupBy(repRows, r => r.Competencia.getTime());
-      const arr = [];
-      for (const [k, items] of byMonth.entries()){
-        const comp = new Date(Number(k));
-        arr.push({
-          comp,
-          label: monthLabel(comp),
-          valor: sum(items, x=>x.Valor),
-          qtd: sum(items, x=>x.Quantidade),
-        });
-      }
-      arr.sort((a,b)=>a.comp-b.comp);
-
-      const bestFat = arr.reduce((best,x)=> x.valor>best.valor?x:best, arr[0]);
-      const worstFat = arr.reduce((worst,x)=> x.valor<worst.valor?x:worst, arr[0]);
-      const bestVol = arr.reduce((best,x)=> x.qtd>best.qtd?x:best, arr[0]);
-      const worstVol = arr.reduce((worst,x)=> x.qtd<worst.qtd?x:worst, arr[0]);
-
-      const left = document.createElement("div");
-      left.className = "card";
-      left.innerHTML = `
-        <div class="k-label">Faturamento</div>
-        <div class="bullet">
-          • Melhor mês: <b>${esc(bestFat.label)}</b> — ${esc(brl(bestFat.valor))}<br>
-          • Pior mês: <b>${esc(worstFat.label)}</b> — ${esc(brl(worstFat.valor))}
-        </div>
-      `;
-
-      const right = document.createElement("div");
-      right.className = "card";
-      right.innerHTML = `
-        <div class="k-label">Volume</div>
-        <div class="bullet">
-          • Melhor mês: <b>${esc(bestVol.label)}</b> — ${esc(formatUn(bestVol.qtd))}<br>
-          • Pior mês: <b>${esc(worstVol.label)}</b> — ${esc(formatUn(worstVol.qtd))}
-        </div>
-      `;
-
-      wrap.appendChild(left);
-      wrap.appendChild(right);
-    }
-
-    function renderCoverage({cidades, estados, clientes}){
-      const el = document.getElementById("coverageKpis");
-      el.innerHTML = "";
-
-      const cards = [
-        {label:"Cidades atendidas", value:String(cidades), delta:""},
-        {label:"Estados atendidos", value:String(estados), delta:""},
-        {label:"Clientes atendidos", value:String(clientes), delta:""},
-      ];
-      for (const c of cards){
-        const d = document.createElement("div");
-        d.className = "card";
-        d.style.minHeight = "74px";
-        d.innerHTML = `
-          <div class="k-label" title="${esc(c.label)}">${esc(c.label)}</div>
-          <div class="k-value" style="font-size:18px;" title="${esc(c.value)}">${esc(c.value)}</div>
-          <div class="k-delta">${esc(c.delta)}</div>
-        `;
-        el.appendChild(d);
-      }
-    }
-
-    function buildTable(rows, columns){
-      if (!rows || !rows.length){
-        return `<div class="small muted">Sem dados.</div>`;
-      }
-      const thead = `<thead><tr>${columns.map(c=>`<th class="${c.nowrap?'nowrap':''}" title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead>`;
-      const tbody = `<tbody>` + rows.map(r => {
-        return `<tr>` + columns.map(c => {
-          const val = r[c.key] ?? "";
-          const cls = c.nowrap ? "nowrap" : "";
-          return `<td class="${cls}" title="${esc(String(val))}">${esc(String(val))}</td>`;
-        }).join("") + `</tr>`;
-      }).join("") + `</tbody>`;
-
-      return `<table>${thead}${tbody}</table>`;
-    }
-
-    function buildHTMLTable(rows, columns, className){
-      if (!rows || !rows.length) return `<div class="small muted">Sem dados.</div>`;
-      const colgroup = `<colgroup>` + columns.map(()=>`<col>`).join("") + `</colgroup>`;
-      const thead = `<thead><tr>${columns.map(c=>`<th class="${c.thClass||''}">${esc(c.title)}</th>`).join("")}</tr></thead>`;
-      const tbody = `<tbody>` + rows.map(r => {
-        return `<tr>` + columns.map(c => {
-          const raw = r[c.key];
-          const html = c.html ? c.html(raw, r) : esc(String(raw ?? ""));
-          const tdClass = c.tdClass || "";
-          const title = c.titleAttr ? esc(String(c.titleAttr(raw, r) ?? "")) : esc(String(raw ?? ""));
-          return `<td class="${tdClass}" title="${title}">${html}</td>`;
-        }).join("") + `</tr>`;
-      }).join("") + `</tbody>`;
-      return `<table class="${className||''}">${colgroup}${thead}${tbody}</table>`;
-    }
-
-    // ==========================
-    // MAP
-    // ==========================
-    function initMap(){
-      if (state.map) return;
-
-      state.map = L.map("map", { zoomControl: true });
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors",
-        maxZoom: 18
-      }).addTo(state.map);
-
-      state.map.setView([-15.8, -47.9], 4);
-    }
-
-    function renderMap(repRows, metricCol){
-      initMap();
-
-      if (state.mapLayer){
-        state.mapLayer.remove();
-      }
-      state.mapLayer = L.layerGroup().addTo(state.map);
-
-      const byCityKey = groupBy(repRows, r => toKey(r.Estado, r.Cidade));
-      const cityAgg = [];
-      for (const [key, items] of byCityKey.entries()){
-        const Estado = items[0].Estado;
-        const Cidade = items[0].Cidade;
-        const Valor = sum(items, x=>x.Valor);
-        const Quantidade = sum(items, x=>x.Quantidade);
-        const Clientes = new Set(items.map(x=>x.Cliente)).size;
-        cityAgg.push({ key, Estado, Cidade, Valor, Quantidade, Clientes });
-      }
-
-      const geoMap = new Map(state.geo.map(g => [g.key, g]));
-      const mapRows = cityAgg
-        .map(c => {
-          const g = geoMap.get(c.key);
-          if (!g) return null;
-          return { ...c, lat: g.lat, lon: g.lon, tooltip: `${c.Cidade} - ${c.Estado}` };
-        })
-        .filter(Boolean);
-
-      if (!mapRows.length){
-        document.getElementById("mapLegend").innerHTML = `<div class="small muted">Não há coordenadas de cidades para exibir no mapa.</div>`;
-        return;
-      }
-
-      const values = mapRows.map(r=>Number(r[metricCol]||0));
-      const bins = buildDynamicBins(values, metricCol === "Valor");
-      const legendTitle = metricCol === "Valor" ? "Faturamento (R$)" : "Volume (un)";
-
-      const leg = document.getElementById("mapLegend");
-      leg.innerHTML = `<b>Legenda – ${esc(legendTitle)}</b>` + bins.map(b => `
-        <div class="row"><span class="swatch" style="background:${b.color}"></span><span>${esc(b.label)}</span></div>
-      `).join("");
-
-      const latlngs = [];
-
-      for (const r of mapRows){
-        const v = Number(r[metricCol]||0);
-        const b = binFor(v, bins);
-
-        const popupMetric = metricCol === "Valor" ? brl(r.Valor) : formatUn(r.Quantidade);
-        const popupHtml = `
-          <b>${esc(r.Cidade)} - ${esc(r.Estado)}</b><br>
-          ${esc(legendTitle)}: ${esc(popupMetric)}<br>
-          Clientes: ${esc(String(r.Clientes))}
-        `;
-
-        const marker = L.circleMarker([r.lat, r.lon], {
-          radius: 6,
-          color: b.color,
-          fillColor: b.color,
-          fillOpacity: 0.85,
-          weight: 1
-        }).bindPopup(popupHtml).bindTooltip(r.tooltip);
-
-        marker.on("click", () => {
-          state.selectedCity = { Estado: r.Estado, Cidade: r.Cidade };
-          renderCityClients(repRows);
-        });
-
-        marker.addTo(state.mapLayer);
-        latlngs.push([r.lat, r.lon]);
-      }
-
-      try{
-        const bounds = L.latLngBounds(latlngs);
-        state.map.fitBounds(bounds.pad(0.2));
-      }catch(e){}
-    }
-
-    function renderCityClients(repRows){
-      const exp = document.getElementById("cityExpander");
-      const body = document.getElementById("cityExpanderBody");
-      const title = document.getElementById("cityExpanderTitle");
-
-      if (!state.selectedCity){
-        exp.style.display = "none";
-        return;
-      }
-
-      const { Estado, Cidade } = state.selectedCity;
-      const rows = repRows.filter(r => r.Estado === Estado && r.Cidade === Cidade);
-
-      const byClient = groupBy(rows, r=>r.Cliente);
-      const arr = [];
-      for (const [cliente, items] of byClient.entries()){
-        arr.push({
-          Cliente: cliente,
-          Quantidade: formatUn(sum(items, x=>x.Quantidade)),
-          Faturamento: brl(sum(items, x=>x.Valor))
-        });
-      }
-      arr.sort((a,b)=>{
-        const va = Number(String(a.Faturamento).replace(/[R$\s.]/g,"").replace(",",".") || 0);
-        const vb = Number(String(b.Faturamento).replace(/[R$\s.]/g,"").replace(",",".") || 0);
-        return vb - va;
-      });
-
-      title.textContent = `Clientes em ${Cidade} - ${Estado}`;
-      exp.style.display = "block";
-
-      const cols = [
-        { key:"Cliente", title:"Cliente" },
-        { key:"Quantidade", title:"Quantidade", thClass:"nowrap", tdClass:"nowrap", titleAttr:(v)=>v },
-        { key:"Faturamento", title:"Faturamento", thClass:"nowrap", tdClass:"nowrap", titleAttr:(v)=>v },
-      ];
-
-      body.innerHTML = `
-        <style>
-          #cityExpanderBody th:nth-child(2), #cityExpanderBody th:nth-child(3){ text-align:center; }
-          #cityExpanderBody td:nth-child(2), #cityExpanderBody td:nth-child(3){ text-align:left; }
-        </style>
-        ${buildHTMLTable(arr, cols, "")}
-      `;
-
-      exp.classList.add("open");
-    }
-
-    function wireExpander(){
-      const exp = document.getElementById("cityExpander");
-      const head = document.getElementById("cityExpanderHeader");
-      head.addEventListener("click", () => {
-        exp.classList.toggle("open");
-      });
-    }
-
-    // ==========================
-    // STATES DISTRIBUTION
-    // ==========================
-    function renderStates(repRows){
-      const byState = groupBy(repRows, r=>r.Estado);
-      const arr = [];
-      const totalValor = sum(repRows, r=>r.Valor);
-      const totalQtd = sum(repRows, r=>r.Quantidade);
-
-      for (const [estado, items] of byState.entries()){
-        const Valor = sum(items, x=>x.Valor);
-        const Quantidade = sum(items, x=>x.Quantidade);
-        arr.push({ Estado: estado, Valor, Quantidade });
-      }
-      arr.sort((a,b)=>b.Valor-a.Valor);
-
-      const top10 = arr.slice(0,10);
-      const othersValor = sum(arr.slice(10), x=>x.Valor);
-      const pie = top10.slice();
-      if (othersValor > 0){
-        pie.push({ Estado: "Demais", Valor: othersValor, Quantidade: sum(arr.slice(10), x=>x.Quantidade) });
-      }
-
-      const labels = pie.map(d=>d.Estado);
-      const values = pie.map(d=>d.Valor);
-      const totalPie = values.reduce((a,b)=>a+b,0);
-
-      const text = pie.map(d=>{
-        const pct = totalPie>0 ? (d.Valor/totalPie*100) : 0;
-        if (pct >= 7) return `${d.Estado}<br>${pct.toFixed(1).replace(".",",")}%`;
-        return "";
-      });
-
-      Plotly.newPlot("statesPie", [{
-        type:"pie",
-        labels,
-        values,
-        hole:0.35,
-        text,
-        textinfo:"text",
-        textposition:"inside",
-        insidetextorientation:"radial",
-        hovertemplate: "%{label}<br>%{percent}<br>Faturamento: %{value:,.0f}<extra></extra>"
-      }], {
-        margin:{l:10,r:10,t:10,b:10},
-        showlegend:false,
-        paper_bgcolor:"rgba(0,0,0,0)",
-        plot_bgcolor:"rgba(0,0,0,0)",
-        font:{color:"#e6eefc"},
-      }, {displayModeBar:false, responsive:true});
-
-      const tableRows = top10.map(d=>{
-        const pf = totalValor>0 ? d.Valor/totalValor : 0;
-        const pv = totalQtd>0 ? d.Quantidade/totalQtd : 0;
-        return {
-          Estado: d.Estado,
-          "Faturamento": brl(d.Valor),
-          "% Faturamento": (pf*100).toFixed(1).replace(".",",") + "%",
-          "Volume": formatUn(d.Quantidade),
-          "% Volume": (pv*100).toFixed(1).replace(".",",") + "%"
-        };
-      });
-
-      document.getElementById("statesTable").innerHTML = buildTable(tableRows, [
-        {key:"Estado", title:"Estado", nowrap:true},
-        {key:"Faturamento", title:"Faturamento", nowrap:true},
-        {key:"% Faturamento", title:"% Faturamento", nowrap:true},
-        {key:"Volume", title:"Volume", nowrap:true},
-        {key:"% Volume", title:"% Volume", nowrap:true},
-      ]);
-    }
-
-    // ==========================
-    // CITIES TABLE (top 15 + Top1/2/3 clients each)
-    // ==========================
-    function renderCities(repRows){
-      const totalValor = sum(repRows, r=>r.Valor);
-      const totalQtd = sum(repRows, r=>r.Quantidade);
-
-      const byCity = groupBy(repRows, r=>toKey(r.Estado,r.Cidade));
-      const cities = [];
-      for (const [key, items] of byCity.entries()){
-        const Estado = items[0].Estado;
-        const Cidade = items[0].Cidade;
-        const Valor = sum(items, x=>x.Valor);
-        const Quantidade = sum(items, x=>x.Quantidade);
-        cities.push({ Cidade, Estado, Valor, Quantidade });
-      }
-      cities.sort((a,b)=>b.Valor-a.Valor);
-
-      const topCities = cities.slice(0,15);
-
-      const byCityClient = groupBy(repRows, r=>toKey(r.Estado,r.Cidade)+"||"+r.Cliente);
-      const clientAgg = [];
-      for (const [k, items] of byCityClient.entries()){
-        const [cityKey, cliente] = k.split("||");
-        const Estado = items[0].Estado;
-        const Cidade = items[0].Cidade;
-        const Valor = sum(items, x=>x.Valor);
-        clientAgg.push({ cityKey: toKey(Estado,Cidade), Estado, Cidade, Cliente: cliente, Valor });
-      }
-
-      const byCityOnly = groupBy(clientAgg, r=>r.cityKey);
-      const topClientMap = new Map();
-      for (const [cityKey, items] of byCityOnly.entries()){
-        items.sort((a,b)=>b.Valor-a.Valor);
-        topClientMap.set(cityKey, items.slice(0,3));
-      }
-
-      const rows = topCities.map(c=>{
-        const pf = totalValor>0 ? c.Valor/totalValor : 0;
-        const pv = totalQtd>0 ? c.Quantidade/totalQtd : 0;
-        const key = toKey(c.Estado,c.Cidade);
-        const top3 = topClientMap.get(key) || [];
-
-        function cell(i){
-          const it = top3[i];
-          if (!it) return "";
-          const full = String(it.Cliente||"").trim();
-          const short = full.length>28 ? (full.slice(0,27)+"…") : full;
-          return `<span title="${esc(full)}">${esc(short)}</span><br><span style="opacity:.85">${esc(brlCompact(it.Valor))}</span>`;
-        }
-
-        return {
-          Cidade: c.Cidade,
-          Estado: c.Estado,
-          "Faturamento": brl(c.Valor),
-          "% Faturamento": (pf*100).toFixed(1).replace(".",",") + "%",
-          "Volume": formatUn(c.Quantidade),
-          "% Volume": (pv*100).toFixed(1).replace(".",",") + "%",
-          "Top 1 cliente": cell(0),
-          "Top 2 cliente": cell(1),
-          "Top 3 cliente": cell(2),
-        };
-      });
-
-      const columns = [
-        {key:"Cidade", title:"Cidade", tdClass:"nowrap", thClass:"nowrap"},
-        {key:"Estado", title:"Estado", tdClass:"nowrap", thClass:"nowrap"},
-        {key:"Faturamento", title:"Faturamento", tdClass:"nowrap", thClass:"nowrap"},
-        {key:"% Faturamento", title:"% Faturamento", tdClass:"nowrap", thClass:"nowrap"},
-        {key:"Volume", title:"Volume", tdClass:"nowrap", thClass:"nowrap"},
-        {key:"% Volume", title:"% Volume", tdClass:"nowrap", thClass:"nowrap"},
-        {key:"Top 1 cliente", title:"Top 1 cliente"},
-        {key:"Top 2 cliente", title:"Top 2 cliente"},
-        {key:"Top 3 cliente", title:"Top 3 cliente"},
-      ];
-
-      document.getElementById("citiesTable").innerHTML = buildHTMLTable(rows, columns, "");
-    }
-
-    // ==========================
-    // EVOLUÇÃO
-    // ==========================
-    function renderEvolucao(containerId, repRows){
-      const byMonth = groupBy(repRows, r=>r.Competencia.getTime());
-      const series = [];
-      for (const [k, items] of byMonth.entries()){
-        const comp = new Date(Number(k));
-        series.push({
-          comp,
-          label: monthLabel(comp),
-          Valor: sum(items, x=>x.Valor),
-          Quantidade: sum(items, x=>x.Quantidade),
-        });
-      }
-      series.sort((a,b)=>a.comp-b.comp);
-
-      const x = series.map(s=>s.label);
-      const fatur = series.map(s=>s.Valor);
-      const vol = series.map(s=>s.Quantidade);
-
-      const traceBar = {
-        type:"bar",
-        x, y: fatur,
-        name:"Faturamento",
-        marker:{ color: "rgba(56,189,248,0.80)" },
-        hovertemplate: "%{x}<br>Faturamento: %{y:,.2f}<extra></extra>"
-      };
-
-      const traceLine = {
-        type:"scatter",
-        mode:"lines+markers",
-        x, y: vol,
-        name:"Volume",
-        yaxis:"y2",
-        line:{ color:"#22c55e", width:3 },
-        marker:{ color:"#22c55e", size:7 },
-        hovertemplate: "%{x}<br>Volume: %{y:,.0f} un<extra></extra>"
-      };
-
-      Plotly.newPlot(containerId, [traceBar, traceLine], {
-        margin:{l:50,r:50,t:10,b:40},
-        barmode:"overlay",
-        showlegend:false,
-        paper_bgcolor:"rgba(0,0,0,0)",
-        plot_bgcolor:"rgba(0,0,0,0)",
-        font:{color:"#e6eefc"},
-        xaxis:{ title:"", tickangle:0, automargin:true },
-        yaxis:{ title:"Faturamento (R$)", tickformat: ",.0f", automargin:true, gridcolor:"rgba(255,255,255,0.06)" },
-        yaxis2:{ title:"Volume (un)", overlaying:"y", side:"right", tickformat:",.0f", automargin:true },
-      }, {displayModeBar:false, responsive:true});
-    }
-
-    // ==========================
-    // CATEGORIAS
-    // ==========================
-    function renderCategorias(currRows, prevRows){
-      const byCatCurr = groupBy(currRows, r=>r.Categoria);
-      const byCatPrev = groupBy(prevRows, r=>r.Categoria);
-
-      const allCats = new Set([...byCatCurr.keys(), ...byCatPrev.keys()]);
-      const arr = [];
-      for (const cat of allCats){
-        const c = byCatCurr.get(cat) || [];
-        const p = byCatPrev.get(cat) || [];
-        const ValorAtual = sum(c, x=>x.Valor);
-        const ValorAnterior = sum(p, x=>x.Valor);
-        arr.push({ Categoria: cat, ValorAtual, ValorAnterior });
-      }
-      arr.sort((a,b)=>b.ValorAtual-a.ValorAtual);
-
-      const total = arr.reduce((acc,x)=>acc + x.ValorAtual, 0);
-      if (total <= 0){
-        document.getElementById("catPie").innerHTML = "";
-        document.getElementById("catTable").innerHTML = `<div class="small muted">Sem faturamento para exibir categorias nesse período.</div>`;
-        return;
-      }
-
-      const table = arr.map(x=>{
-        const pct = x.ValorAtual/total;
-        const variacao = x.ValorAtual - x.ValorAnterior;
-        let crescimentoTxt = "+0,0%";
-        if (x.ValorAnterior > 0){
-          const crescimento = (x.ValorAtual - x.ValorAnterior) / x.ValorAnterior;
-          crescimentoTxt = (crescimento>=0?"+":"") + (crescimento*100).toFixed(1).replace(".",",") + "%";
-        }else if (x.ValorAtual > 0 && x.ValorAnterior === 0){
-          crescimentoTxt = "Novo";
-        }
-        return {
-          Categoria: x.Categoria,
-          Valor: brl(x.ValorAtual),
-          "%": (pct*100).toFixed(1).replace(".",",") + "%",
-          "Variação (R$)": brlSigned(variacao),
-          "Crescimento vs anterior": crescimentoTxt
-        };
-      });
-
-      document.getElementById("catTable").innerHTML = buildTable(table, [
-        {key:"Categoria", title:"Categoria", nowrap:true},
-        {key:"Valor", title:"Valor", nowrap:true},
-        {key:"%", title:"%", nowrap:true},
-        {key:"Variação (R$)", title:"Variação (R$)", nowrap:true},
-        {key:"Crescimento vs anterior", title:"Crescimento vs anterior", nowrap:true},
-      ]);
-
-      const top = arr.slice(0,10).map(x=>({ name:x.Categoria, value:x.ValorAtual }));
-      const othersVal = arr.slice(10).reduce((a,b)=>a+b.ValorAtual,0);
-      const pie = top.slice();
-      if (othersVal > 0) pie.push({ name:"Outras", value: othersVal });
-
-      const pieTotal = pie.reduce((a,b)=>a+b.value,0);
-      const labels = pie.map(d=>d.name);
-      const values = pie.map(d=>d.value);
-
-      const text = pie.map(d=>{
-        const pct = pieTotal>0 ? d.value/pieTotal*100 : 0;
-        if (pct >= 7) return `${d.name}<br>${pct.toFixed(1).replace(".",",")}%`;
-        return "";
-      });
-
-      Plotly.newPlot("catPie", [{
-        type:"pie",
-        labels,
-        values,
-        hole:0.35,
-        text,
-        textinfo:"text",
-        textposition:"inside",
-        insidetextorientation:"radial",
-        hovertemplate: "%{label}<br>%{percent}<br>Valor: %{value:,.0f}<extra></extra>"
-      }], {
-        margin:{l:10,r:10,t:10,b:10},
-        showlegend:false,
-        paper_bgcolor:"rgba(0,0,0,0)",
-        plot_bgcolor:"rgba(0,0,0,0)",
-        font:{color:"#e6eefc"},
-      }, {displayModeBar:false, responsive:true});
-    }
-
-    // ==========================
-    // CLIENT DISTRIBUTION
-    // ==========================
-    function renderDistribuicaoClientes(repRows){
-      const { totalValor, arr } = computeClientDistribution(repRows);
-      const metrics = computeN80AndHHI(arr, totalValor);
-
-      const el = document.getElementById("clientKpis");
-      el.innerHTML = "";
-
-      const n80ratio = arr.length ? (metrics.n80/arr.length) : 0;
-      const cards = [
-        {label:"N80", value:String(metrics.n80), delta:`${Math.round(n80ratio*100)}% da carteira`},
-        {label:"Índice de concentração", value:metrics.hhiLabel, delta:`HHI ${metrics.hhi.toFixed(3)}`},
-        {label:"Top 1 cliente", value:(metrics.top1*100).toFixed(1).replace(".",",")+"%", delta:""},
-        {label:"Top 3 clientes", value:(metrics.top3*100).toFixed(1).replace(".",",")+"%", delta:""},
-        {label:"Top 10 clientes", value:(metrics.top10*100).toFixed(1).replace(".",",")+"%", delta:""},
-      ];
-      for (const c of cards){
-        const d = document.createElement("div");
-        d.className = "card";
-        d.style.minHeight = "78px";
-        d.innerHTML = `
-          <div class="k-label" title="${esc(c.label)}">${esc(c.label)}</div>
-          <div class="k-value" style="font-size:18px;" title="${esc(c.value)}">${esc(c.value)}</div>
-          <div class="k-delta" title="${esc(c.delta)}">${esc(c.delta)}</div>
-        `;
-        el.appendChild(d);
-      }
-
-      const byClient = arr.slice().sort((a,b)=>b.Valor-a.Valor);
-      const top10 = byClient.slice(0,10).map(x=>({ name:x.Cliente, value:x.Valor }));
-      const othersVal = byClient.slice(10).reduce((a,b)=>a+b.Valor,0);
-      const pie = top10.slice();
-      if (othersVal > 0) pie.push({ name:"Outros", value: othersVal });
-
-      const pieTotal = pie.reduce((a,b)=>a+b.value,0);
-      const labels = pie.map(d=>{
-        const pct = pieTotal>0 ? d.value/pieTotal*100 : 0;
-        return `${d.name} ${pct.toFixed(1).replace(".",",")}%`;
-      });
-      const values = pie.map(d=>d.value);
-
-      const insideText = pie.map(d=>{
-        const pct = pieTotal>0 ? d.value/pieTotal*100 : 0;
-        if (pct >= 7){
-          return `${d.name}<br>${pct.toFixed(1).replace(".",",")}%`;
-        }
-        return "";
-      });
-
-      Plotly.newPlot("clientsPie", [{
-        type:"pie",
-        labels,
-        values,
-        text: insideText,
-        textinfo:"text",
-        textposition:"inside",
-        insidetextorientation:"radial",
-        hovertemplate: "%{label}<br>%{percent}<br>Faturamento: %{value:,.0f}<extra></extra>"
-      }], {
-        margin:{l:10,r:10,t:10,b:10},
-        showlegend:false,
-        paper_bgcolor:"rgba(0,0,0,0)",
-        plot_bgcolor:"rgba(0,0,0,0)",
-        font:{color:"#e6eefc"},
-      }, {displayModeBar:false, responsive:true});
-
-      const top15 = byClient.slice(0,15).map(x=>({
-        Cliente: x.Cliente,
-        Cidade: x.Cidade,
-        Estado: x.Estado,
-        Faturamento: brl(x.Valor),
-        "% Faturamento": (x.Share*100).toFixed(1).replace(".",",")+"%",
-        Volume: formatUn(x.Quantidade)
-      }));
-      document.getElementById("clientsTable").innerHTML = buildTable(top15, [
-        {key:"Cliente", title:"Cliente", nowrap:true},
-        {key:"Cidade", title:"Cidade", nowrap:true},
-        {key:"Estado", title:"Estado", nowrap:true},
-        {key:"Faturamento", title:"Faturamento", nowrap:true},
-        {key:"% Faturamento", title:"% Faturamento", nowrap:true},
-        {key:"Volume", title:"Volume", nowrap:true},
-      ]);
-
-      return metrics;
-    }
-
-    // ==========================
-    // SAÚDE DA CARTEIRA
-    // ==========================
-    function renderSaudeCarteira(carteira, currLabel, prevLabel){
-      const scoreObj = computeCarteiraScore(carteira);
-      document.getElementById("carteiraScore").textContent = `${scoreObj.score} / 100`;
-      document.getElementById("carteiraLabel").textContent = scoreObj.label;
-
-      const byStatus = groupBy(carteira, r=>r.Status);
-      const counts = [];
-      for (const status of STATUS_ORDER){
-        const items = byStatus.get(status) || [];
-        const qtdClientes = new Set(items.map(x=>x.Cliente)).size;
-        const fat = items.reduce((acc,x)=>acc + (Number(x.ValorAtual||0)-Number(x.ValorAnterior||0)), 0);
-        counts.push({ Status: status, QtdClientes: qtdClientes, FatDiff: fat });
-      }
-      const totalClientes = counts.reduce((a,b)=>a+b.QtdClientes,0) || 0;
-
-      const labels = counts.map(x=>x.Status);
-      const values = counts.map(x=>x.QtdClientes);
-      const colors = counts.map(x=>{
-        if (x.Status==="Perdidos") return "#ef4444";
-        if (x.Status==="Caindo") return "#f97316";
-        if (x.Status==="Estáveis") return "#eab308";
-        if (x.Status==="Crescendo") return "#22c55e";
-        return "#3b82f6";
-      });
-
-      Plotly.newPlot("statusPie", [{
-        type:"pie",
-        labels,
-        values,
-        marker:{ colors },
-        hole:0.0,
-        textinfo:"percent+label",
-        textposition:"inside",
-        hovertemplate: "%{label}<br>%{percent}<br>Clientes: %{value}<extra></extra>"
-      }], {
-        margin:{l:10,r:10,t:10,b:10},
-        showlegend:false,
-        paper_bgcolor:"rgba(0,0,0,0)",
-        plot_bgcolor:"rgba(0,0,0,0)",
-        font:{color:"#e6eefc"},
-      }, {displayModeBar:false, responsive:true});
-
-      const tableRows = counts.map(x=>({
-        Status: x.Status,
-        QtdClientes: String(x.QtdClientes),
-        "%Clientes": totalClientes>0 ? (x.QtdClientes/totalClientes*100).toFixed(1).replace(".",",")+"%" : "0,0%",
-        Faturamento: brlSigned(x.FatDiff)
-      }));
-
-      document.getElementById("statusSummaryTable").innerHTML = buildTable(tableRows, [
-        {key:"Status", title:"Status", nowrap:true},
-        {key:"QtdClientes", title:"QtdClientes", nowrap:true},
-        {key:"%Clientes", title:"%Clientes", nowrap:true},
-        {key:"Faturamento", title:"Faturamento", nowrap:true},
-      ]);
-
-      document.getElementById("statusObs").innerHTML =
-        `<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento entre o período atual (<b>${esc(currLabel)}</b>) e o período anterior (<b>${esc(prevLabel)}</b>). Valores positivos indicam crescimento; valores negativos indicam queda.`;
-
-      return scoreObj;
-    }
-
-    // ==========================
-    // STATUS DOS CLIENTES LISTS (FULL LIST PER STATUS)
-    // ==========================
-    function renderStatusLists(carteira, currLabel, prevLabel, searchText){
-      const container = document.getElementById("statusLists");
-      container.innerHTML = "";
-
-      const search = String(searchText||"").trim().toLowerCase();
-      const byStatus = groupBy(carteira, r=>r.Status);
-
-      // Always render every status block (even if empty)
-      for (const status of STATUS_ORDER){
-        let rows = (byStatus.get(status) || []).slice();
-        if (search){
-          rows = rows.filter(r => String(r.Cliente||"").toLowerCase().includes(search));
-        }
-
-        rows.sort((a,b)=>Number(b.ValorAtual||0) - Number(a.ValorAtual||0));
-
-        const block = document.createElement("div");
-        block.className = "status-block";
-
-        if (!rows.length){
-          block.innerHTML = `
-            <h4>${esc(status)}</h4>
-            <div class="small muted">Sem clientes.</div>
+    const layout = plotlyLayoutBase("");
+    layout.barmode = "overlay";
+    layout.yaxis = { title: "Faturamento (R$)", gridcolor: "rgba(255,255,255,0.08)" };
+    layout.yaxis2 = { title: "Volume (un)", overlaying: "y", side: "right", showgrid: false };
+    layout.xaxis = { title: "", tickmode: "array", tickvals: x, ticktext: x };
+    layout.margin = { l: 62, r: 62, t: 18, b: 44 };
+    layout.legend = { orientation:"h", y: -0.25, x: 0 };
+
+    Plotly.newPlot(divId, [bars, line], layout, {displayModeBar:false, responsive:true});
+  }
+
+  makeEvoChart("evoCurrent", curMonthly);
+  makeEvoChart("evoPrev", prevMonthly);
+}
+
+function renderCategory(cur, prev){
+  const byCatCur = groupBy(cur, r=>String(r.Categoria||"").trim());
+  const byCatPrev = groupBy(prev, r=>String(r.Categoria||"").trim());
+
+  const arr = [];
+  for(const [cat, rows] of byCatCur.entries()){
+    if(!cat) continue;
+    const vCur = sumField(rows,"Valor");
+    const vPrev = byCatPrev.has(cat) ? sumField(byCatPrev.get(cat),"Valor") : 0;
+    arr.push({ Categoria: cat, Valor: vCur, Prev: vPrev, Variacao: vCur - vPrev });
+  }
+  // include cats that exist only in prev
+  for(const [cat, rows] of byCatPrev.entries()){
+    if(!cat) continue;
+    if(arr.find(x=>x.Categoria===cat)) continue;
+    const vPrev = sumField(rows,"Valor");
+    arr.push({ Categoria: cat, Valor: 0, Prev: vPrev, Variacao: 0 - vPrev });
+  }
+
+  arr.sort((a,b)=> b.Valor - a.Valor);
+  const total = arr.reduce((a,x)=> a+x.Valor,0) || 1;
+
+  const top = arr.slice(0,10);
+  const rest = arr.slice(10);
+  const restVal = rest.reduce((a,x)=>a+x.Valor,0);
+
+  const labels = top.map(x=>x.Categoria).concat(restVal>0?["Outros"]:[]);
+  const values = top.map(x=>x.Valor).concat(restVal>0?[restVal]:[]);
+  const perc = top.map(x=>x.Valor/total).concat(restVal>0?[restVal/total]:[]);
+
+  const text = labels.map((lab,i)=>{
+    const p = perc[i] || 0;
+    if(p >= 0.08) return `${lab}<br>${formatPct(p)}`;
+    return "";
+  });
+
+  Plotly.newPlot("catPie", [{
+    type:"pie",
+    labels, values,
+    text,
+    textinfo:"text",
+    textposition:"inside",
+    insidetextorientation:"radial",
+    sort:false,
+    showlegend:false,
+    hovertemplate:"%{label}<br>%{value:,.0f} (R$)<br>%{percent}<extra></extra>"
+  }], {
+    ...plotlyLayoutBase(""),
+    margin:{l:12,r:12,t:12,b:12}
+  }, {displayModeBar:false, responsive:true});
+
+  const tableHtml = `
+    <table class="allowWrap">
+      <thead>
+        <tr>
+          <th>Categoria</th>
+          <th>Valor</th>
+          <th>%</th>
+          <th>Variação (R$)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${arr.map(x=>`
+          <tr>
+            <td class="colWrap" style="white-space:normal;">${escapeHtml(x.Categoria)}</td>
+            <td class="tdNum">${formatBRL(x.Valor)}</td>
+            <td class="tdNum">${formatPct((x.Valor||0)/total)}</td>
+            <td class="tdNum">${formatBRL(x.Variacao)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  document.getElementById("catTable").innerHTML = tableHtml;
+}
+
+function renderClientsDistribution(cur){
+  const cm = concentrationMetricsByClient(cur);
+  const total = cm.total || 1;
+
+  // Top 10 + Outros
+  const top = cm.arr.slice(0,10);
+  const rest = cm.arr.slice(10);
+  const restVal = rest.reduce((a,x)=>a+x.Valor,0);
+
+  const labels = top.map(x=>x.Cliente).concat(restVal>0?["Outros"]:[]);
+  const values = top.map(x=>x.Valor).concat(restVal>0?[restVal]:[]);
+  const perc = labels.map((_,i)=> (values[i]||0)/total);
+
+  // inside labels only for larger slices
+  const text = labels.map((lab,i)=>{
+    const p = perc[i] || 0;
+    if(p >= 0.10 || lab==="Outros") return `${lab}<br>${formatPct(p)}`;
+    return "";
+  });
+
+  Plotly.newPlot("clientsPie", [{
+    type:"pie",
+    labels,
+    values,
+    text,
+    textinfo:"text",
+    textposition:"inside",
+    insidetextorientation:"radial",
+    sort:false,
+    showlegend:false,
+    hovertemplate:"%{label}<br>%{value:,.0f} (R$)<br>%{percent}<extra></extra>"
+  }], {
+    ...plotlyLayoutBase(""),
+    margin:{l:12,r:12,t:12,b:12}
+  }, {displayModeBar:false, responsive:true});
+
+  // Summary table (no scroll)
+  const totalVol = cm.arr.reduce((a,x)=> a + (x.Quantidade||0), 0) || 1;
+  let cum = 0;
+
+  const tableRows = cm.arr.slice(0,25).map((x, idx)=>{
+    const share = x.Valor/total;
+    cum += share;
+    return {
+      Cliente: x.Cliente,
+      Faturamento: x.Valor,
+      PFat: share,
+      Volume: x.Quantidade||0,
+      PVol: (x.Quantidade||0)/totalVol,
+      Acum: cum
+    };
+  });
+
+  const html = `
+    <table class="allowWrap">
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Faturamento</th>
+          <th>% Fat.</th>
+          <th>Volume</th>
+          <th>% Vol.</th>
+          <th>Acum. %</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows.map(r=>`
+          <tr>
+            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
+            <td class="tdNum">${formatBRL(r.Faturamento)}</td>
+            <td class="tdNum">${formatPct(r.PFat)}</td>
+            <td class="tdNum">${formatVolume(r.Volume)}</td>
+            <td class="tdNum">${formatPct(r.PVol)}</td>
+            <td class="tdNum">${formatPct(r.Acum)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  document.getElementById("clientsSummaryTable").innerHTML = html;
+}
+
+function renderHealth(statusRows, health){
+  document.getElementById("healthScore").textContent = `${health.score} / 100`;
+
+  const chipClass = (health.label==="Saudável") ? "chip" :
+                    (health.label==="Neutra") ? "chip neutral" :
+                    (health.label==="Atenção") ? "chip warn" : "chip danger";
+  document.getElementById("healthChip").innerHTML = `<span class="${chipClass}">↑ ${health.label}</span>`;
+
+  // counts line
+  const counts = { "Novos":0, "Crescendo":0, "Estáveis":0, "Caindo":0, "Perdidos":0 };
+  statusRows.forEach(r=> { if(counts[r.Status]!==undefined) counts[r.Status]++; });
+
+  const totalClients = statusRows.length;
+
+  document.getElementById("statusCountsLine").innerHTML =
+    `<span class="statusTag sNovos">Novos ${counts["Novos"]}</span>
+     <span class="statusTag sCresc">Crescendo ${counts["Crescendo"]}</span>
+     <span class="statusTag sEstab">Estáveis ${counts["Estáveis"]}</span>
+     <span class="statusTag sCaind">Caindo ${counts["Caindo"]}</span>
+     <span class="statusTag sPerd">Perdidos ${counts["Perdidos"]}</span>`;
+
+  document.getElementById("statusCountsSub").textContent = `${formatInt(totalClients)} clientes avaliados (comparativo entre períodos)`;
+
+  // summary table
+  const order = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
+  const sumMap = new Map();
+  for(const s of order) sumMap.set(s, { Status:s, Clientes:0, FatAtual:0, FatAnterior:0, Variacao:0 });
+
+  statusRows.forEach(r=>{
+    const o = sumMap.get(r.Status) || null;
+    if(!o) return;
+    o.Clientes += 1;
+    o.FatAtual += (r.FaturamentoAtual||0);
+    o.FatAnterior += (r.FaturamentoAnterior||0);
+    o.Variacao += (r.Variacao||0);
+  });
+
+  const rows = order.map(s=> sumMap.get(s));
+  const html = `
+    <table class="noWrap">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Clientes</th>
+          <th>Faturamento atual</th>
+          <th>Faturamento anterior</th>
+          <th>Variação (R$)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r=>{
+          const cls = (r.Status==="Novos")?"sNovos":
+                      (r.Status==="Crescendo")?"sCresc":
+                      (r.Status==="Estáveis")?"sEstab":
+                      (r.Status==="Caindo")?"sCaind":"sPerd";
+          return `
+            <tr>
+              <td><span class="statusTag ${cls}">${r.Status}</span></td>
+              <td class="tdNum">${formatInt(r.Clientes)}</td>
+              <td class="tdNum">${formatBRL(r.FatAtual)}</td>
+              <td class="tdNum">${formatBRL(r.FatAnterior)}</td>
+              <td class="tdNum">${formatBRL(r.Variacao)}</td>
+            </tr>
           `;
-          container.appendChild(block);
-          continue;
-        }
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+  document.getElementById("statusSummaryTable").innerHTML = html;
+}
 
-        const cols = [
-          {key:"Cliente", title:"Cliente"},
-          {key:"Estado", title:"Estado"},
-          {key:"Cidade", title:"Cidade"},
-          {key:"Status", title:"Status"},
-          {key:`Faturamento ${currLabel}`, title:`Faturamento ${currLabel}`},
-          {key:`Faturamento ${prevLabel}`, title:`Faturamento ${prevLabel}`},
-        ];
+function renderStatusTables(statusRows, curLabel, prevLabel, searchTerm){
+  const wrap = document.getElementById("statusTablesWrap");
+  const term = String(searchTerm||"").trim().toLowerCase();
 
-        const tableRows = rows.map(r=>({
-          Cliente: r.Cliente,
-          Estado: r.Estado,
-          Cidade: r.Cidade,
-          Status: r.Status,
-          [`Faturamento ${currLabel}`]: brl(Number(r.ValorAtual||0)),
-          [`Faturamento ${prevLabel}`]: brl(Number(r.ValorAnterior||0))
-        }));
+  const order = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
+  const groups = new Map(order.map(s=>[s,[]]));
 
-        block.innerHTML = `
-          <h4>${esc(status)}</h4>
-          <table class="status-table">
-            <colgroup><col><col><col><col><col><col></colgroup>
-            <thead><tr>${cols.map(c=>`<th title="${esc(c.title)}">${esc(c.title)}</th>`).join("")}</tr></thead>
-            <tbody>
-              ${tableRows.map(rr=>{
-                return `<tr>` + cols.map(c=>`<td title="${esc(String(rr[c.key]||""))}">${esc(String(rr[c.key]||""))}</td>`).join("") + `</tr>`;
-              }).join("")}
-            </tbody>
-          </table>
-        `;
-        container.appendChild(block);
-      }
-    }
+  statusRows.forEach(r=>{
+    if(term && !String(r.Cliente||"").toLowerCase().includes(term)) return;
+    if(!groups.has(r.Status)) groups.set(r.Status, []);
+    groups.get(r.Status).push(r);
+  });
 
-    // ==========================
-    // MAIN FLOW
-    // ==========================
-    function getSelections(){
-      const sm = document.getElementById("startMonth").value;
-      const sy = Number(document.getElementById("startYear").value);
-      const em = document.getElementById("endMonth").value;
-      const ey = Number(document.getElementById("endYear").value);
+  const statusToClass = (s)=>(
+    s==="Novos"?"sNovos":
+    s==="Crescendo"?"sCresc":
+    s==="Estáveis"?"sEstab":
+    s==="Caindo"?"sCaind":"sPerd"
+  );
 
-      const startComp = new Date(sy, MONTH_NAME_TO_NUM[sm]-1, 1);
-      const endComp = new Date(ey, MONTH_NAME_TO_NUM[em]-1, 1);
-      return { sm, sy, em, ey, startComp, endComp };
-    }
+  // full list (no scroll). keep columns aligned by fixed colgroup.
+  const colgroup = `
+    <colgroup>
+      <col style="width: 28%;">
+      <col style="width: 10%;">
+      <col style="width: 10%;">
+      <col style="width: 17%;">
+      <col style="width: 17%;">
+      <col style="width: 18%;">
+    </colgroup>
+  `;
 
-    function periodLabel(startComp, endComp){
-      const s = monthLabel(startComp);
-      const e = monthLabel(endComp);
-      if (s === e) return s;
-      return `${s} - ${e}`;
-    }
+  const tables = order.map(status=>{
+    const rows = groups.get(status) || [];
+    // sort by current faturamento
+    rows.sort((a,b)=> (b.FaturamentoAtual - a.FaturamentoAtual));
 
-    function updateRepOptions(rowsInPeriod){
-      const reps = [...new Set(rowsInPeriod.map(r=>r.Representante).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
-      const repSelect = document.getElementById("repSelect");
-      const current = repSelect.value || "Todos";
-      const options = ["Todos", ...reps];
+    const rowsHtml = rows.map(r=>`
+      <tr>
+        <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
+        <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cidade||"")}</td>
+        <td class="tdNum">${escapeHtml(r.Estado||"")}</td>
+        <td class="tdNum">${formatVolume(r.VolumeAtual)}</td>
+        <td class="tdNum">${formatBRL(r.FaturamentoAtual)}</td>
+        <td class="tdNum">${formatBRL(r.Variacao)}</td>
+      </tr>
+    `).join("");
 
-      setSelectOptions(repSelect, options, options.includes(current) ? current : "Todos");
-      state.lastRepOptions = options;
-    }
+    return `
+      <div style="margin-bottom: 14px;">
+        <div class="sectionHeader" style="margin-bottom: 8px;">
+          <h3 class="sectionTitle" style="font-size:16px;">
+            <span class="statusTag ${statusToClass(status)}">${status}</span>
+            <span style="color: rgba(255,255,255,0.72); font-size:12px; font-weight:650; margin-left:10px;">
+              (${formatInt(rows.length)} clientes)
+            </span>
+          </h3>
+          <p class="sectionNote" style="margin:0;">Faturamento ${curLabel} vs ${prevLabel} (Variação R$)</p>
+        </div>
 
-    function renderTopClientsTable(clientArr){
-      const top = clientArr.slice(0, 15).map(r => ({
-        Cliente: r.Cliente,
-        Cidade: r.Cidade,
-        Estado: r.Estado,
-        Faturamento: brl(r.Valor)
-      }));
+        <table class="allowWrap">
+          ${colgroup}
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Cidade</th>
+              <th>Estado</th>
+              <th>Volume</th>
+              <th>Faturamento</th>
+              <th>Variação (R$)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || `<tr><td colspan="6" style="color: rgba(255,255,255,0.6);">Sem clientes neste status.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }).join("");
 
-      const container = document.getElementById("topClientsTable");
-      container.innerHTML = buildTable(top, [
-        {key:"Cliente", title:"Cliente", nowrap:true},
-        {key:"Cidade", title:"Cidade", nowrap:true},
-        {key:"Estado", title:"Estado", nowrap:true},
-        {key:"Faturamento", title:"Faturamento", nowrap:true},
-      ]);
-    }
+  wrap.innerHTML = tables;
+}
 
-    function renderAll(){
-      const { startComp, endComp } = getSelections();
-      if (startComp > endComp){
-        alert("Período inicial não pode ser maior que o período final.");
-        return;
-      }
+/* =======================
+   MAIN PIPELINE
+======================= */
+async function loadAll(){
+  const txt = await fetchCSV(URL_FATURAMENTO);
+  const parsed = await parseCSV(txt);
 
-      const currLabel = periodLabel(startComp, endComp);
+  const data = parsed.data;
+  const headers = parsed.meta.fields || Object.keys(data[0]||{});
+  const mapH = buildHeaderMap(headers);
 
-      const span = monthsDiffInclusive(startComp, endComp);
-      const prevEnd = addMonths(startComp, -1);
-      const prevStart = addMonths(prevEnd, -(span-1));
-      const prevLabel = periodLabel(prevStart, prevEnd);
+  // Map expected names (your CSV headers are in Portuguese already, but keep robust)
+  const colAno = pickCol(mapH, ["Ano"]);
+  const colMes = pickCol(mapH, ["Mes","Mês"]);
+  const colValor = pickCol(mapH, ["Valor"]);
+  const colQtd = pickCol(mapH, ["Quantidade"]);
+  const colCliente = pickCol(mapH, ["Cliente"]);
+  const colEstado = pickCol(mapH, ["Estado","UF"]);
+  const colCidade = pickCol(mapH, ["Cidade"]);
+  const colRep = pickCol(mapH, ["Representante"]);
+  const colCat = pickCol(mapH, ["Categoria"]);
 
-      const rowsPeriod = filterByPeriod(state.rows, startComp, endComp);
-      updateRepOptions(rowsPeriod);
+  if(!colAno || !colMes || !colValor || !colQtd || !colCliente || !colEstado || !colCidade || !colRep){
+    throw new Error("CSV inválido: colunas obrigatórias não encontradas (Ano, Mes, Valor, Quantidade, Cliente, Estado, Cidade, Representante).");
+  }
 
-      const rep = document.getElementById("repSelect").value || "Todos";
-      const repRows = (rep === "Todos") ? rowsPeriod : rowsPeriod.filter(r=>r.Representante === rep);
+  RAW = data.map(r => ({
+    Ano: Number(r[colAno]),
+    Mes: Number(r[colMes]),
+    Valor: Number(String(r[colValor]||"0").replace(",", ".")) || 0,
+    Quantidade: Number(String(r[colQtd]||"0").replace(",", ".")) || 0,
+    Cliente: String(r[colCliente]||"").trim(),
+    Estado: String(r[colEstado]||"").trim(),
+    Cidade: String(r[colCidade]||"").trim(),
+    Representante: String(r[colRep]||"").trim(),
+    Categoria: colCat ? String(r[colCat]||"").trim() : ""
+  })).filter(r => Number.isFinite(r.Ano) && Number.isFinite(r.Mes));
 
-      const prevRowsPeriod = filterByPeriod(state.rows, prevStart, prevEnd);
-      const repPrevRows = (rep === "Todos") ? prevRowsPeriod : prevRowsPeriod.filter(r=>r.Representante === rep);
+  // Load geo
+  try{
+    const txtGeo = await fetchCSV(URL_CIDADES_GEO);
+    const parsedGeo = await parseCSV(txtGeo);
+    const geoNorm = normalizeGeoRows(parsedGeo.data);
+    GEO = geoNorm;
+  }catch(e){
+    // keep GEO empty; map will show no markers
+    GEO = [];
+    console.warn("Geo load failed:", e);
+  }
 
-      setSubtitle(rep, currLabel);
+  document.getElementById("dataFreshness").textContent = `Última atualização: ${new Date().toLocaleString("pt-BR")}`;
 
-      const total = sum(repRows, r=>r.Valor);
+  populateFilters();
+  applyFilters(true);
+}
 
-      const byMonth = groupBy(repRows, r=>r.Competencia.getTime());
-      let monthsWithSales = 0;
-      for (const items of byMonth.values()){
-        if (sum(items, x=>x.Valor) > 0) monthsWithSales++;
-      }
-      const media = monthsWithSales>0 ? total/monthsWithSales : 0;
+function populateFilters(){
+  const years = getAvailableYears(RAW);
+  const lastYear = years[years.length-1] || new Date().getFullYear();
 
-      const { totalValor, arr: clientArr } = computeClientDistribution(repRows);
-      const distMetrics = computeN80AndHHI(clientArr, totalValor);
+  // choose default: last year and its min/max months
+  const monthsLastYear = getAvailableMonthsForYear(RAW, lastYear);
+  const defSM = monthsLastYear[0] || 1;
+  const defEM = monthsLastYear[monthsLastYear.length-1] || 12;
 
-      const carteira = buildCarteiraStatus(state.rows, rep, startComp, endComp);
-      const scoreObj = computeCarteiraScore(carteira);
+  // rep
+  const reps = repList(RAW).map(r=>({value:r, label:(r==="Todos"?"Todos":""+r)}));
+  setOptions(document.getElementById("repSelect"), reps, "Todos");
 
-      const clientesAtendidos = new Set(repRows.map(r=>r.Cliente)).size;
-      const cidadesAtendidas = new Set(repRows.map(r=>toKey(r.Estado,r.Cidade))).size;
-      const estadosAtendidos = new Set(repRows.map(r=>String(r.Estado||""))).size;
+  // year selects
+  const yearOpts = years.map(y=>({value:y, label:String(y)}));
+  setOptions(document.getElementById("startYear"), yearOpts, lastYear);
+  setOptions(document.getElementById("endYear"), yearOpts, lastYear);
 
-      renderKPIs({
-        total,
-        media,
-        distLabel: distMetrics.hhiLabel,
-        n80: distMetrics.n80,
-        score: scoreObj.score,
-        scoreLabel: scoreObj.label,
-        clientesAtendidos
-      });
+  // months selects based on selected years
+  const smOpts = getAvailableMonthsForYear(RAW, lastYear).map(m=>({value:m, label:monthLabel(m)}));
+  setOptions(document.getElementById("startMonth"), smOpts, defSM);
 
-      renderHighlights(repRows);
-      renderCoverage({ cidades:cidadesAtendidas, estados:estadosAtendidos, clientes:clientesAtendidos });
+  const emOpts = getAvailableMonthsForYear(RAW, lastYear).map(m=>({value:m, label:monthLabel(m)}));
+  setOptions(document.getElementById("endMonth"), emOpts, defEM);
 
-      const metricCol = document.getElementById("mapMetric").value;
-      renderMap(repRows, metricCol);
-      renderTopClientsTable(clientArr);
-      renderCityClients(repRows);
+  // dynamic month options when year changes
+  document.getElementById("startYear").addEventListener("change", ()=>{
+    const y = Number(document.getElementById("startYear").value);
+    const ms = getAvailableMonthsForYear(RAW, y);
+    setOptions(document.getElementById("startMonth"), ms.map(m=>({value:m,label:monthLabel(m)})), ms[0]||1);
+  });
+  document.getElementById("endYear").addEventListener("change", ()=>{
+    const y = Number(document.getElementById("endYear").value);
+    const ms = getAvailableMonthsForYear(RAW, y);
+    setOptions(document.getElementById("endMonth"), ms.map(m=>({value:m,label:monthLabel(m)})), ms[ms.length-1]||12);
+  });
+}
 
-      renderStates(repRows);
-      renderCities(repRows);
+function labelPeriod(sAno,sMes,eAno,eMes){
+  return `${monthLabel(sMes)} ${String(sAno).slice(-2)} - ${monthLabel(eMes)} ${String(eAno).slice(-2)}`;
+}
 
-      const fatCurr = sum(repRows, r=>r.Valor);
-      const volCurr = sum(repRows, r=>r.Quantidade);
-      const fatPrev = sum(repPrevRows, r=>r.Valor);
-      const volPrev = sum(repPrevRows, r=>r.Quantidade);
+function applyFilters(initial=false){
+  const rep = document.getElementById("repSelect").value;
+  const sAno = Number(document.getElementById("startYear").value);
+  const sMes = Number(document.getElementById("startMonth").value);
+  const eAno = Number(document.getElementById("endYear").value);
+  const eMes = Number(document.getElementById("endMonth").value);
 
-      document.getElementById("evoCurrLabel").innerHTML =
-        `<b>Período atual:</b> ${esc(currLabel)} &nbsp;&nbsp;•&nbsp;&nbsp; <b>Faturamento:</b> ${esc(brlCompact(fatCurr))} &nbsp;&nbsp;•&nbsp;&nbsp; <b>Volume:</b> ${esc(formatUn(volCurr))}`;
+  currentFiltered = filterByPeriod(RAW, rep, sAno,sMes,eAno,eMes);
 
-      document.getElementById("evoPrevLabel").innerHTML =
-        `<b>Período anterior:</b> ${esc(prevLabel)} &nbsp;&nbsp;•&nbsp;&nbsp; <b>Faturamento:</b> ${esc(brlCompact(fatPrev))} &nbsp;&nbsp;•&nbsp;&nbsp; <b>Volume:</b> ${esc(formatUn(volPrev))}`;
+  const prev = computePrevPeriod(sAno,sMes,eAno,eMes);
+  prevFiltered = filterByPeriod(RAW, rep, prev.sAno,prev.sMes,prev.eAno,prev.eMes);
 
-      renderEvolucao("evoCurr", repRows);
-      renderEvolucao("evoPrev", repPrevRows);
+  const repTitle = (rep==="Todos") ? "Representante: Todos" : `Representante: ${rep}`;
+  document.getElementById("titleSub").textContent = repTitle;
 
-      renderCategorias(repRows, repPrevRows);
-      renderDistribuicaoClientes(repRows);
-      renderSaudeCarteira(carteira, currLabel, prevLabel);
+  const curLabel = labelPeriod(sAno,sMes,eAno,eMes);
+  const prevLabel = labelPeriod(prev.sAno,prev.sMes,prev.eAno,prev.eMes);
 
-      const searchText = document.getElementById("statusSearch").value || "";
-      renderStatusLists(carteira, currLabel, prevLabel, searchText);
+  document.getElementById("periodLine").textContent = `Período selecionado: ${curLabel}`;
 
-      document.getElementById("subtitle").textContent = `Período selecionado: ${currLabel}`;
-    }
+  // Monthly aggregations
+  const curMonthly = aggMonthly(currentFiltered);
+  const prevMonthly = aggMonthly(prevFiltered);
 
-    // ==========================
-    // UI WIRING
-    // ==========================
-    function wireUI(){
-      const sidebar = document.getElementById("sidebar");
-      document.getElementById("toggleSidebar").addEventListener("click", () => {
-        sidebar.classList.toggle("collapsed");
-        setTimeout(() => {
-          try { state.map && state.map.invalidateSize(); } catch(e){}
-          try { Plotly.Plots.resize("statesPie"); } catch(e){}
-          try { Plotly.Plots.resize("evoCurr"); } catch(e){}
-          try { Plotly.Plots.resize("evoPrev"); } catch(e){}
-          try { Plotly.Plots.resize("catPie"); } catch(e){}
-          try { Plotly.Plots.resize("clientsPie"); } catch(e){}
-          try { Plotly.Plots.resize("statusPie"); } catch(e){}
-        }, 220);
-      });
+  // Concentration + status + health
+  const conc = concentrationMetricsByClient(currentFiltered);
 
-      const doPrint = () => window.print();
-      document.getElementById("printBtn").addEventListener("click", doPrint);
-      document.getElementById("printBtn2").addEventListener("click", doPrint);
+  currentStatus = statusByClient(currentFiltered, prevFiltered);
+  const health = computeCarteiraScore(currentStatus);
 
-      document.getElementById("refreshBtn").addEventListener("click", async () => {
-        try{
-          document.getElementById("subtitle").textContent = "Atualizando dados...";
-          await loadAll();
-          renderAll();
-        }catch(e){
-          alert("Erro ao atualizar: " + e.message);
-        }
-      });
+  // KPIs
+  buildKpis(rep, currentFiltered, prev, conc, health);
 
-      ["startMonth","startYear","endMonth","endYear","repSelect","mapMetric","statusSearch"]
-        .forEach(id => document.getElementById(id).addEventListener("change", renderAll));
+  // Highlights
+  renderHighlights(curMonthly);
 
-      document.getElementById("statusSearch").addEventListener("input", renderAll);
+  // Coverage + map + clients
+  renderCoverage(currentFiltered);
+  renderTopClients(currentFiltered);
+  renderMap(currentFiltered);
 
-      wireExpander();
-    }
+  // States distribution
+  renderStatesPieAndTables(currentFiltered);
 
-    function initFilters(){
-      setSelectOptions(document.getElementById("startMonth"), MONTHS, "JAN");
-      setSelectOptions(document.getElementById("endMonth"), MONTHS, "DEZ");
+  // Evolution charts totals
+  const curTotVal = sumField(currentFiltered,"Valor");
+  const curTotVol = sumField(currentFiltered,"Quantidade");
+  const prevTotVal = sumField(prevFiltered,"Valor");
+  const prevTotVol = sumField(prevFiltered,"Quantidade");
 
-      const years = getYearsAvailable(state.rows);
-      const lastYear = years[years.length-1];
-      setSelectOptions(document.getElementById("startYear"), years, lastYear);
-      setSelectOptions(document.getElementById("endYear"), years, lastYear);
+  renderEvolution(
+    curMonthly, prevMonthly,
+    curLabel, prevLabel,
+    `${formatBRL(curTotVal)} • ${formatVolume(curTotVol)}`,
+    `${formatBRL(prevTotVal)} • ${formatVolume(prevTotVol)}`
+  );
 
-      const lastYearRows = state.rows.filter(r=>r.Ano===lastYear);
-      const monthsAvail = [...new Set(lastYearRows.map(r=>r.Mes).filter(Number.isFinite))].sort((a,b)=>a-b);
-      const minM = monthsAvail.length ? monthsAvail[0] : 1;
-      const maxM = monthsAvail.length ? monthsAvail[monthsAvail.length-1] : 12;
-      document.getElementById("startMonth").value = MONTHS[minM-1];
-      document.getElementById("endMonth").value = MONTHS[maxM-1];
+  // Categories
+  renderCategory(currentFiltered, prevFiltered);
 
-      setSelectOptions(document.getElementById("repSelect"), ["Todos"], "Todos");
-    }
+  // Client distribution
+  renderClientsDistribution(currentFiltered);
 
-    // ==========================
-    // BOOT
-    // ==========================
-    (async function boot(){
-      try{
-        document.getElementById("subtitle").textContent = "Carregando dados do GitHub...";
-        wireUI();
-        await loadAll();
-        initFilters();
-        renderAll();
-        document.getElementById("subtitle").textContent = "Pronto.";
-      }catch(e){
-        console.error(e);
-        document.getElementById("subtitle").textContent = "Erro ao carregar.";
-        alert("Erro ao carregar dados: " + e.message);
-      }
-    })();
-  </script>
+  // Health section
+  renderHealth(currentStatus, health);
+
+  // Status tables full list
+  const searchTerm = document.getElementById("clientSearch").value;
+  renderStatusTables(currentStatus, curLabel, prevLabel, searchTerm);
+}
+
+/* =======================
+   EVENTS
+======================= */
+document.getElementById("applyBtn").addEventListener("click", ()=> applyFilters(false));
+document.getElementById("clientSearch").addEventListener("input", ()=> {
+  const rep = document.getElementById("repSelect").value;
+  const sAno = Number(document.getElementById("startYear").value);
+  const sMes = Number(document.getElementById("startMonth").value);
+  const eAno = Number(document.getElementById("endYear").value);
+  const eMes = Number(document.getElementById("endMonth").value);
+
+  const curLabel = labelPeriod(sAno,sMes,eAno,eMes);
+  const prev = computePrevPeriod(sAno,sMes,eAno,eMes);
+  const prevLabel = labelPeriod(prev.sAno,prev.sMes,prev.eAno,prev.eMes);
+
+  renderStatusTables(currentStatus, curLabel, prevLabel, document.getElementById("clientSearch").value);
+});
+
+// collapsible sidebar
+document.getElementById("collapseBtn").addEventListener("click", ()=>{
+  document.getElementById("sidebar").classList.toggle("collapsed");
+});
+
+// init
+loadAll().catch(err=>{
+  console.error(err);
+  alert("Erro ao carregar dados: " + err.message);
+});
+</script>
 </body>
 </html>
