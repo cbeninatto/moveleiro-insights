@@ -5,2151 +5,2015 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Insights de Vendas</title>
 
-  <!-- Fonts (similar to Streamlit / modern dashboards) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
-  <!-- Leaflet 1.9.4 (required) -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
+  <!-- Leaflet 1.9.4 (REQUIRED) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- PapaParse (CSV) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <!-- Plotly -->
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-
-  <!-- Papa Parse for CSV -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
 
   <style>
     :root{
-      /* Streamlit-dark-ish tokens */
-      --bg: #0e1117;
-      --panel: #111827;
-      --card: #0f172a;
-      --card2: #111c33;
-      --border: rgba(255,255,255,0.08);
-      --border2: rgba(255,255,255,0.12);
+      --bg: #0b0f14;
+      --panel: rgba(255,255,255,0.04);
+      --panel2: rgba(255,255,255,0.06);
+      --stroke: rgba(255,255,255,0.08);
       --text: rgba(255,255,255,0.92);
-      --muted: rgba(255,255,255,0.62);
-      --muted2: rgba(255,255,255,0.45);
-      --accent: #22c55e;      /* green */
-      --accent2: #60a5fa;     /* blue */
-      --warn: #f59e0b;        /* orange */
-      --danger: #ef4444;      /* red */
-      --yellow: #facc15;      /* yellow */
-      --shadow: 0 10px 30px rgba(0,0,0,0.35);
-      --radius: 18px;
-      --radius2: 14px;
+      --muted: rgba(255,255,255,0.70);
+      --muted2: rgba(255,255,255,0.55);
 
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --font: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      --blue: #38bdf8;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --orange: #f97316;
+      --red: #ef4444;
+      --indigo: #3b82f6;
+
+      --shadow: 0 10px 40px rgba(0,0,0,0.40);
+      --r: 18px;
+
+      --sidebarW: 320px;
     }
 
-    *{ box-sizing:border-box; }
-    html, body{
-      height: 100%;
+    *{ box-sizing: border-box; }
+    html,body{ height:100%; }
+    body{
       margin:0;
-      background: radial-gradient(1200px 700px at 30% -10%, rgba(96,165,250,0.12), transparent 60%),
-                  radial-gradient(900px 600px at 80% 10%, rgba(34,197,94,0.10), transparent 55%),
+      background: radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,0.14), transparent 60%),
+                  radial-gradient(900px 500px at 80% 0%, rgba(34,197,94,0.10), transparent 65%),
                   var(--bg);
       color: var(--text);
-      font-family: var(--font);
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
 
-    /* Layout */
+    /* ====== LAYOUT (sidebar collapsible) ====== */
     .app{
-      display:flex;
+      display:grid;
+      grid-template-columns: var(--sidebarW) minmax(0,1fr);
       min-height:100vh;
-      width:100%;
+      transition: grid-template-columns .22s ease;
     }
-
+    .app.sidebar-collapsed{
+      grid-template-columns: 0px minmax(0,1fr);
+    }
     .sidebar{
-      width: 320px;
-      min-width: 320px;
+      border-right: 1px solid var(--stroke);
+      background: rgba(0,0,0,0.22);
+      backdrop-filter: blur(10px);
       padding: 18px 16px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0));
-      border-right: 1px solid var(--border);
-      position: sticky;
-      top:0;
-      height: 100vh;
-      overflow:auto;
+      overflow:hidden;
+    }
+    .app.sidebar-collapsed .sidebar{
+      padding:0;
+      border-right:none;
+    }
+    .main{
+      padding: 22px 22px 64px 22px;
+      min-width:0;
     }
 
-    .sidebarHeader{
+    /* Top bar */
+    .topbar{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:12px;
       margin-bottom: 14px;
     }
-    .sidebarTitle{
-      font-weight: 700;
-      letter-spacing: 0.2px;
-      font-size: 14px;
-      color: rgba(255,255,255,0.86);
+    .topbar .left{
+      display:flex; align-items:center; gap:12px;
     }
-    .collapseBtn{
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      color: rgba(255,255,255,0.85);
+    .btn{
+      appearance:none;
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
       border-radius: 12px;
-      padding: 8px 10px;
+      padding: 10px 12px;
       cursor:pointer;
-      font-size: 12px;
+      transition: transform .08s ease, background .15s ease, border-color .15s ease;
+      font-weight:600;
+      font-size: 13px;
+      line-height:1;
+      white-space:nowrap;
     }
-    .collapseBtn:hover{ background: rgba(255,255,255,0.06); }
-
-    .sidebar.collapsed{
-      width: 64px;
-      min-width: 64px;
-      padding: 18px 10px;
-    }
-    .sidebar.collapsed .sidebarBody,
-    .sidebar.collapsed .sidebarTitleText{
-      display:none;
-    }
-
-    .main{
-      flex:1;
-      padding: 22px 22px 60px 22px;
-      max-width: 1600px;
-      margin: 0 auto;
+    .btn:hover{ background: rgba(255,255,255,0.08); }
+    .btn:active{ transform: translateY(1px); }
+    .btn.primary{
+      background: linear-gradient(180deg, rgba(56,189,248,0.16), rgba(56,189,248,0.08));
+      border-color: rgba(56,189,248,0.28);
     }
 
-    /* Cards / sections */
-    .section{
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 18px;
-      box-shadow: var(--shadow);
-      margin-bottom: 18px;
+    /* Headings */
+    h1{ margin: 10px 0 6px 0; font-size: 34px; letter-spacing: -0.02em; }
+    h2{ margin: 18px 0 10px 0; font-size: 20px; }
+    .subhead{
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 8px;
     }
-
-    .titleRow{
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap: 14px;
-      margin-bottom: 6px;
-    }
-    h1{
-      margin:0;
-      font-size: 34px;
-      letter-spacing: -0.6px;
-      line-height: 1.1;
-    }
-    .subtitle{
+    .caption{
+      font-size: 13px;
+      color: var(--muted2);
       margin-top: 6px;
+    }
+    .divider{ height:1px; background: var(--stroke); margin: 14px 0; }
+
+    /* Cards */
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+      border: 1px solid var(--stroke);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      padding: 14px 14px;
+    }
+    .card.tight{ padding: 12px 12px; }
+
+    /* KPI row */
+    .kpis{
+      display:grid;
+      grid-template-columns: repeat(5, minmax(0,1fr));
+      gap: 12px;
+    }
+    .kpi .label{
       color: var(--muted);
       font-size: 13px;
+      margin-bottom: 8px;
     }
-    .metaLine{
-      color: var(--muted2);
-      font-size: 12px;
-      font-family: var(--mono);
-    }
-
-    .grid{
-      display:grid;
-      gap: 14px;
-    }
-
-    /* KPIs top row: 5 columns */
-    .kpiGrid{
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      align-items: stretch;
-    }
-    @media (max-width: 1200px){
-      .kpiGrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-
-    .kpiCard{
-      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01));
-      border: 1px solid var(--border);
-      border-radius: var(--radius2);
-      padding: 14px 14px 12px 14px;
-      min-height: 92px;
-      display:flex;
-      flex-direction:column;
-      justify-content:space-between;
-      gap: 8px;
-      overflow: hidden; /* prevents ugly overflow */
-    }
-    .kpiLabel{
-      font-size: 12.5px;
-      color: rgba(255,255,255,0.75);
-      font-weight: 600;
-      letter-spacing: 0.2px;
-      display:flex;
-      align-items:center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .kpiValue{
+    .kpi .value{
       font-size: 30px;
-      line-height: 1.08;
-      font-weight: 750;
-      letter-spacing: -0.4px;
-      white-space: normal;          /* allow wrap instead of cropping */
-      overflow-wrap: anywhere;      /* never crop */
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .kpiSub{
+    .kpi .delta{
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted2);
       display:flex;
-      align-items:center;
       gap:8px;
-      flex-wrap: wrap;
+      align-items:center;
+      flex-wrap:wrap;
     }
-    .chip{
+    .pill{
       display:inline-flex;
-      align-items:center;
       gap:6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 650;
-      background: rgba(34,197,94,0.12);
-      color: rgba(34,197,94,0.98);
-      border: 1px solid rgba(34,197,94,0.18);
-    }
-    .chip.neutral{
-      background: rgba(96,165,250,0.12);
-      color: rgba(96,165,250,0.98);
-      border-color: rgba(96,165,250,0.18);
-    }
-    .chip.warn{
-      background: rgba(245,158,11,0.14);
-      color: rgba(245,158,11,0.98);
-      border-color: rgba(245,158,11,0.22);
-    }
-    .chip.danger{
-      background: rgba(239,68,68,0.14);
-      color: rgba(239,68,68,0.98);
-      border-color: rgba(239,68,68,0.22);
-    }
-
-    .sectionHeader{
-      display:flex;
       align-items:center;
-      justify-content:space-between;
-      gap: 12px;
-      margin-bottom: 10px;
-    }
-    .sectionTitle{
-      font-size: 18px;
-      font-weight: 750;
-      letter-spacing: -0.2px;
-      margin:0;
-    }
-    .sectionNote{
-      color: var(--muted);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-weight:600;
       font-size: 12px;
-      margin:0;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(34,197,94,0.14);
+      color: rgba(190,255,220,0.95);
+      white-space:nowrap;
     }
+    .pill.neutral{ background: rgba(34,197,94,0.12); }
+    .pill.alert{ background: rgba(234,179,8,0.14); color: rgba(255,245,190,0.95); }
+    .pill.critical{ background: rgba(239,68,68,0.14); color: rgba(255,205,205,0.95); }
 
-    /* Two column layouts */
-    .twoCol{
+    /* Two-column sections */
+    .two{
       display:grid;
-      grid-template-columns: 1.8fr 1fr;
-      gap: 14px;
-      align-items: start;
+      grid-template-columns: minmax(0,0.78fr) minmax(0,1.22fr);
+      gap: 12px;
+      align-items:start;
     }
-    @media (max-width: 1200px){
-      .twoCol{ grid-template-columns: 1fr; }
-      .sidebar{ display:none; }
+    @media (max-width: 1100px){
+      .kpis{ grid-template-columns: 1fr 1fr; }
+      .two{ grid-template-columns: 1fr; }
     }
 
     /* Map */
     #map{
-      width: 100%;
-      height: 520px; /* taller */
-      border-radius: var(--radius2);
-      border: 1px solid var(--border);
+      height: 820px; /* same intention as your app (tall) */
+      border-radius: 14px;
       overflow:hidden;
+      border: 1px solid var(--stroke);
+      box-shadow: var(--shadow);
     }
-    .mapLegend{
-      margin-top: 10px;
+    .map-controls{
       display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
       gap: 10px;
-      flex-wrap: wrap;
-      align-items:center;
-      color: var(--muted);
-      font-size: 12px;
+      flex-wrap:wrap;
+      margin-bottom: 10px;
     }
-    .legendItem{
-      display:flex;
-      align-items:center;
-      gap: 8px;
-      padding: 6px 10px;
+    .radio{
+      display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .radio label{
+      display:inline-flex; gap:8px; align-items:center;
+      padding: 8px 10px;
       border-radius: 999px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.04);
+      cursor:pointer;
+      user-select:none;
+      font-weight:600;
+      color: var(--text);
+    }
+    .radio input{ accent-color: var(--blue); }
+    .legend{
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend-row{
+      display:flex; align-items:center; gap:8px;
+      margin-top: 6px;
     }
     .swatch{
-      width: 12px;
-      height: 12px;
-      border-radius: 4px;
-      border: 1px solid rgba(0,0,0,0.25);
+      width: 12px; height: 12px; border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.18);
     }
 
-    .rightStack{
-      display:flex;
-      flex-direction:column;
-      gap: 12px;
-    }
-
-    .statsRow3{
-      display:grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 2px;
-    }
-    .miniStat{
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.02);
-      border-radius: 14px;
-      padding: 10px 10px 8px 10px;
-    }
-    .miniStatLabel{
-      color: rgba(255,255,255,0.72);
-      font-size: 12px;
-      font-weight: 650;
-      margin-bottom: 6px;
-    }
-    .miniStatValue{
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.4px;
-    }
-
-    /* Tables */
+    /* Tables (no scroll, no wrap) */
     table{
       width:100%;
       border-collapse: collapse;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      overflow:hidden;
-      background: rgba(0,0,0,0.12);
+      table-layout: fixed;
     }
-    thead th{
+    th,td{
+      border-bottom: 1px solid var(--stroke);
+      padding: 8px 10px;
+      font-size: 12.8px;
       text-align:left;
-      font-size: 12px;
-      color: rgba(255,255,255,0.72);
-      padding: 10px 10px;
-      border-bottom: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      font-weight: 750;
-      letter-spacing: 0.2px;
-      white-space: nowrap;
-    }
-    tbody td{
-      padding: 9px 10px;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      font-size: 12.5px;
-      color: rgba(255,255,255,0.86);
       vertical-align: top;
-    }
-    tbody tr:last-child td{ border-bottom: none; }
-
-    .tdNum{
-      font-family: var(--mono);
-      white-space: nowrap; /* numeric columns never wrap */
-    }
-
-    /* avoid wrapping in specific tables unless needed */
-    .noWrap td, .noWrap th { white-space: nowrap; }
-    .allowWrap td.colWrap { white-space: normal; }
-
-    /* Charts */
-    .chart{
-      width:100%;
-      border: 1px solid var(--border);
-      border-radius: var(--radius2);
-      background: rgba(255,255,255,0.02);
-      padding: 10px;
-    }
-    .chartTall{ min-height: 520px; }
-    .chartMed{ min-height: 380px; }
-
-    .periodHeader{
-      display:flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-      color: rgba(255,255,255,0.86);
-      font-weight: 750;
-    }
-    .periodHeader small{
-      color: var(--muted);
-      font-weight: 600;
-      font-family: var(--mono);
-    }
-
-    /* Status colors */
-    .statusTag{
-      display:inline-flex;
-      align-items:center;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-weight: 750;
-      font-size: 12px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.02);
+      overflow:hidden;
+      text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .sNovos{ color: rgba(96,165,250,1); border-color: rgba(96,165,250,0.25); background: rgba(96,165,250,0.10); }
-    .sCresc{ color: rgba(34,197,94,1); border-color: rgba(34,197,94,0.25); background: rgba(34,197,94,0.10); }
-    .sEstab{ color: rgba(250,204,21,1); border-color: rgba(250,204,21,0.25); background: rgba(250,204,21,0.08); }
-    .sCaind{ color: rgba(245,158,11,1); border-color: rgba(245,158,11,0.25); background: rgba(245,158,11,0.10); }
-    .sPerd{  color: rgba(239,68,68,1); border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.10); }
+    th{
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: .01em;
+    }
+    .table-note{ margin-top: 8px; color: var(--muted2); font-size: 12px; }
 
-    /* Search input */
-    .searchRow{
+    /* Principais clientes table: allow more room for faturamento */
+    .tbl-clients col:nth-child(1){ width: 44%; }
+    .tbl-clients col:nth-child(2){ width: 22%; }
+    .tbl-clients col:nth-child(3){ width: 14%; }
+    .tbl-clients col:nth-child(4){ width: 20%; }
+
+    /* City list table (click city) */
+    .tbl-city col:nth-child(1){ width: 54%; }
+    .tbl-city col:nth-child(2){ width: 23%; }
+    .tbl-city col:nth-child(3){ width: 23%; }
+    .tbl-city th:nth-child(2), .tbl-city th:nth-child(3){ text-align:center; }
+    .tbl-city td{ text-align:left; }
+
+    /* Estados table */
+    .tbl-estados col:nth-child(1){ width: 26%; }
+    .tbl-estados col:nth-child(2){ width: 22%; }
+    .tbl-estados col:nth-child(3){ width: 14%; }
+    .tbl-estados col:nth-child(4){ width: 22%; }
+    .tbl-estados col:nth-child(5){ width: 16%; }
+
+    /* Cidades table full width + top clients columns */
+    .tbl-cidades col:nth-child(1){ width: 16%; }
+    .tbl-cidades col:nth-child(2){ width: 10%; }
+    .tbl-cidades col:nth-child(3){ width: 14%; }
+    .tbl-cidades col:nth-child(4){ width: 10%; }
+    .tbl-cidades col:nth-child(5){ width: 12%; }
+    .tbl-cidades col:nth-child(6){ width: 10%; }
+    .tbl-cidades col:nth-child(7){ width: 9.3%; }
+    .tbl-cidades col:nth-child(8){ width: 9.3%; }
+    .tbl-cidades col:nth-child(9){ width: 9.1%; }
+    .cell-small{ white-space: normal; line-height: 1.1; }
+    .cell-small .v{ opacity:.88; font-weight:600; }
+
+    /* Distribuição por clientes table */
+    .tbl-clientes-resumo col:nth-child(1){ width: 36%; }
+    .tbl-clientes-resumo col:nth-child(2){ width: 16%; }
+    .tbl-clientes-resumo col:nth-child(3){ width: 12%; }
+    .tbl-clientes-resumo col:nth-child(4){ width: 14%; }
+    .tbl-clientes-resumo col:nth-child(5){ width: 12%; }
+    .tbl-clientes-resumo col:nth-child(6){ width: 10%; }
+
+    /* Status tables: fixed col widths across all */
+    .status-wrap h3{
+      font-size: 15px;
+      margin: 12px 0 6px 0;
+      color: var(--text);
+    }
+    .tbl-status col:nth-child(1){ width: 32%; }
+    .tbl-status col:nth-child(2){ width: 10%; }
+    .tbl-status col:nth-child(3){ width: 14%; }
+    .tbl-status col:nth-child(4){ width: 10%; }
+    .tbl-status col:nth-child(5){ width: 17%; }
+    .tbl-status col:nth-child(6){ width: 17%; }
+
+    /* Inline info row (evolução labels) */
+    .inline-info{
       display:flex;
+      flex-wrap:wrap;
       gap: 10px;
       align-items:center;
-      flex-wrap: wrap;
-      margin: 8px 0 10px 0;
-    }
-    input[type="text"], select{
-      width: 100%;
-      padding: 10px 10px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      color: rgba(255,255,255,0.92);
-      outline:none;
+      margin: 6px 0 10px 0;
+      color: var(--muted);
       font-size: 13px;
     }
-    label{
+    .inline-info b{ color: var(--text); }
+
+    /* Sidebar controls */
+    .sb-title{
+      font-size: 14px;
+      font-weight:800;
+      letter-spacing: .01em;
+      margin: 2px 0 12px 0;
+      color: var(--text);
+    }
+    .sb-section{
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--stroke);
+    }
+    .field{
+      margin-top: 10px;
+    }
+    .field label{
       display:block;
       font-size: 12px;
-      color: rgba(255,255,255,0.70);
-      margin: 10px 0 6px 0;
-      font-weight: 650;
-      letter-spacing: 0.2px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight:700;
     }
-    .row2{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .btn{
-      width: 100%;
-      margin-top: 12px;
-      padding: 11px 12px;
+    select,input[type="text"]{
+      width:100%;
+      padding: 10px 10px;
       border-radius: 12px;
-      border: 1px solid rgba(34,197,94,0.25);
-      background: rgba(34,197,94,0.14);
-      color: rgba(34,197,94,1);
-      font-weight: 800;
-      cursor:pointer;
-      letter-spacing: 0.2px;
-    }
-    .btn:hover{ background: rgba(34,197,94,0.18); }
-
-    .divider{
-      height:1px;
-      background: var(--border);
-      margin: 14px 0;
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      outline:none;
+      font-weight:600;
     }
 
-    /* Print */
-    @page{
-      size: A4 portrait;
-      margin: 1.2cm;
-    }
+    /* Plotly container cards */
+    .plot-card{ padding: 10px 10px; }
+
+    /* Print (A4) */
+    @page { size: A4 portrait; margin: 1.2cm; }
     @media print{
-      body{
-        background: #ffffff !important;
-        color:#111 !important;
-      }
-      .app{ display:block; }
-      .sidebar{ display:none !important; }
-      .main{
-        max-width: none;
-        margin:0;
-        padding:0;
-      }
-      .section{
-        box-shadow:none;
-        background:#fff !important;
-        border: 1px solid #ddd !important;
-        color:#111 !important;
-      }
-      .kpiCard, .miniStat{
-        background:#fff !important;
-        border:1px solid #ddd !important;
-      }
-      .kpiLabel, .sectionNote, .subtitle, .metaLine{ color:#333 !important; }
-      table{ border-color:#ddd !important; background:#fff !important; }
-      thead th{ background:#f5f5f5 !important; color:#222 !important; border-color:#ddd !important; }
-      tbody td{ color:#111 !important; border-color:#eee !important; }
-
-      /* enforce page layout */
-      .pageBreak{
-        page-break-before: always;
-        break-before: page;
-      }
-
-      /* prevent awkward splits */
-      .section{ break-inside: avoid; page-break-inside: avoid; }
-      table{ break-inside: avoid; page-break-inside: avoid; }
-
-      /* charts print background */
-      .chart{ background:#fff !important; border-color:#ddd !important; }
-
-      /* map prints nicely */
-      #map{ border-color:#ddd !important; }
+      body{ background: #0b0f14 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      .sidebar, .topbar, .map-controls, .field, .btn, .no-print { display:none !important; }
+      .app{ grid-template-columns: 0px 1fr !important; }
+      .card{ box-shadow:none !important; }
+      .page-break{ break-before: page; page-break-before: always; }
     }
   </style>
 </head>
-
 <body>
-<div class="app">
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebarHeader">
-      <div class="sidebarTitle">
-        <span class="sidebarTitleText">Filtros</span>
-      </div>
-      <button class="collapseBtn" id="collapseBtn">⟷</button>
-    </div>
+  <div class="app sidebar-collapsed" id="app">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-title">Filtros – Insights de Vendas</div>
 
-    <div class="sidebarBody">
-      <div class="metaLine">Dados do GitHub (auto-refresh)</div>
+      <div class="sb-section">
+        <div class="field">
+          <label>Período inicial</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <select id="startMonth"></select>
+            <select id="startYear"></select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Período final</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <select id="endMonth"></select>
+            <select id="endYear"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <div class="field">
+          <label>Representante</label>
+          <select id="repSelect"></select>
+        </div>
+      </div>
+
+      <div class="sb-section no-print">
+        <button class="btn primary" id="applyBtn" style="width:100%;">Aplicar filtros</button>
+        <div class="caption" id="dataStatus" style="margin-top:10px;"></div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <div class="topbar no-print">
+        <div class="left">
+          <button class="btn" id="toggleSidebar">☰ Filtros</button>
+          <button class="btn primary" id="printBtn">Exportar PDF</button>
+        </div>
+        <div class="caption" id="lastUpdated"></div>
+      </div>
+
+      <h1>Insights de Vendas</h1>
+      <div class="subhead" id="repHeader">Representante: <b>—</b></div>
+      <div class="caption" id="periodHeader">Período selecionado: —</div>
 
       <div class="divider"></div>
 
-      <label for="repSelect">Representante</label>
-      <select id="repSelect"></select>
-
-      <div class="row2">
-        <div>
-          <label for="startMonth">Mês início</label>
-          <select id="startMonth"></select>
-        </div>
-        <div>
-          <label for="startYear">Ano início</label>
-          <select id="startYear"></select>
-        </div>
-      </div>
-
-      <div class="row2">
-        <div>
-          <label for="endMonth">Mês fim</label>
-          <select id="endMonth"></select>
-        </div>
-        <div>
-          <label for="endYear">Ano fim</label>
-          <select id="endYear"></select>
-        </div>
-      </div>
-
-      <button class="btn" id="applyBtn">Aplicar</button>
+      <!-- TOP KPIs -->
+      <div class="kpis" id="kpis"></div>
 
       <div class="divider"></div>
-      <div class="metaLine" id="dataFreshness">Carregando…</div>
-    </div>
-  </aside>
 
-  <!-- Main -->
-  <main class="main">
-    <!-- PAGE 1 -->
-    <section class="section" id="titleSection">
-      <div class="titleRow">
+      <!-- DESTAQUES -->
+      <h2>Destaques do período</h2>
+      <div class="card" id="destaques"></div>
+
+      <div class="divider"></div>
+
+      <!-- MAPA -->
+      <h2>Mapa de Clientes</h2>
+      <div class="two">
         <div>
-          <h1>Insights de Vendas</h1>
-          <div class="subtitle" id="titleSub">—</div>
-        </div>
-        <div class="metaLine" id="periodLine">—</div>
-      </div>
-    </section>
-
-    <section class="section" id="kpiSection">
-      <div class="grid kpiGrid" id="kpiGrid"></div>
-    </section>
-
-    <section class="section" id="highlightsSection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Destaques do período</h2>
-        <p class="sectionNote">Melhor/pior mês em faturamento e volume (período selecionado)</p>
-      </div>
-      <div class="twoCol" style="grid-template-columns: 1fr 1fr;">
-        <div class="kpiCard">
-          <div class="kpiLabel">Faturamento</div>
-          <div class="kpiValue" id="hiFat">—</div>
-          <div class="kpiSub" id="hiFatSub">—</div>
-        </div>
-        <div class="kpiCard">
-          <div class="kpiLabel">Volume</div>
-          <div class="kpiValue" id="hiVol">—</div>
-          <div class="kpiSub" id="hiVolSub">—</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="mapSection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Mapa de Clientes</h2>
-        <p class="sectionNote">Clique em uma cidade para ver a lista de clientes</p>
-      </div>
-
-      <div class="twoCol">
-        <div>
+          <div class="map-controls no-print">
+            <div class="radio" id="mapMetricRadio">
+              <label><input type="radio" name="mapMetric" value="Valor" checked> Faturamento</label>
+              <label><input type="radio" name="mapMetric" value="Quantidade"> Volume</label>
+            </div>
+          </div>
           <div id="map"></div>
-          <div class="mapLegend" id="mapLegend"></div>
-
-          <div style="margin-top:12px;" id="cityDetailsWrap"></div>
+          <div class="legend" id="mapLegend"></div>
         </div>
 
-        <div class="rightStack">
-          <div class="sectionHeader" style="margin-bottom: 6px;">
-            <h3 class="sectionTitle" style="font-size:16px; margin:0;">Cobertura</h3>
-            <p class="sectionNote" style="margin:0;">Resumo do período</p>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+            <div style="font-weight:800;">Cobertura</div>
+            <div class="caption no-print" id="mapMetricLabel"></div>
           </div>
 
-          <div class="statsRow3">
-            <div class="miniStat">
-              <div class="miniStatLabel">Cidades atendidas</div>
-              <div class="miniStatValue" id="covCities">—</div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px;">
+            <div class="card tight">
+              <div class="caption">Cidades atendidas</div>
+              <div style="font-size:26px;font-weight:800;" id="covCities">0</div>
             </div>
-            <div class="miniStat">
-              <div class="miniStatLabel">Estados atendidos</div>
-              <div class="miniStatValue" id="covStates">—</div>
+            <div class="card tight">
+              <div class="caption">Estados atendidos</div>
+              <div style="font-size:26px;font-weight:800;" id="covStates">0</div>
             </div>
-            <div class="miniStat">
-              <div class="miniStatLabel">Clientes atendidos</div>
-              <div class="miniStatValue" id="covClients">—</div>
+            <div class="card tight">
+              <div class="caption">Clientes atendidos</div>
+              <div style="font-size:26px;font-weight:800;" id="covClients">0</div>
             </div>
           </div>
 
-          <div class="divider"></div>
-
-          <div class="sectionHeader" style="margin-bottom: 8px;">
-            <h3 class="sectionTitle" style="font-size:16px; margin:0;">Principais clientes</h3>
-            <p class="sectionNote" style="margin:0;">Top 15 (sem scroll)</p>
+          <div style="margin-top:12px;font-weight:800;">Principais clientes</div>
+          <div style="margin-top:8px;">
+            <table>
+              <colgroup class="tbl-clients">
+                <col><col><col><col>
+              </colgroup>
+              <thead>
+                <tr><th>Cliente</th><th>Cidade</th><th>Estado</th><th>Faturamento</th></tr>
+              </thead>
+              <tbody id="topClientsBody"></tbody>
+            </table>
           </div>
-          <div id="topClientsTable"></div>
-        </div>
-      </div>
-    </section>
 
-    <section class="section" id="statesSection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Distribuição por estados</h2>
-        <p class="sectionNote">Top 10 estados por faturamento – % do faturamento total</p>
-      </div>
-
-      <div class="chart chartTall" id="statesPie"></div>
-
-      <div style="margin-top: 12px;">
-        <div class="sectionHeader">
-          <h3 class="sectionTitle" style="font-size:16px;">Principais cidades por faturamento</h3>
-          <p class="sectionNote">Top cidades + Top 3 clientes (colunas separadas)</p>
-        </div>
-        <div id="topCitiesTable"></div>
-      </div>
-
-      <div style="margin-top: 12px;">
-        <div class="sectionHeader">
-          <h3 class="sectionTitle" style="font-size:16px;">Resumo – Top 10 estados</h3>
-          <p class="sectionNote">Estado, Faturamento, % Faturamento, Volume, % Volume</p>
-        </div>
-        <div id="statesTable"></div>
-      </div>
-    </section>
-
-    <!-- PAGE 2 -->
-    <div class="pageBreak"></div>
-
-    <section class="section" id="evolutionSection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Evolução – Faturamento x Volume</h2>
-        <p class="sectionNote">Barras = Faturamento | Linha = Volume (un) | 2 eixos</p>
-      </div>
-
-      <div class="periodHeader" style="margin: 4px 0 8px 0;">
-        <div id="curPeriodHdr">Período atual: — <small id="curTotals">—</small></div>
-      </div>
-      <div class="chart chartMed" id="evoCurrent"></div>
-
-      <div class="periodHeader" style="margin: 14px 0 8px 0;">
-        <div id="prevPeriodHdr">Período anterior: — <small id="prevTotals">—</small></div>
-      </div>
-      <div class="chart chartMed" id="evoPrev"></div>
-    </section>
-
-    <section class="section" id="categorySection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Categorias vendidas</h2>
-        <p class="sectionNote">Participação e comparação com o período anterior</p>
-      </div>
-
-      <div class="twoCol" style="grid-template-columns: 1.2fr 1fr;">
-        <div class="chart chartMed" id="catPie"></div>
-        <div id="catTable"></div>
-      </div>
-    </section>
-
-    <section class="section" id="clientsDistSection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Distribuição por clientes</h2>
-        <p class="sectionNote">Participação dos clientes (Top 10 destacados) + Resumo detalhado</p>
-      </div>
-
-      <div class="twoCol" style="grid-template-columns: 1.2fr 1fr;">
-        <div class="chart chartMed" id="clientsPie"></div>
-        <div id="clientsSummaryTable"></div>
-      </div>
-    </section>
-
-    <section class="section" id="healthSection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Saúde da carteira – Detalhes</h2>
-        <p class="sectionNote" id="healthNote">
-          A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos) no comparativo entre período atual e anterior.
-        </p>
-      </div>
-
-      <div class="twoCol" style="grid-template-columns: 1fr 1fr;">
-        <div class="kpiCard">
-          <div class="kpiLabel">Saúde da carteira (score)</div>
-          <div class="kpiValue" id="healthScore">—</div>
-          <div class="kpiSub" id="healthChip">—</div>
-        </div>
-        <div class="kpiCard">
-          <div class="kpiLabel">Distribuição por status</div>
-          <div class="kpiValue" style="font-size: 18px; line-height: 1.3; font-weight: 700;" id="statusCountsLine">—</div>
-          <div class="kpiSub" style="color: var(--muted); font-size: 12px;" id="statusCountsSub">—</div>
+          <div id="cityExpandWrap" style="margin-top:14px;display:none;">
+            <div style="font-weight:800;" id="cityExpandTitle">Clientes na cidade</div>
+            <div class="caption" style="margin:6px 0 8px 0;">Clique em outra cidade no mapa para atualizar.</div>
+            <table>
+              <colgroup class="tbl-city">
+                <col><col><col>
+              </colgroup>
+              <thead>
+                <tr><th>Cliente</th><th>Quantidade</th><th>Faturamento</th></tr>
+              </thead>
+              <tbody id="cityClientsBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      <div style="margin-top: 14px;">
-        <div class="sectionHeader">
-          <h3 class="sectionTitle" style="font-size:16px;">Resumo por status</h3>
-          <p class="sectionNote">Inclui variação de faturamento (R$) entre os períodos</p>
+      <div class="divider"></div>
+
+      <!-- DISTRIBUIÇÃO POR ESTADOS -->
+      <h2>Distribuição por estados</h2>
+      <div class="two">
+        <div class="card plot-card">
+          <div class="caption">Top 10 estados por faturamento – % do faturamento total</div>
+          <div id="statesPie" style="height:580px;"></div>
         </div>
-        <div id="statusSummaryTable"></div>
-        <p class="sectionNote" style="margin-top: 8px;">
-          Observação: <b>Variação (R$)</b> = (Faturamento do período atual) − (Faturamento do período anterior). Valores positivos indicam crescimento; negativos indicam retração.
-        </p>
-      </div>
-    </section>
-
-    <!-- PAGE 3 -->
-    <div class="pageBreak"></div>
-
-    <section class="section" id="statusClientsSection">
-      <div class="sectionHeader">
-        <h2 class="sectionTitle">Status dos clientes</h2>
-        <p class="sectionNote">Lista completa por status (sem scroll). Use a busca para filtrar.</p>
-      </div>
-
-      <div class="searchRow">
-        <div style="flex:1; min-width: 240px;">
-          <label for="clientSearch" style="margin-top:0;">Buscar cliente</label>
-          <input id="clientSearch" type="text" placeholder="Digite parte do nome do cliente…" />
+        <div class="card">
+          <div style="font-weight:800;">Resumo – Top 10 estados</div>
+          <div style="margin-top:8px;">
+            <table>
+              <colgroup class="tbl-estados">
+                <col><col><col><col><col>
+              </colgroup>
+              <thead>
+                <tr><th>Estado</th><th>Faturamento</th><th>% Faturamento</th><th>Volume</th><th>% Volume</th></tr>
+              </thead>
+              <tbody id="statesTableBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
-      <div id="statusTablesWrap"></div>
-    </section>
-
-  </main>
-</div>
-
-<script>
-/* =======================
-   CONFIG
-======================= */
-const URL_FATURAMENTO = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/refs/heads/main/data/relatorio_faturamento.csv";
-const URL_CIDADES_GEO = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv";
-
-/* =======================
-   HELPERS
-======================= */
-const MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
-
-function monthLabel(m){ return MONTHS_PT[(m-1+12)%12]; }
-
-function pad2(n){ return String(n).padStart(2,"0"); }
-
-function formatInt(n){
-  const x = Number(n||0);
-  return x.toLocaleString("pt-BR");
-}
-
-function formatVolume(n){
-  return `${formatInt(n)} un`;
-}
-
-function formatBRL(n){
-  const x = Number(n||0);
-  return x.toLocaleString("pt-BR",{style:"currency", currency:"BRL"});
-}
-
-function formatPct(x){
-  const v = Number(x||0);
-  return (v*100).toLocaleString("pt-BR",{minimumFractionDigits:1, maximumFractionDigits:1}) + "%";
-}
-
-function yyyymm(ano, mes){
-  return (ano*100) + mes;
-}
-
-function addMonths(ano, mes, delta){
-  // mes 1..12
-  let total = (ano*12 + (mes-1)) + delta;
-  const newAno = Math.floor(total/12);
-  const newMes = (total%12) + 1;
-  return { ano:newAno, mes:newMes };
-}
-
-function monthsDiffInclusive(a1,m1,a2,m2){
-  // inclusive number of months from start to end
-  const start = a1*12 + (m1-1);
-  const end = a2*12 + (m2-1);
-  return (end - start) + 1;
-}
-
-function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
-
-/* =======================
-   CSV LOAD + NORMALIZATION
-======================= */
-function normalizeHeader(h){
-  return String(h||"").trim().toLowerCase()
-    .replaceAll("ç","c")
-    .replaceAll("ã","a")
-    .replaceAll("á","a")
-    .replaceAll("à","a")
-    .replaceAll("â","a")
-    .replaceAll("é","e")
-    .replaceAll("ê","e")
-    .replaceAll("í","i")
-    .replaceAll("ó","o")
-    .replaceAll("ô","o")
-    .replaceAll("õ","o")
-    .replaceAll("ú","u")
-    .replaceAll("ü","u")
-    .replaceAll(" ","")
-    .replaceAll("_","");
-}
-
-function pickCol(map, candidates){
-  for(const c of candidates){
-    const key = normalizeHeader(c);
-    if(map[key]) return map[key];
-  }
-  return null;
-}
-
-function buildHeaderMap(headers){
-  const m = {};
-  headers.forEach(h => { m[normalizeHeader(h)] = h; });
-  return m;
-}
-
-async function fetchCSV(url){
-  const bust = (url.includes("?") ? "&" : "?") + "v=" + Date.now();
-  const res = await fetch(url + bust, { cache: "no-store" });
-  if(!res.ok) throw new Error(`HTTP ${res.status} ao baixar CSV`);
-  return await res.text();
-}
-
-function parseCSV(text){
-  return new Promise((resolve, reject) => {
-    Papa.parse(text, {
-      header: true,
-      skipEmptyLines: true,
-      dynamicTyping: false,
-      complete: (results) => resolve(results),
-      error: (err) => reject(err),
-    });
-  });
-}
-
-/* =======================
-   GLOBAL STATE
-======================= */
-let RAW = [];
-let GEO = [];
-let map = null;
-let markersLayer = null;
-
-let currentFiltered = [];
-let prevFiltered = [];
-
-let currentStatus = []; // per-client status rows
-
-/* =======================
-   UI POPULATE
-======================= */
-function setOptions(selectEl, values, selectedValue){
-  selectEl.innerHTML = "";
-  values.forEach(v => {
-    const opt = document.createElement("option");
-    opt.value = v.value;
-    opt.textContent = v.label;
-    if(String(v.value) === String(selectedValue)) opt.selected = true;
-    selectEl.appendChild(opt);
-  });
-}
-
-function uniqueSorted(arr){
-  return Array.from(new Set(arr)).sort((a,b)=> (a>b?1:-1));
-}
-
-function getAvailableYears(data){
-  return uniqueSorted(data.map(r => Number(r.Ano)).filter(n=>Number.isFinite(n)));
-}
-
-function getAvailableMonthsForYear(data, year){
-  const months = data.filter(r=>Number(r.Ano)===Number(year)).map(r=>Number(r.Mes)).filter(n=>Number.isFinite(n));
-  return uniqueSorted(months);
-}
-
-function repList(data){
-  const reps = uniqueSorted(data.map(r => String(r.Representante||"").trim()).filter(Boolean));
-  return ["Todos", ...reps];
-}
-
-/* =======================
-   CORE COMPUTATIONS
-======================= */
-function filterByPeriod(data, rep, sAno, sMes, eAno, eMes){
-  const s = yyyymm(sAno, sMes);
-  const e = yyyymm(eAno, eMes);
-  return data.filter(r => {
-    const ano = Number(r.Ano), mes = Number(r.Mes);
-    if(!Number.isFinite(ano) || !Number.isFinite(mes)) return false;
-    const ym = yyyymm(ano, mes);
-    if(ym < s || ym > e) return false;
-    if(rep && rep !== "Todos"){
-      return String(r.Representante||"").trim() === rep;
-    }
-    return true;
-  });
-}
-
-function sumField(data, field){
-  return data.reduce((acc,r)=> acc + (Number(r[field])||0), 0);
-}
-
-function groupBy(data, keyFn){
-  const m = new Map();
-  for(const r of data){
-    const k = keyFn(r);
-    if(!m.has(k)) m.set(k, []);
-    m.get(k).push(r);
-  }
-  return m;
-}
-
-function aggMonthly(data){
-  const m = new Map(); // ym -> {Ano,Mes,Valor,Quantidade}
-  for(const r of data){
-    const ano = Number(r.Ano), mes = Number(r.Mes);
-    const ym = yyyymm(ano, mes);
-    if(!m.has(ym)) m.set(ym, { Ano: ano, Mes: mes, Valor:0, Quantidade:0 });
-    const o = m.get(ym);
-    o.Valor += (Number(r.Valor)||0);
-    o.Quantidade += (Number(r.Quantidade)||0);
-  }
-  return Array.from(m.values()).sort((a,b)=> yyyymm(a.Ano,a.Mes) - yyyymm(b.Ano,b.Mes));
-}
-
-function concentrationMetricsByClient(data){
-  const byClient = groupBy(data, r => String(r.Cliente||"").trim());
-  const arr = [];
-  for(const [k, rows] of byClient.entries()){
-    if(!k) continue;
-    arr.push({
-      Cliente: k,
-      Valor: sumField(rows, "Valor"),
-      Quantidade: sumField(rows, "Quantidade"),
-      Cidade: String(rows[0].Cidade||""),
-      Estado: String(rows[0].Estado||""),
-    });
-  }
-  arr.sort((a,b)=> b.Valor - a.Valor);
-  const total = arr.reduce((a,x)=> a+x.Valor, 0) || 1;
-
-  // N80: number of clients to reach 80%
-  let cum=0, n80=0;
-  for(const x of arr){
-    cum += x.Valor;
-    n80++;
-    if(cum/total >= 0.80) break;
-  }
-
-  // HHI (0..1)
-  const hhi = arr.reduce((acc,x)=> {
-    const s = x.Valor/total;
-    return acc + s*s;
-  }, 0);
-
-  const top1 = arr[0] ? (arr[0].Valor/total) : 0;
-  const top3 = arr.slice(0,3).reduce((a,x)=> a+x.Valor,0)/total;
-  const top10 = arr.slice(0,10).reduce((a,x)=> a+x.Valor,0)/total;
-
-  // qualitative label
-  let concLabel = "Concentração moderada";
-  if(hhi < 0.10) concLabel = "Baixa concentração";
-  else if(hhi < 0.18) concLabel = "Concentração moderada";
-  else concLabel = "Alta concentração";
-
-  return { arr, total, n80, hhi, top1, top3, top10, concLabel };
-}
-
-function computePrevPeriod(sAno, sMes, eAno, eMes){
-  const len = monthsDiffInclusive(sAno,sMes,eAno,eMes);
-  // prev end = month before start
-  const prevEnd = addMonths(sAno, sMes, -1);
-  const prevStart = addMonths(prevEnd.ano, prevEnd.mes, -(len-1));
-  return { sAno: prevStart.ano, sMes: prevStart.mes, eAno: prevEnd.ano, eMes: prevEnd.mes, len };
-}
-
-function statusByClient(cur, prev){
-  const curMap = new Map();
-  for(const r of cur){
-    const c = String(r.Cliente||"").trim();
-    if(!c) continue;
-    if(!curMap.has(c)) curMap.set(c, { Cliente:c, Valor:0, Quantidade:0, Cidade:String(r.Cidade||""), Estado:String(r.Estado||"") });
-    const o = curMap.get(c);
-    o.Valor += (Number(r.Valor)||0);
-    o.Quantidade += (Number(r.Quantidade)||0);
-    if(!o.Cidade) o.Cidade = String(r.Cidade||"");
-    if(!o.Estado) o.Estado = String(r.Estado||"");
-  }
-
-  const prevMap = new Map();
-  for(const r of prev){
-    const c = String(r.Cliente||"").trim();
-    if(!c) continue;
-    if(!prevMap.has(c)) prevMap.set(c, { Cliente:c, Valor:0, Quantidade:0, Cidade:String(r.Cidade||""), Estado:String(r.Estado||"") });
-    const o = prevMap.get(c);
-    o.Valor += (Number(r.Valor)||0);
-    o.Quantidade += (Number(r.Quantidade)||0);
-    if(!o.Cidade) o.Cidade = String(r.Cidade||"");
-    if(!o.Estado) o.Estado = String(r.Estado||"");
-  }
-
-  const allClients = new Set([...curMap.keys(), ...prevMap.keys()]);
-  const rows = [];
-  for(const c of allClients){
-    const A = curMap.get(c) || { Cliente:c, Valor:0, Quantidade:0, Cidade:"", Estado:"" };
-    const B = prevMap.get(c) || { Cliente:c, Valor:0, Quantidade:0, Cidade:"", Estado:"" };
-
-    const curV = A.Valor||0, prevV = B.Valor||0;
-    let status = "Estáveis";
-
-    if(prevV === 0 && curV > 0) status = "Novos";
-    else if(curV === 0 && prevV > 0) status = "Perdidos";
-    else {
-      const ratio = prevV === 0 ? 999 : (curV/prevV);
-      if(ratio >= 1.15) status = "Crescendo";
-      else if(ratio <= 0.85) status = "Caindo";
-      else status = "Estáveis";
-    }
-
-    rows.push({
-      Status: status,
-      Cliente: c,
-      Cidade: A.Cidade || B.Cidade || "",
-      Estado: A.Estado || B.Estado || "",
-      VolumeAtual: A.Quantidade||0,
-      VolumeAnterior: B.Quantidade||0,
-      FaturamentoAtual: curV,
-      FaturamentoAnterior: prevV,
-      Variacao: curV - prevV
-    });
-  }
-
-  // order by status priority
-  const order = { "Novos":1, "Crescendo":2, "Estáveis":3, "Caindo":4, "Perdidos":5 };
-  rows.sort((a,b)=>{
-    const oa = order[a.Status]||99, ob = order[b.Status]||99;
-    if(oa !== ob) return oa - ob;
-    return (b.FaturamentoAtual - a.FaturamentoAtual);
-  });
-
-  return rows;
-}
-
-function computeCarteiraScore(statusRows){
-  // Weighted by faturamento share: good statuses push up, bad push down
-  const weights = {
-    "Novos": 0.8,
-    "Crescendo": 1.2,
-    "Estáveis": 1.0,
-    "Caindo": -0.8,
-    "Perdidos": -1.2
-  };
-  const totalCur = statusRows.reduce((a,r)=> a + (r.FaturamentoAtual||0), 0) || 1;
-  const contrib = statusRows.reduce((a,r)=>{
-    const w = weights[r.Status] ?? 0;
-    const share = (r.FaturamentoAtual||0)/totalCur;
-    return a + (w * share);
-  }, 0);
-
-  // Map contrib roughly into 0..100
-  // contrib ~ [-1.2..1.2] => score ~ [0..100]
-  let score = 50 + (contrib * 35);
-  score = clamp(score, 0, 100);
-
-  let label = "Neutra";
-  if(score >= 70) label = "Saudável";
-  else if(score >= 55) label = "Neutra";
-  else if(score >= 40) label = "Atenção";
-  else label = "Crítica";
-
-  return { score: Math.round(score), label };
-}
-
-/* =======================
-   MAP (Leaflet)
-======================= */
-function normalizeGeoRows(geo){
-  // Accept many possible column names
-  // Need: Estado/UF, Cidade, lat, lon
-  if(!geo.length) return [];
-
-  const headers = Object.keys(geo[0]);
-  const mapH = buildHeaderMap(headers);
-
-  const colUF = pickCol(mapH, ["UF","Estado","Estado/UF","SiglaUF","uf","estado"]);
-  const colCidade = pickCol(mapH, ["Cidade","Municipio","Município","cidade","municipio"]);
-  const colLat = pickCol(mapH, ["lat","latitude","Latitude","LAT"]);
-  const colLon = pickCol(mapH, ["lon","lng","longitude","Longitude","LON","Long"]);
-
-  if(!colUF || !colCidade || !colLat || !colLon){
-    throw new Error("cidades_br_geo.csv must contain Estado/UF, Cidade, lat, lon columns (names can vary).");
-  }
-
-  return geo.map(r => ({
-    UF: String(r[colUF]||"").trim().toUpperCase(),
-    Cidade: String(r[colCidade]||"").trim().toUpperCase(),
-    lat: Number(String(r[colLat]||"").replace(",", ".")),
-    lon: Number(String(r[colLon]||"").replace(",", "."))
-  })).filter(x => x.UF && x.Cidade && Number.isFinite(x.lat) && Number.isFinite(x.lon));
-}
-
-function colorForValue(v, vmin, vmax){
-  // Inverted to match your request: Green = higher, Red = lower
-  if(vmax <= vmin) return "#22c55e";
-  const t = (v - vmin) / (vmax - vmin);
-  // interpolate red->orange->yellow->green (t:0..1)
-  const stops = [
-    {t:0.00, c:[239,68,68]},   // red
-    {t:0.35, c:[245,158,11]},  // orange
-    {t:0.65, c:[250,204,21]},  // yellow
-    {t:1.00, c:[34,197,94]},   // green
-  ];
-  let a=stops[0], b=stops[stops.length-1];
-  for(let i=0;i<stops.length-1;i++){
-    if(t>=stops[i].t && t<=stops[i+1].t){ a=stops[i]; b=stops[i+1]; break; }
-  }
-  const u = (t - a.t) / (b.t - a.t);
-  const r = Math.round(a.c[0] + (b.c[0]-a.c[0])*u);
-  const g = Math.round(a.c[1] + (b.c[1]-a.c[1])*u);
-  const bl = Math.round(a.c[2] + (b.c[2]-a.c[2])*u);
-  return `rgb(${r},${g},${bl})`;
-}
-
-function buildMapLegend(vmin, vmax){
-  const ranges = [
-    { label: "Baixo", t: 0.00 },
-    { label: "Médio", t: 0.50 },
-    { label: "Alto",  t: 1.00 },
-  ];
-  const el = document.getElementById("mapLegend");
-  el.innerHTML = "";
-  ranges.forEach(r => {
-    const v = vmin + (vmax-vmin)*r.t;
-    const item = document.createElement("div");
-    item.className = "legendItem";
-    const sw = document.createElement("div");
-    sw.className = "swatch";
-    sw.style.background = colorForValue(v, vmin, vmax);
-    item.appendChild(sw);
-    const txt = document.createElement("div");
-    txt.textContent = r.label;
-    item.appendChild(txt);
-    el.appendChild(item);
-  });
-  const note = document.createElement("div");
-  note.className = "legendItem";
-  note.textContent = "Cores: vermelho = menor | verde = maior";
-  el.appendChild(note);
-}
-
-function initMap(){
-  if(map) return;
-  map = L.map("map", { zoomControl: true }).setView([-14.2350, -51.9253], 4);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 18,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
-  markersLayer = L.layerGroup().addTo(map);
-}
-
-function renderMap(filtered){
-  initMap();
-  markersLayer.clearLayers();
-
-  // group by city+UF
-  const byCity = new Map();
-  for(const r of filtered){
-    const uf = String(r.Estado||"").trim().toUpperCase();
-    const city = String(r.Cidade||"").trim().toUpperCase();
-    if(!uf || !city) continue;
-    const key = uf + "||" + city;
-    if(!byCity.has(key)) byCity.set(key, { UF:uf, Cidade:city, Valor:0, Quantidade:0, Rows:[] });
-    const o = byCity.get(key);
-    o.Valor += (Number(r.Valor)||0);
-    o.Quantidade += (Number(r.Quantidade)||0);
-    o.Rows.push(r);
-  }
-
-  // join with geo
-  const geoMap = new Map();
-  for(const g of GEO){
-    geoMap.set(g.UF+"||"+g.Cidade, g);
-  }
-
-  const points = [];
-  for(const [k, v] of byCity.entries()){
-    const g = geoMap.get(k);
-    if(!g) continue;
-    points.push({ ...v, lat:g.lat, lon:g.lon });
-  }
-
-  // bounds
-  if(points.length){
-    const latlngs = points.map(p => [p.lat, p.lon]);
-    map.fitBounds(latlngs, { padding:[40,40] });
-  } else {
-    map.setView([-14.2350, -51.9253], 4);
-  }
-
-  const vals = points.map(p=>p.Valor);
-  const vmin = vals.length ? Math.min(...vals) : 0;
-  const vmax = vals.length ? Math.max(...vals) : 1;
-
-  buildMapLegend(vmin, vmax);
-
-  points.forEach(p=>{
-    const color = colorForValue(p.Valor, vmin, vmax);
-    const marker = L.circleMarker([p.lat,p.lon],{
-      radius: 8,
-      fillColor: color,
-      fillOpacity: 0.9,
-      color: "rgba(0,0,0,0.35)",
-      weight: 1
-    });
-
-    const popupHtml =
-      `<div style="font-family: ${getComputedStyle(document.body).fontFamily};">
-        <div style="font-weight:800; margin-bottom:4px;">${p.Cidade} - ${p.UF}</div>
-        <div style="color:#111; font-size:12px;">
-          <div><b>Faturamento:</b> ${formatBRL(p.Valor)}</div>
-          <div><b>Volume:</b> ${formatVolume(p.Quantidade)}</div>
-          <div style="margin-top:6px; font-size:11px;">Clique para ver clientes</div>
+      <div style="margin-top:12px;" class="card">
+        <div style="font-weight:800;">Principais cidades por faturamento</div>
+        <div class="caption" style="margin-top:6px;">Inclui Top 1/2/3 clientes por cidade (nome abreviado + valor). Passe o mouse para ver o nome completo.</div>
+        <div style="margin-top:10px;">
+          <table>
+            <colgroup class="tbl-cidades">
+              <col><col><col><col><col><col><col><col><col>
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Cidade</th><th>Estado</th><th>Faturamento</th><th>% Fat.</th>
+                <th>Volume</th><th>% Vol.</th>
+                <th>Top 1 cliente</th><th>Top 2 cliente</th><th>Top 3 cliente</th>
+              </tr>
+            </thead>
+            <tbody id="citiesTableBody"></tbody>
+          </table>
         </div>
-      </div>`;
+      </div>
 
-    marker.bindPopup(popupHtml);
-    marker.on("click", ()=>{
-      renderCityDetails(p);
-    });
-    marker.addTo(markersLayer);
-  });
-}
+      <!-- Page break after Distribuição por estados (Page 1 end) -->
+      <div class="page-break"></div>
 
-function renderCityDetails(cityAgg){
-  // table: Cliente, Quantidade, Faturamento
-  const rows = cityAgg.Rows.slice();
-  const byClient = groupBy(rows, r => String(r.Cliente||"").trim());
-  const arr = [];
-  for(const [c, rs] of byClient.entries()){
-    if(!c) continue;
-    arr.push({
-      Cliente: c,
-      Quantidade: sumField(rs,"Quantidade"),
-      Faturamento: sumField(rs,"Valor")
-    });
-  }
-  arr.sort((a,b)=> b.Faturamento - a.Faturamento);
+      <!-- EVOLUÇÃO -->
+      <h2>Evolução – Faturamento x Volume</h2>
 
-  const wrap = document.getElementById("cityDetailsWrap");
-  const id = "cityDetails";
-  wrap.innerHTML = `
-    <div class="sectionHeader" style="margin: 6px 0 8px 0;">
-      <h3 class="sectionTitle" style="font-size:16px;">Clientes em ${cityAgg.Cidade} - ${cityAgg.UF}</h3>
-      <p class="sectionNote">Lista completa</p>
-    </div>
-    <table class="noWrap">
-      <thead>
-        <tr>
-          <th>Cliente</th>
-          <th style="text-align:center;">Quantidade</th>
-          <th style="text-align:center;">Faturamento</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${arr.map(r=>`
-          <tr>
-            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
-            <td class="tdNum" style="text-align:left;">${formatVolume(r.Quantidade)}</td>
-            <td class="tdNum" style="text-align:left;">${formatBRL(r.Faturamento)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
+      <div class="card plot-card">
+        <div class="inline-info" id="evoCurrentInfo"></div>
+        <div id="evoCurrent" style="height:340px;"></div>
+      </div>
 
-/* =======================
-   PLOTLY THEMING
-======================= */
-function plotlyLayoutBase(title){
-  return {
-    title: { text: title||"", font:{color:"rgba(255,255,255,0.86)", size:14}, x:0.02 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { color: "rgba(255,255,255,0.86)", family: "Inter, sans-serif" },
-    margin: { l: 56, r: 56, t: 44, b: 40 },
-    legend: { orientation: "h", y: -0.18, x: 0, font:{size:11} },
-    xaxis: { gridcolor: "rgba(255,255,255,0.08)", zerolinecolor:"rgba(255,255,255,0.12)" },
-    yaxis: { gridcolor: "rgba(255,255,255,0.08)", zerolinecolor:"rgba(255,255,255,0.12)" },
-  };
-}
+      <div style="height:10px;"></div>
 
-/* =======================
-   RENDERING
-======================= */
-function escapeHtml(str){
-  return String(str||"")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
+      <div class="card plot-card">
+        <div class="inline-info" id="evoPrevInfo"></div>
+        <div id="evoPrev" style="height:340px;"></div>
+      </div>
 
-function buildKpis(repName, cur, prevInfo, conc, health){
-  const total = sumField(cur, "Valor");
-  const vol = sumField(cur, "Quantidade");
-  const months = aggMonthly(cur).length || 1;
-  const avg = total / months;
+      <div class="divider"></div>
 
-  const clients = uniqueSorted(cur.map(r=>String(r.Cliente||"").trim()).filter(Boolean)).length;
+      <!-- CATEGORIAS -->
+      <h2>Categorias vendidas</h2>
+      <div class="two">
+        <div class="card plot-card">
+          <div class="caption">Participação por categoria</div>
+          <div id="catPie" style="height:580px;"></div>
+        </div>
+        <div class="card">
+          <div class="caption">Resumo – Categorias (com crescimento vs. período anterior)</div>
+          <div style="margin-top:10px;">
+            <table>
+              <colgroup>
+                <col style="width:34%">
+                <col style="width:18%">
+                <col style="width:12%">
+                <col style="width:18%">
+                <col style="width:18%">
+              </colgroup>
+              <thead>
+                <tr><th>Categoria</th><th>Valor</th><th>%</th><th>Variação (R$)</th><th>Crescimento vs anterior</th></tr>
+              </thead>
+              <tbody id="catTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
-  // Distribuição label
-  const distLabel = conc.concLabel;
+      <div class="divider"></div>
 
-  const healthChipClass = (health.label==="Saudável") ? "chip" :
-                          (health.label==="Neutra") ? "chip neutral" :
-                          (health.label==="Atenção") ? "chip warn" : "chip danger";
+      <!-- DISTRIBUIÇÃO POR CLIENTES -->
+      <h2>Distribuição por clientes</h2>
+      <div class="kpis" id="distKpis"></div>
 
-  const kpis = [
-    { label:"Total período", value: formatBRL(total), sub: `<span class="metaLine">${formatVolume(vol)}</span>` },
-    { label:"Média mensal", value: formatBRL(avg), sub: `<span class="metaLine">${months} meses com venda</span>` },
-    { label:"Distribuição por clientes", value: distLabel, sub: `<span class="chip">N80: ${conc.n80} clientes</span>` },
-    { label:"Saúde da carteira", value: `${health.score} / 100`, sub: `<span class="${healthChipClass}">↑ ${health.label}</span>` },
-    { label:"Clientes atendidos", value: formatInt(clients), sub: `<span class="metaLine">únicos no período</span>` },
-  ];
+      <div style="height:10px;"></div>
 
-  const grid = document.getElementById("kpiGrid");
-  grid.innerHTML = kpis.map(k=>`
-    <div class="kpiCard">
-      <div class="kpiLabel">${k.label}</div>
-      <div class="kpiValue">${k.value}</div>
-      <div class="kpiSub">${k.sub||""}</div>
-    </div>
-  `).join("");
-}
+      <div class="two">
+        <div class="card plot-card">
+          <div class="caption">Participação dos clientes (Top 10 destacados)</div>
+          <div id="clientsPie" style="height:580px;"></div>
+        </div>
+        <div class="card">
+          <div class="caption">Resumo – clientes (mais detalhado)</div>
+          <div style="margin-top:10px;">
+            <table>
+              <colgroup class="tbl-clientes-resumo">
+                <col><col><col><col><col><col>
+              </colgroup>
+              <thead>
+                <tr><th>Cliente</th><th>Cidade</th><th>Estado</th><th>Faturamento</th><th>% Faturamento</th><th>Volume</th></tr>
+              </thead>
+              <tbody id="clientsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
-function renderHighlights(monthly){
-  if(!monthly.length){
-    document.getElementById("hiFat").textContent = "—";
-    document.getElementById("hiVol").textContent = "—";
-    return;
-  }
-  // best/worst by Valor and Quantidade
-  const bestFat = monthly.reduce((a,b)=> (b.Valor>a.Valor?b:a), monthly[0]);
-  const worstFat = monthly.reduce((a,b)=> (b.Valor<a.Valor?b:a), monthly[0]);
-  const bestVol = monthly.reduce((a,b)=> (b.Quantidade>a.Quantidade?b:a), monthly[0]);
-  const worstVol = monthly.reduce((a,b)=> (b.Quantidade<a.Quantidade?b:a), monthly[0]);
+      <div class="divider"></div>
 
-  const bfLbl = `${monthLabel(bestFat.Mes)} ${String(bestFat.Ano).slice(-2)}`;
-  const wfLbl = `${monthLabel(worstFat.Mes)} ${String(worstFat.Ano).slice(-2)}`;
-  const bvLbl = `${monthLabel(bestVol.Mes)} ${String(bestVol.Ano).slice(-2)}`;
-  const wvLbl = `${monthLabel(worstVol.Mes)} ${String(worstVol.Ano).slice(-2)}`;
+      <!-- SAÚDE DA CARTEIRA -->
+      <h2>Saúde da carteira – Detalhes</h2>
+      <div class="two">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div class="caption">Pontuação – Saúde da carteira</div>
+              <div style="font-size:34px;font-weight:900;letter-spacing:-0.02em;" id="carteiraScore">—</div>
+              <div class="caption" id="carteiraLabel">—</div>
+            </div>
+            <div class="caption" style="max-width:520px;">
+              A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos)
+              no comparativo entre período atual e anterior.
+            </div>
+          </div>
 
-  document.getElementById("hiFat").textContent = `Melhor: ${bfLbl}`;
-  document.getElementById("hiFatSub").innerHTML = `
-    <span class="chip">↑ ${formatBRL(bestFat.Valor)}</span>
-    <span class="chip danger">↓ ${wfLbl}: ${formatBRL(worstFat.Valor)}</span>
-  `;
+          <div style="margin-top:14px;">
+            <div class="caption">Distribuição de clientes por status</div>
+            <div id="statusPie" style="height:340px;"></div>
+          </div>
+        </div>
 
-  document.getElementById("hiVol").textContent = `Melhor: ${bvLbl}`;
-  document.getElementById("hiVolSub").innerHTML = `
-    <span class="chip">↑ ${formatVolume(bestVol.Quantidade)}</span>
-    <span class="chip danger">↓ ${wvLbl}: ${formatVolume(worstVol.Quantidade)}</span>
-  `;
-}
+        <div class="card">
+          <div class="caption">Resumo por status</div>
+          <div style="margin-top:10px;">
+            <table>
+              <colgroup>
+                <col style="width:24%">
+                <col style="width:18%">
+                <col style="width:18%">
+                <col style="width:40%">
+              </colgroup>
+              <thead>
+                <tr><th>Status</th><th>Clientes</th><th>% Clientes</th><th>Faturamento</th></tr>
+              </thead>
+              <tbody id="statusResumoBody"></tbody>
+            </table>
+            <div class="table-note" id="statusObs"></div>
+          </div>
+        </div>
+      </div>
 
-function renderCoverage(cur){
-  const cities = uniqueSorted(cur.map(r=>String(r.Cidade||"").trim()).filter(Boolean)).length;
-  const states = uniqueSorted(cur.map(r=>String(r.Estado||"").trim()).filter(Boolean)).length;
-  const clients = uniqueSorted(cur.map(r=>String(r.Cliente||"").trim()).filter(Boolean)).length;
+      <!-- Page break after Saúde da carteira (Page 2 end) -->
+      <div class="page-break"></div>
 
-  document.getElementById("covCities").textContent = formatInt(cities);
-  document.getElementById("covStates").textContent = formatInt(states);
-  document.getElementById("covClients").textContent = formatInt(clients);
-}
+      <!-- STATUS DOS CLIENTES -->
+      <h2>Status dos clientes</h2>
+      <div class="card">
+        <div class="field no-print" style="max-width:520px;">
+          <label>Buscar cliente</label>
+          <input id="searchCliente" type="text" placeholder="Digite parte do nome do cliente" />
+        </div>
 
-function renderTopClients(cur){
-  const byClient = concentrationMetricsByClient(cur).arr.slice(0,15);
-  const html = `
-    <table class="noWrap allowWrap">
-      <thead>
-        <tr>
-          <th>Cliente</th>
-          <th>Cidade</th>
-          <th>Estado</th>
-          <th>Faturamento</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${byClient.map(r=>`
-          <tr>
-            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
-            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cidade||"")}</td>
-            <td class="tdNum">${escapeHtml(r.Estado||"")}</td>
-            <td class="tdNum">${formatBRL(r.Valor)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-  document.getElementById("topClientsTable").innerHTML = html;
-}
+        <div class="status-wrap" id="statusTables"></div>
+      </div>
+    </main>
+  </div>
 
-function renderStatesPieAndTables(cur){
-  // top 10 states by faturamento
-  const byUF = groupBy(cur, r=>String(r.Estado||"").trim().toUpperCase());
-  const arr = [];
-  for(const [uf, rows] of byUF.entries()){
-    if(!uf) continue;
-    arr.push({
-      Estado: uf,
-      Valor: sumField(rows,"Valor"),
-      Volume: sumField(rows,"Quantidade"),
-      Rows: rows
-    });
-  }
-  arr.sort((a,b)=> b.Valor-a.Valor);
-  const total = arr.reduce((a,x)=>a+x.Valor,0) || 1;
-  const totalVol = arr.reduce((a,x)=>a+x.Volume,0) || 1;
+  <script>
+    // ==========================
+    // CONFIG (GitHub raw)
+    // ==========================
+    const GITHUB_CSV_URL = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/main/data/relatorio_faturamento.csv";
+    const CITY_GEO_CSV_URL = "https://raw.githubusercontent.com/cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv";
 
-  const top10 = arr.slice(0,10);
-  const rest = arr.slice(10);
-  const restVal = rest.reduce((a,x)=>a+x.Valor,0);
-  const restVol = rest.reduce((a,x)=>a+x.Volume,0);
+    // Map requirements
+    const OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    const OSM_ATTR = "© OpenStreetMap contributors";
 
-  const labels = top10.map(x=>x.Estado).concat(restVal>0?["Outros"]:[]);
-  const values = top10.map(x=>x.Valor).concat(restVal>0?[restVal]:[]);
-  const perc = top10.map(x=>x.Valor/total).concat(restVal>0?[restVal/total]:[]);
-
-  // show inside labels only if slice >= 6%
-  const text = labels.map((lab,i)=>{
-    const p = perc[i] || 0;
-    if(p >= 0.06) return `${lab}<br>${formatPct(p)}`;
-    return "";
-  });
-
-  const data = [{
-    type:"pie",
-    labels,
-    values,
-    text,
-    textinfo:"text",
-    textposition:"inside",
-    insidetextorientation:"radial",
-    hovertemplate:"%{label}<br>%{value:,.0f} (R$)<br>%{percent}<extra></extra>",
-    sort:false,
-    direction:"clockwise",
-    marker:{ line:{color:"rgba(0,0,0,0.15)", width:1} },
-    showlegend:false
-  }];
-
-  const layout = plotlyLayoutBase("");
-  layout.margin = { l: 12, r: 12, t: 12, b: 12 };
-
-  Plotly.newPlot("statesPie", data, layout, {displayModeBar:false, responsive:true});
-
-  // Table: Resumo – Top 10 estados
-  const statesTableHtml = `
-    <table class="noWrap">
-      <thead>
-        <tr>
-          <th>Estado</th>
-          <th>Faturamento</th>
-          <th>% Faturamento</th>
-          <th>Volume</th>
-          <th>% Volume</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${top10.map(x=>`
-          <tr>
-            <td class="tdNum">${escapeHtml(x.Estado)}</td>
-            <td class="tdNum">${formatBRL(x.Valor)}</td>
-            <td class="tdNum">${formatPct(x.Valor/total)}</td>
-            <td class="tdNum">${formatVolume(x.Volume)}</td>
-            <td class="tdNum">${formatPct(x.Volume/totalVol)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-  document.getElementById("statesTable").innerHTML = statesTableHtml;
-
-  // Top cities by faturamento + top 3 clients (separate columns)
-  const byCity = new Map(); // key UF||Cidade
-  for(const r of cur){
-    const uf = String(r.Estado||"").trim().toUpperCase();
-    const city = String(r.Cidade||"").trim().toUpperCase();
-    if(!uf || !city) continue;
-    const key = uf+"||"+city;
-    if(!byCity.has(key)) byCity.set(key, { Estado:uf, Cidade:city, Valor:0, Volume:0, Rows:[] });
-    const o = byCity.get(key);
-    o.Valor += (Number(r.Valor)||0);
-    o.Volume += (Number(r.Quantidade)||0);
-    o.Rows.push(r);
-  }
-  const cityArr = Array.from(byCity.values()).sort((a,b)=> b.Valor - a.Valor).slice(0,20);
-
-  // build top 3 clients columns
-  const rowsHtml = cityArr.map(city=>{
-    const byC = groupBy(city.Rows, r=>String(r.Cliente||"").trim());
-    const carr = [];
-    for(const [c, rs] of byC.entries()){
-      if(!c) continue;
-      carr.push({ Cliente:c, Valor: sumField(rs,"Valor") });
-    }
-    carr.sort((a,b)=> b.Valor - a.Valor);
-    const t1 = carr[0] ? `${carr[0].Cliente} (${formatBRL(carr[0].Valor)})` : "";
-    const t2 = carr[1] ? `${carr[1].Cliente} (${formatBRL(carr[1].Valor)})` : "";
-    const t3 = carr[2] ? `${carr[2].Cliente} (${formatBRL(carr[2].Valor)})` : "";
-
-    return `
-      <tr>
-        <td class="colWrap" style="white-space:normal;">${escapeHtml(city.Cidade)}</td>
-        <td class="tdNum">${escapeHtml(city.Estado)}</td>
-        <td class="tdNum">${formatBRL(city.Valor)}</td>
-        <td class="tdNum">${formatVolume(city.Volume)}</td>
-        <td class="tdNum">${formatPct(city.Volume/totalVol)}</td>
-        <td class="colWrap" style="white-space:normal;">${escapeHtml(t1)}</td>
-        <td class="colWrap" style="white-space:normal;">${escapeHtml(t2)}</td>
-        <td class="colWrap" style="white-space:normal;">${escapeHtml(t3)}</td>
-      </tr>
-    `;
-  }).join("");
-
-  const topCitiesHtml = `
-    <table class="allowWrap">
-      <thead>
-        <tr>
-          <th>Cidade</th>
-          <th>Estado</th>
-          <th>Faturamento</th>
-          <th>Volume</th>
-          <th>% Volume</th>
-          <th>Top 1 cliente (R$)</th>
-          <th>Top 2 cliente (R$)</th>
-          <th>Top 3 cliente (R$)</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rowsHtml}
-      </tbody>
-    </table>
-  `;
-  document.getElementById("topCitiesTable").innerHTML = topCitiesHtml;
-}
-
-function renderEvolution(curMonthly, prevMonthly, curLabel, prevLabel, curTotalsText, prevTotalsText){
-  document.getElementById("curPeriodHdr").childNodes[0].textContent = `Período atual: ${curLabel} `;
-  document.getElementById("prevPeriodHdr").childNodes[0].textContent = `Período anterior: ${prevLabel} `;
-
-  document.getElementById("curTotals").textContent = curTotalsText;
-  document.getElementById("prevTotals").textContent = prevTotalsText;
-
-  function makeEvoChart(divId, monthly){
-    const x = monthly.map(r => monthLabel(r.Mes));
-    const fatur = monthly.map(r => r.Valor);
-    const vol = monthly.map(r => r.Quantidade);
-
-    const bars = {
-      type: "bar",
-      x,
-      y: fatur,
-      name: "Faturamento",
-      marker: { color: "rgba(96,165,250,0.85)" },
-      yaxis: "y1",
-      hovertemplate: "%{x}<br>Faturamento: %{y:,.0f}<extra></extra>"
+    const MONTH_MAP_NUM_TO_NAME = {
+      1:"JAN",2:"FEV",3:"MAR",4:"ABR",5:"MAI",6:"JUN",7:"JUL",8:"AGO",9:"SET",10:"OUT",11:"NOV",12:"DEZ"
     };
-    const line = {
-      type: "scatter",
-      mode: "lines+markers",
-      x,
-      y: vol,
-      name: "Volume (un)",
-      line: { color: "rgba(34,197,94,0.95)", width: 3 }, /* 2pt+ feel */
-      marker: { color: "rgba(34,197,94,0.95)", size: 7 },
-      yaxis: "y2",
-      hovertemplate: "%{x}<br>Volume: %{y:,.0f} un<extra></extra>"
+    const MONTH_NAMES = Object.values(MONTH_MAP_NUM_TO_NAME);
+    const MONTH_MAP_NAME_TO_NUM = Object.fromEntries(Object.entries(MONTH_MAP_NUM_TO_NAME).map(([k,v])=>[v,parseInt(k,10)]));
+
+    const STATUS_COL = "StatusCarteira";
+    const STATUS_ORDER = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
+    const STATUS_WEIGHTS = {
+      "Novos": 1, "Novo": 1,
+      "Crescendo": 2, "CRESCENDO": 2,
+      "Estáveis": 1, "Estável": 1, "ESTAVEIS": 1, "ESTÁVEIS": 1,
+      "Caindo": -1, "CAINDO": -1,
+      "Perdidos": -2, "Perdido": -2, "PERDIDOS": -2
     };
 
-    const layout = plotlyLayoutBase("");
-    layout.barmode = "overlay";
-    layout.yaxis = { title: "Faturamento (R$)", gridcolor: "rgba(255,255,255,0.08)" };
-    layout.yaxis2 = { title: "Volume (un)", overlaying: "y", side: "right", showgrid: false };
-    layout.xaxis = { title: "", tickmode: "array", tickvals: x, ticktext: x };
-    layout.margin = { l: 62, r: 62, t: 18, b: 44 };
-    layout.legend = { orientation:"h", y: -0.25, x: 0 };
+    // Green=high -> Red=low
+    const MAP_BIN_COLORS = ["#22c55e","#eab308","#f97316","#ef4444"];
 
-    Plotly.newPlot(divId, [bars, line], layout, {displayModeBar:false, responsive:true});
-  }
+    // ==========================
+    // UI refs
+    // ==========================
+    const appEl = document.getElementById("app");
+    const toggleSidebarBtn = document.getElementById("toggleSidebar");
+    const printBtn = document.getElementById("printBtn");
 
-  makeEvoChart("evoCurrent", curMonthly);
-  makeEvoChart("evoPrev", prevMonthly);
-}
+    const startMonthEl = document.getElementById("startMonth");
+    const startYearEl = document.getElementById("startYear");
+    const endMonthEl = document.getElementById("endMonth");
+    const endYearEl = document.getElementById("endYear");
+    const repSelectEl = document.getElementById("repSelect");
+    const applyBtn = document.getElementById("applyBtn");
+    const dataStatusEl = document.getElementById("dataStatus");
+    const lastUpdatedEl = document.getElementById("lastUpdated");
 
-function renderCategory(cur, prev){
-  const byCatCur = groupBy(cur, r=>String(r.Categoria||"").trim());
-  const byCatPrev = groupBy(prev, r=>String(r.Categoria||"").trim());
+    const repHeaderEl = document.getElementById("repHeader");
+    const periodHeaderEl = document.getElementById("periodHeader");
+    const kpisEl = document.getElementById("kpis");
+    const destaquesEl = document.getElementById("destaques");
 
-  const arr = [];
-  for(const [cat, rows] of byCatCur.entries()){
-    if(!cat) continue;
-    const vCur = sumField(rows,"Valor");
-    const vPrev = byCatPrev.has(cat) ? sumField(byCatPrev.get(cat),"Valor") : 0;
-    arr.push({ Categoria: cat, Valor: vCur, Prev: vPrev, Variacao: vCur - vPrev });
-  }
-  // include cats that exist only in prev
-  for(const [cat, rows] of byCatPrev.entries()){
-    if(!cat) continue;
-    if(arr.find(x=>x.Categoria===cat)) continue;
-    const vPrev = sumField(rows,"Valor");
-    arr.push({ Categoria: cat, Valor: 0, Prev: vPrev, Variacao: 0 - vPrev });
-  }
+    const covCitiesEl = document.getElementById("covCities");
+    const covStatesEl = document.getElementById("covStates");
+    const covClientsEl = document.getElementById("covClients");
+    const topClientsBodyEl = document.getElementById("topClientsBody");
+    const cityExpandWrapEl = document.getElementById("cityExpandWrap");
+    const cityExpandTitleEl = document.getElementById("cityExpandTitle");
+    const cityClientsBodyEl = document.getElementById("cityClientsBody");
 
-  arr.sort((a,b)=> b.Valor - a.Valor);
-  const total = arr.reduce((a,x)=> a+x.Valor,0) || 1;
+    const mapLegendEl = document.getElementById("mapLegend");
+    const mapMetricLabelEl = document.getElementById("mapMetricLabel");
 
-  const top = arr.slice(0,10);
-  const rest = arr.slice(10);
-  const restVal = rest.reduce((a,x)=>a+x.Valor,0);
+    const statesTableBodyEl = document.getElementById("statesTableBody");
+    const citiesTableBodyEl = document.getElementById("citiesTableBody");
 
-  const labels = top.map(x=>x.Categoria).concat(restVal>0?["Outros"]:[]);
-  const values = top.map(x=>x.Valor).concat(restVal>0?[restVal]:[]);
-  const perc = top.map(x=>x.Valor/total).concat(restVal>0?[restVal/total]:[]);
+    const evoCurrentInfoEl = document.getElementById("evoCurrentInfo");
+    const evoPrevInfoEl = document.getElementById("evoPrevInfo");
 
-  const text = labels.map((lab,i)=>{
-    const p = perc[i] || 0;
-    if(p >= 0.08) return `${lab}<br>${formatPct(p)}`;
-    return "";
-  });
+    const catTableBodyEl = document.getElementById("catTableBody");
 
-  Plotly.newPlot("catPie", [{
-    type:"pie",
-    labels, values,
-    text,
-    textinfo:"text",
-    textposition:"inside",
-    insidetextorientation:"radial",
-    sort:false,
-    showlegend:false,
-    hovertemplate:"%{label}<br>%{value:,.0f} (R$)<br>%{percent}<extra></extra>"
-  }], {
-    ...plotlyLayoutBase(""),
-    margin:{l:12,r:12,t:12,b:12}
-  }, {displayModeBar:false, responsive:true});
+    const distKpisEl = document.getElementById("distKpis");
+    const clientsTableBodyEl = document.getElementById("clientsTableBody");
 
-  const tableHtml = `
-    <table class="allowWrap">
-      <thead>
-        <tr>
-          <th>Categoria</th>
-          <th>Valor</th>
-          <th>%</th>
-          <th>Variação (R$)</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${arr.map(x=>`
-          <tr>
-            <td class="colWrap" style="white-space:normal;">${escapeHtml(x.Categoria)}</td>
-            <td class="tdNum">${formatBRL(x.Valor)}</td>
-            <td class="tdNum">${formatPct((x.Valor||0)/total)}</td>
-            <td class="tdNum">${formatBRL(x.Variacao)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-  document.getElementById("catTable").innerHTML = tableHtml;
-}
+    const carteiraScoreEl = document.getElementById("carteiraScore");
+    const carteiraLabelEl = document.getElementById("carteiraLabel");
+    const statusResumoBodyEl = document.getElementById("statusResumoBody");
+    const statusObsEl = document.getElementById("statusObs");
 
-function renderClientsDistribution(cur){
-  const cm = concentrationMetricsByClient(cur);
-  const total = cm.total || 1;
+    const searchClienteEl = document.getElementById("searchCliente");
+    const statusTablesEl = document.getElementById("statusTables");
 
-  // Top 10 + Outros
-  const top = cm.arr.slice(0,10);
-  const rest = cm.arr.slice(10);
-  const restVal = rest.reduce((a,x)=>a+x.Valor,0);
+    // ==========================
+    // STATE
+    // ==========================
+    let RAW = [];            // raw faturamento rows
+    let GEO = [];            // geo rows normalized: {key, Estado, Cidade, lat, lon}
+    let map = null;
+    let mapLayerGroup = null;
+    let selectedCityKey = null;
 
-  const labels = top.map(x=>x.Cliente).concat(restVal>0?["Outros"]:[]);
-  const values = top.map(x=>x.Valor).concat(restVal>0?[restVal]:[]);
-  const perc = labels.map((_,i)=> (values[i]||0)/total);
+    // ==========================
+    // Helpers (format)
+    // ==========================
+    function formatBRL(v){
+      const n = Number(v||0);
+      return "R$ " + n.toFixed(2).replace(".",",").replace(/\B(?=(\d{3})+(?!\d))/g,".");
+    }
+    function formatBRLCompact(v){
+      const n = Number(v||0);
+      const a = Math.abs(n);
+      if (a >= 1e9) return "R$ " + (n/1e9).toFixed(1).replace(".",",") + " bi";
+      if (a >= 1e6) return "R$ " + (n/1e6).toFixed(1).replace(".",",") + " mi";
+      if (a >= 1e3) return "R$ " + (n/1e3).toFixed(1).replace(".",",") + " mil";
+      return formatBRL(n);
+    }
+    function formatBRLSigned(v){
+      const n = Number(v||0);
+      if (n < 0) return "-" + formatBRL(Math.abs(n));
+      return formatBRL(n);
+    }
+    function formatUN(v){
+      const n = Math.round(Number(v||0));
+      return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,".") + " un";
+    }
+    function esc(s){
+      return String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
+    }
+    function shorten(s, maxLen=28){
+      const t = String(s ?? "").trim();
+      if (t.length <= maxLen) return t;
+      return t.slice(0, maxLen-1) + "…";
+    }
 
-  // inside labels only for larger slices
-  const text = labels.map((lab,i)=>{
-    const p = perc[i] || 0;
-    if(p >= 0.10 || lab==="Outros") return `${lab}<br>${formatPct(p)}`;
-    return "";
-  });
+    // ==========================
+    // Date helpers
+    // ==========================
+    function compDate(year, monthNum){
+      // monthNum 1-12
+      return new Date(Date.UTC(year, monthNum-1, 1));
+    }
+    function addMonths(d, months){
+      const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+      dt.setUTCMonth(dt.getUTCMonth() + months);
+      return dt;
+    }
+    function monthsSpanInclusive(start, end){
+      return (end.getUTCFullYear()-start.getUTCFullYear())*12 + (end.getUTCMonth()-start.getUTCMonth()) + 1;
+    }
+    function periodLabel(start, end){
+      const fmt = (d) => `${MONTH_MAP_NUM_TO_NAME[d.getUTCMonth()+1]} ${String(d.getUTCFullYear()).slice(2)}`;
+      if (start.getUTCFullYear()===end.getUTCFullYear() && start.getUTCMonth()===end.getUTCMonth()) return fmt(start);
+      return `${fmt(start)} - ${fmt(end)}`;
+    }
 
-  Plotly.newPlot("clientsPie", [{
-    type:"pie",
-    labels,
-    values,
-    text,
-    textinfo:"text",
-    textposition:"inside",
-    insidetextorientation:"radial",
-    sort:false,
-    showlegend:false,
-    hovertemplate:"%{label}<br>%{value:,.0f} (R$)<br>%{percent}<extra></extra>"
-  }], {
-    ...plotlyLayoutBase(""),
-    margin:{l:12,r:12,t:12,b:12}
-  }, {displayModeBar:false, responsive:true});
+    // ==========================
+    // CSV load
+    // ==========================
+    async function fetchText(url){
+      // cache-buster so updates reflect immediately
+      const cb = Date.now();
+      const sep = url.includes("?") ? "&" : "?";
+      const u = url + sep + "cb=" + cb;
+      const res = await fetch(u, { cache:"no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status} – ${res.statusText}`);
+      return await res.text();
+    }
 
-  // Summary table (no scroll)
-  const totalVol = cm.arr.reduce((a,x)=> a + (x.Quantidade||0), 0) || 1;
-  let cum = 0;
+    function parseCSV(text){
+      return new Promise((resolve, reject)=>{
+        Papa.parse(text, {
+          header:true,
+          skipEmptyLines:true,
+          complete: (r)=> resolve(r.data),
+          error: (e)=> reject(e)
+        });
+      });
+    }
 
-  const tableRows = cm.arr.slice(0,25).map((x, idx)=>{
-    const share = x.Valor/total;
-    cum += share;
-    return {
-      Cliente: x.Cliente,
-      Faturamento: x.Valor,
-      PFat: share,
-      Volume: x.Quantidade||0,
-      PVol: (x.Quantidade||0)/totalVol,
-      Acum: cum
-    };
-  });
+    function normalizeCol(s){
+      return String(s||"")
+        .trim()
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g,"");
+    }
 
-  const html = `
-    <table class="allowWrap">
-      <thead>
-        <tr>
-          <th>Cliente</th>
-          <th>Faturamento</th>
-          <th>% Fat.</th>
-          <th>Volume</th>
-          <th>% Vol.</th>
-          <th>Acum. %</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tableRows.map(r=>`
-          <tr>
-            <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
-            <td class="tdNum">${formatBRL(r.Faturamento)}</td>
-            <td class="tdNum">${formatPct(r.PFat)}</td>
-            <td class="tdNum">${formatVolume(r.Volume)}</td>
-            <td class="tdNum">${formatPct(r.PVol)}</td>
-            <td class="tdNum">${formatPct(r.Acum)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-  document.getElementById("clientsSummaryTable").innerHTML = html;
-}
+    function pickCol(cols, candidates){
+      const normMap = new Map(cols.map(c=>[normalizeCol(c), c]));
+      for (const cand of candidates){
+        if (normMap.has(cand)) return normMap.get(cand);
+      }
+      // fallback contains
+      for (const [nk, orig] of normMap.entries()){
+        for (const cand of candidates){
+          if (nk.includes(cand)) return orig;
+        }
+      }
+      return null;
+    }
 
-function renderHealth(statusRows, health){
-  document.getElementById("healthScore").textContent = `${health.score} / 100`;
+    async function loadAllData(){
+      dataStatusEl.textContent = "Carregando dados do GitHub…";
+      const t0 = performance.now();
 
-  const chipClass = (health.label==="Saudável") ? "chip" :
-                    (health.label==="Neutra") ? "chip neutral" :
-                    (health.label==="Atenção") ? "chip warn" : "chip danger";
-  document.getElementById("healthChip").innerHTML = `<span class="${chipClass}">↑ ${health.label}</span>`;
+      const [fatText, geoText] = await Promise.all([fetchText(GITHUB_CSV_URL), fetchText(CITY_GEO_CSV_URL)]);
+      const [fatRows, geoRows] = await Promise.all([parseCSV(fatText), parseCSV(geoText)]);
 
-  // counts line
-  const counts = { "Novos":0, "Crescendo":0, "Estáveis":0, "Caindo":0, "Perdidos":0 };
-  statusRows.forEach(r=> { if(counts[r.Status]!==undefined) counts[r.Status]++; });
+      // Validate expected faturamento columns
+      const expected = ["Codigo","Descricao","Quantidade","Valor","Mes","Ano","ClienteCodigo","Cliente","Estado","Cidade","RepresentanteCodigo","Representante","Categoria","SourcePDF"];
+      const cols = fatRows.length ? Object.keys(fatRows[0]) : [];
+      const missing = expected.filter(c => !cols.includes(c));
+      if (missing.length) throw new Error("CSV do GitHub não tem as colunas esperadas: " + missing.join(", "));
 
-  const totalClients = statusRows.length;
+      // Normalize faturamento types + Competencia
+      RAW = fatRows.map(r=>{
+        const Ano = Number(r.Ano);
+        const MesNum = Number(r.Mes);
+        const Valor = Number(r.Valor || 0);
+        const Quantidade = Number(r.Quantidade || 0);
+        const Competencia = compDate(Ano, MesNum);
+        return { ...r, Ano, MesNum, Valor, Quantidade, Competencia };
+      }).filter(r=>Number.isFinite(r.Ano) && Number.isFinite(r.MesNum) && r.Competencia instanceof Date);
 
-  document.getElementById("statusCountsLine").innerHTML =
-    `<span class="statusTag sNovos">Novos ${counts["Novos"]}</span>
-     <span class="statusTag sCresc">Crescendo ${counts["Crescendo"]}</span>
-     <span class="statusTag sEstab">Estáveis ${counts["Estáveis"]}</span>
-     <span class="statusTag sCaind">Caindo ${counts["Caindo"]}</span>
-     <span class="statusTag sPerd">Perdidos ${counts["Perdidos"]}</span>`;
+      // Normalize GEO columns robustly
+      const geoCols = geoRows.length ? Object.keys(geoRows[0]) : [];
+      const estadoCol = pickCol(geoCols, ["estado","uf","siglauf","ufsigla","unidadefederativa","estadouf","ufestado","coduf"]);
+      const cidadeCol = pickCol(geoCols, ["cidade","municipio","nomemunicipio","nmmunicipio","nomecidade","cidadenome","municipionome"]);
+      const latCol = pickCol(geoCols, ["lat","latitude","y","coordy","coordenaday"]);
+      const lonCol = pickCol(geoCols, ["lon","lng","long","longitude","x","coordx","coordenadax"]);
 
-  document.getElementById("statusCountsSub").textContent = `${formatInt(totalClients)} clientes avaliados (comparativo entre períodos)`;
+      const missGeo = [];
+      if (!estadoCol) missGeo.push("Estado/UF");
+      if (!cidadeCol) missGeo.push("Cidade/Municipio");
+      if (!latCol) missGeo.push("lat");
+      if (!lonCol) missGeo.push("lon");
+      if (missGeo.length){
+        throw new Error(
+          `cidades_br_geo.csv está com colunas diferentes das esperadas. Faltando: ${missGeo.join(", ")}. ` +
+          `Colunas encontradas: ${geoCols.join(", ")}`
+        );
+      }
 
-  // summary table
-  const order = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
-  const sumMap = new Map();
-  for(const s of order) sumMap.set(s, { Status:s, Clientes:0, FatAtual:0, FatAnterior:0, Variacao:0 });
+      GEO = geoRows.map(r=>{
+        const Estado = String(r[estadoCol] ?? "").trim().toUpperCase();
+        const Cidade = String(r[cidadeCol] ?? "").trim().toUpperCase();
+        const lat = Number(String(r[latCol] ?? "").replace(",", "."));
+        const lon = Number(String(r[lonCol] ?? "").replace(",", "."));
+        const key = `${Estado}|${Cidade}`;
+        if (!Estado || !Cidade) return null;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return { key, Estado, Cidade, lat, lon };
+      }).filter(Boolean);
 
-  statusRows.forEach(r=>{
-    const o = sumMap.get(r.Status) || null;
-    if(!o) return;
-    o.Clientes += 1;
-    o.FatAtual += (r.FaturamentoAtual||0);
-    o.FatAnterior += (r.FaturamentoAnterior||0);
-    o.Variacao += (r.Variacao||0);
-  });
+      const t1 = performance.now();
+      lastUpdatedEl.textContent = `Dados carregados • ${RAW.length.toLocaleString("pt-BR")} linhas • ${(t1-t0).toFixed(0)}ms`;
+      dataStatusEl.textContent = "Pronto.";
+    }
 
-  const rows = order.map(s=> sumMap.get(s));
-  const html = `
-    <table class="noWrap">
-      <thead>
-        <tr>
-          <th>Status</th>
-          <th>Clientes</th>
-          <th>Faturamento atual</th>
-          <th>Faturamento anterior</th>
-          <th>Variação (R$)</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map(r=>{
-          const cls = (r.Status==="Novos")?"sNovos":
-                      (r.Status==="Crescendo")?"sCresc":
-                      (r.Status==="Estáveis")?"sEstab":
-                      (r.Status==="Caindo")?"sCaind":"sPerd";
-          return `
-            <tr>
-              <td><span class="statusTag ${cls}">${r.Status}</span></td>
-              <td class="tdNum">${formatInt(r.Clientes)}</td>
-              <td class="tdNum">${formatBRL(r.FatAtual)}</td>
-              <td class="tdNum">${formatBRL(r.FatAnterior)}</td>
-              <td class="tdNum">${formatBRL(r.Variacao)}</td>
-            </tr>
-          `;
-        }).join("")}
-      </tbody>
-    </table>
-  `;
-  document.getElementById("statusSummaryTable").innerHTML = html;
-}
+    // ==========================
+    // Aggregation helpers
+    // ==========================
+    function groupBy(arr, keyFn){
+      const m = new Map();
+      for (const x of arr){
+        const k = keyFn(x);
+        if (!m.has(k)) m.set(k, []);
+        m.get(k).push(x);
+      }
+      return m;
+    }
 
-function renderStatusTables(statusRows, curLabel, prevLabel, searchTerm){
-  const wrap = document.getElementById("statusTablesWrap");
-  const term = String(searchTerm||"").trim().toLowerCase();
+    function sum(arr, fn){
+      let s=0;
+      for (const x of arr) s += Number(fn(x)||0);
+      return s;
+    }
 
-  const order = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
-  const groups = new Map(order.map(s=>[s,[]]));
+    function uniqueCount(arr, fn){
+      const s = new Set();
+      for (const x of arr) s.add(fn(x));
+      return s.size;
+    }
 
-  statusRows.forEach(r=>{
-    if(term && !String(r.Cliente||"").toLowerCase().includes(term)) return;
-    if(!groups.has(r.Status)) groups.set(r.Status, []);
-    groups.get(r.Status).push(r);
-  });
+    function sortDesc(arr, fn){
+      return [...arr].sort((a,b)=> (fn(b)||0) - (fn(a)||0));
+    }
 
-  const statusToClass = (s)=>(
-    s==="Novos"?"sNovos":
-    s==="Crescendo"?"sCresc":
-    s==="Estáveis"?"sEstab":
-    s==="Caindo"?"sCaind":"sPerd"
-  );
+    function buildDynamicBins(values, isValor){
+      const cleaned = values.map(v=>Number(v)).filter(v=>Number.isFinite(v) && v>=0).sort((a,b)=>a-b);
+      const fmt = (v)=>{
+        if (isValor) return "R$ " + String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g,".");
+        return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g,".") + " un";
+      };
 
-  // full list (no scroll). keep columns aligned by fixed colgroup.
-  const colgroup = `
-    <colgroup>
-      <col style="width: 28%;">
-      <col style="width: 10%;">
-      <col style="width: 10%;">
-      <col style="width: 17%;">
-      <col style="width: 17%;">
-      <col style="width: 18%;">
-    </colgroup>
-  `;
+      if (!cleaned.length){
+        return isValor ? [
+          {min:1_000_000,color:MAP_BIN_COLORS[0],label:"R$ 1.000.000+"},
+          {min:500_000,color:MAP_BIN_COLORS[1],label:"R$ 500.000 - 999.999"},
+          {min:250_000,color:MAP_BIN_COLORS[2],label:"R$ 250.000 - 499.999"},
+          {min:0,color:MAP_BIN_COLORS[3],label:"R$ 0 - 249.999"},
+        ] : [
+          {min:10_000,color:MAP_BIN_COLORS[0],label:"10.000 un+"},
+          {min:5_000,color:MAP_BIN_COLORS[1],label:"5.000 - 9.999 un"},
+          {min:2_500,color:MAP_BIN_COLORS[2],label:"2.500 - 4.999 un"},
+          {min:0,color:MAP_BIN_COLORS[3],label:"0 - 2.499 un"},
+        ];
+      }
 
-  const tables = order.map(status=>{
-    const rows = groups.get(status) || [];
-    // sort by current faturamento
-    rows.sort((a,b)=> (b.FaturamentoAtual - a.FaturamentoAtual));
+      const n = cleaned.length;
+      const minVal = cleaned[0], maxVal = cleaned[n-1];
+      if (minVal === maxVal){
+        const label = fmt(minVal);
+        return [
+          {min:minVal,color:MAP_BIN_COLORS[0],label},
+          {min:minVal,color:MAP_BIN_COLORS[0],label},
+          {min:minVal,color:MAP_BIN_COLORS[0],label},
+          {min:0,color:MAP_BIN_COLORS[0],label},
+        ];
+      }
 
-    const rowsHtml = rows.map(r=>`
-      <tr>
-        <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cliente)}</td>
-        <td class="colWrap" style="white-space:normal;">${escapeHtml(r.Cidade||"")}</td>
-        <td class="tdNum">${escapeHtml(r.Estado||"")}</td>
-        <td class="tdNum">${formatVolume(r.VolumeAtual)}</td>
-        <td class="tdNum">${formatBRL(r.FaturamentoAtual)}</td>
-        <td class="tdNum">${formatBRL(r.Variacao)}</td>
-      </tr>
-    `).join("");
+      const idx = p => Math.floor(p*(n-1));
+      const q1 = cleaned[idx(0.25)];
+      const q2 = cleaned[idx(0.5)];
+      const q3 = cleaned[idx(0.75)];
+      const t0 = Math.max(0, minVal);
+      const t1 = Math.max(t0, q1);
+      const t2 = Math.max(t1, q2);
+      const t3 = Math.max(t2, q3);
 
-    return `
-      <div style="margin-bottom: 14px;">
-        <div class="sectionHeader" style="margin-bottom: 8px;">
-          <h3 class="sectionTitle" style="font-size:16px;">
-            <span class="statusTag ${statusToClass(status)}">${status}</span>
-            <span style="color: rgba(255,255,255,0.72); font-size:12px; font-weight:650; margin-left:10px;">
-              (${formatInt(rows.length)} clientes)
-            </span>
-          </h3>
-          <p class="sectionNote" style="margin:0;">Faturamento ${curLabel} vs ${prevLabel} (Variação R$)</p>
+      return [
+        {min:t3,color:MAP_BIN_COLORS[0],label:`${fmt(t3)}+`},
+        {min:t2,color:MAP_BIN_COLORS[1],label:`${fmt(t2)} - ${fmt(t3)}`},
+        {min:t1,color:MAP_BIN_COLORS[2],label:`${fmt(t1)} - ${fmt(t2)}`},
+        {min:t0,color:MAP_BIN_COLORS[3],label:`${fmt(t0)} - ${fmt(t1)}`},
+      ];
+    }
+
+    function binForValue(v, bins){
+      const x = Number(v||0);
+      for (const b of bins){
+        if (x >= b.min) return b;
+      }
+      return bins[bins.length-1];
+    }
+
+    // ==========================
+    // Carteira computation (same logic as app.py)
+    // ==========================
+    function buildCarteiraStatus(allRows, repSelected, startComp, endComp){
+      const repRows = (repSelected==="Todos")
+        ? allRows
+        : allRows.filter(r => String(r.Representante||"") === repSelected);
+
+      if (!repRows.length) return [];
+
+      const span = monthsSpanInclusive(startComp, endComp);
+      const prevEnd = addMonths(startComp, -1);
+      const prevStart = addMonths(prevEnd, -(span-1));
+
+      const curr = repRows.filter(r => r.Competencia >= startComp && r.Competencia <= endComp);
+      const prev = repRows.filter(r => r.Competencia >= prevStart && r.Competencia <= prevEnd);
+
+      const currG = groupBy(curr, r => String(r.Cliente||""));
+      const prevG = groupBy(prev, r => String(r.Cliente||""));
+
+      const clientesSet = new Set([...currG.keys(), ...prevG.keys()]);
+      const out = [];
+
+      for (const cliente of clientesSet){
+        const cRows = currG.get(cliente) || [];
+        const pRows = prevG.get(cliente) || [];
+
+        const ValorAtual = sum(cRows, r=>r.Valor);
+        const ValorAnterior = sum(pRows, r=>r.Valor);
+
+        const EstadoAtual = cRows.length ? String(cRows[0].Estado||"") : "";
+        const CidadeAtual = cRows.length ? String(cRows[0].Cidade||"") : "";
+        const EstadoAnterior = pRows.length ? String(pRows[0].Estado||"") : "";
+        const CidadeAnterior = pRows.length ? String(pRows[0].Cidade||"") : "";
+
+        const Estado = (EstadoAtual || EstadoAnterior || "");
+        const Cidade = (CidadeAtual || CidadeAnterior || "");
+
+        if (!(ValorAtual>0 || ValorAnterior>0)) continue;
+
+        let status = "Estáveis";
+        if (ValorAtual>0 && ValorAnterior===0) status = "Novos";
+        else if (ValorAtual===0 && ValorAnterior>0) status = "Perdidos";
+        else if (ValorAtual>0 && ValorAnterior>0){
+          const ratio = ValorAnterior!==0 ? (ValorAtual/ValorAnterior) : 0;
+          if (ratio >= 1.2) status = "Crescendo";
+          else if (ratio <= 0.8) status = "Caindo";
+          else status = "Estáveis";
+        }
+
+        out.push({ Cliente: cliente, Estado, Cidade, ValorAtual, ValorAnterior, [STATUS_COL]: status });
+      }
+
+      return out;
+    }
+
+    function computeCarteiraScore(clientesCarteira){
+      if (!clientesCarteira || !clientesCarteira.length) return {score:50, label:"Neutra"};
+
+      const df = clientesCarteira.map(r=>{
+        const va = Number(r.ValorAtual||0);
+        const vp = Number(r.ValorAnterior||0);
+        const PesoReceita = Math.max(va, vp, 0);
+        return { ...r, va, vp, PesoReceita };
+      });
+
+      const total = df.reduce((acc,r)=>acc+r.PesoReceita, 0);
+      if (total <= 0) return {score:50, label:"Neutra"};
+
+      const byStatus = new Map();
+      for (const r of df){
+        const s = String(r[STATUS_COL]||"");
+        byStatus.set(s, (byStatus.get(s)||0) + r.PesoReceita);
+      }
+
+      let scoreBruto = 0;
+      for (const [s, receita] of byStatus.entries()){
+        const w = STATUS_WEIGHTS[s] ?? 0;
+        scoreBruto += w * (receita/total);
+      }
+
+      let isc = (scoreBruto + 2) / 4 * 100;
+      isc = Math.max(0, Math.min(100, isc));
+
+      // churn cap logic (same as app)
+      const baseAnterior = df.filter(r=>r.vp>0);
+      const baseTotal = baseAnterior.reduce((acc,r)=>acc+r.PesoReceita, 0);
+      const receitaPerdida = df.filter(r=>String(r[STATUS_COL]||"").toUpperCase().includes("PERDID"))
+                               .reduce((acc,r)=>acc+r.PesoReceita, 0);
+      const churn = baseTotal>0 ? (receitaPerdida/baseTotal) : 0;
+
+      if (churn > 0.20 && isc >= 70) isc = 69;
+
+      let label = "Neutra";
+      if (isc < 30) label = "Crítica";
+      else if (isc < 50) label = "Alerta";
+      else if (isc < 70) label = "Neutra";
+      else label = "Saudável";
+
+      return {score: isc, label};
+    }
+
+    // ==========================
+    // Renderers
+    // ==========================
+    function renderKPIs(ctx){
+      const { totalRep, mediaMensal, hhiLabelShort, n80Count, carteiraScore, carteiraLabel, clientesAtendidos } = ctx;
+
+      kpisEl.innerHTML = "";
+
+      const kpi = (label, value, deltaHtml="")=>{
+        const d = document.createElement("div");
+        d.className = "card kpi";
+        d.innerHTML = `
+          <div class="label">${esc(label)}</div>
+          <div class="value">${esc(value)}</div>
+          <div class="delta">${deltaHtml}</div>
+        `;
+        return d;
+      };
+
+      const pill = (text, kind="neutral")=>{
+        const cls = kind==="critical" ? "pill critical" : kind==="alert" ? "pill alert" : "pill neutral";
+        return `<span class="${cls}">↑ ${esc(text)}</span>`;
+      };
+
+      kpisEl.appendChild(kpi("Total período", formatBRLCompact(totalRep)));
+      kpisEl.appendChild(kpi("Média mensal", formatBRLCompact(mediaMensal)));
+      kpisEl.appendChild(kpi("Distribuição por clientes", hhiLabelShort, pill(`N80: ${n80Count} clientes`)));
+      kpisEl.appendChild(kpi("Saúde da carteira", `${Math.round(carteiraScore)} / 100`, pill(carteiraLabel)));
+      kpisEl.appendChild(kpi("Clientes atendidos", String(clientesAtendidos)));
+    }
+
+    function renderDestaques(ctx){
+      const { mensal, bestFat, worstFat, bestVol, worstVol } = ctx;
+      if (!mensal.length){
+        destaquesEl.innerHTML = `<div class="caption">Não há vendas no período selecionado.</div>`;
+        return;
+      }
+      destaquesEl.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <div style="font-weight:800;margin-bottom:6px;">Faturamento</div>
+            <div class="caption">• Melhor mês: <b>${esc(bestFat.MesLabel)}</b> — ${esc(formatBRL(bestFat.Valor))}</div>
+            <div class="caption">• Pior mês: <b>${esc(worstFat.MesLabel)}</b> — ${esc(formatBRL(worstFat.Valor))}</div>
+          </div>
+          <div>
+            <div style="font-weight:800;margin-bottom:6px;">Volume</div>
+            <div class="caption">• Melhor mês: <b>${esc(bestVol.MesLabel)}</b> — ${esc(formatUN(bestVol.Quantidade))}</div>
+            <div class="caption">• Pior mês: <b>${esc(worstVol.MesLabel)}</b> — ${esc(formatUN(worstVol.Quantidade))}</div>
+          </div>
         </div>
+      `;
+    }
 
-        <table class="allowWrap">
-          ${colgroup}
+    function ensureMap(){
+      if (map) return;
+      map = L.map("map", { zoomControl:true, preferCanvas:true });
+      L.tileLayer(OSM_TILE_URL, { attribution: OSM_ATTR }).addTo(map);
+      mapLayerGroup = L.layerGroup().addTo(map);
+    }
+
+    function renderMap(ctx){
+      ensureMap();
+      mapLayerGroup.clearLayers();
+      mapLegendEl.innerHTML = "";
+      selectedCityKey = null;
+      cityExpandWrapEl.style.display = "none";
+
+      const { dfMap, metricCol, metricLabel, bins } = ctx;
+
+      mapMetricLabelEl.textContent = `Métrica do mapa: ${metricLabel}`;
+
+      if (!dfMap.length){
+        map.setView([-14.2, -51.9], 4);
+        mapLegendEl.innerHTML = `<div class="caption">Não há coordenadas de cidades para exibir no mapa.</div>`;
+        return;
+      }
+
+      // Fit bounds
+      const latlngs = dfMap.map(r=>[r.lat, r.lon]);
+      const bounds = L.latLngBounds(latlngs);
+      map.fitBounds(bounds.pad(0.18));
+
+      // Legend
+      let legendHTML = `<b>Legenda – ${esc(metricLabel)}</b>`;
+      for (const b of bins){
+        legendHTML += `
+          <div class="legend-row">
+            <span class="swatch" style="background:${b.color};"></span>
+            <span>${esc(b.label)}</span>
+          </div>
+        `;
+      }
+      mapLegendEl.innerHTML = legendHTML;
+
+      for (const r of dfMap){
+        const v = Number(r[metricCol]||0);
+        const b = binForValue(v, bins);
+        const popup = `
+          <div style="font-weight:800;margin-bottom:6px;">${esc(r.Cidade)} - ${esc(r.Estado)}</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.72);">${esc(metricLabel)}: <b>${esc(metricCol==="Valor" ? formatBRL(r.Valor) : formatUN(r.Quantidade))}</b></div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.72);">Clientes: <b>${esc(String(r.Clientes))}</b></div>
+          <div style="margin-top:8px;font-size:12px;color:rgba(56,189,248,0.95);font-weight:700;">Clique para ver lista de clientes</div>
+        `;
+
+        const marker = L.circleMarker([r.lat, r.lon], {
+          radius: 6,
+          color: b.color,
+          fillColor: b.color,
+          fillOpacity: 0.82,
+          weight: 2
+        }).addTo(mapLayerGroup);
+
+        marker.bindTooltip(`${r.Cidade} - ${r.Estado}`, { direction:"top", opacity:0.9 });
+        marker.bindPopup(popup, { maxWidth: 320 });
+
+        marker.on("click", ()=>{
+          selectedCityKey = r.key;
+          renderCityClientsTable(r);
+        });
+      }
+    }
+
+    function renderCityClientsTable(cityRow){
+      const { Cidade, Estado } = cityRow;
+      const repRows = window.__CTX.dfRep || [];
+      const rows = repRows.filter(r => String(r.Cidade||"")===Cidade && String(r.Estado||"")===Estado);
+
+      const byCliente = groupBy(rows, r => String(r.Cliente||""));
+      const agg = [];
+      for (const [cliente, arr] of byCliente.entries()){
+        agg.push({
+          Cliente: cliente,
+          Quantidade: sum(arr, x=>x.Quantidade),
+          Valor: sum(arr, x=>x.Valor)
+        });
+      }
+      agg.sort((a,b)=>b.Valor-a.Valor);
+
+      cityExpandTitleEl.textContent = `Clientes em ${Cidade} - ${Estado}`;
+      cityClientsBodyEl.innerHTML = agg.map(r=>`
+        <tr>
+          <td title="${esc(r.Cliente)}">${esc(shorten(r.Cliente, 46))}</td>
+          <td>${esc(formatUN(r.Quantidade))}</td>
+          <td>${esc(formatBRL(r.Valor))}</td>
+        </tr>
+      `).join("");
+
+      cityExpandWrapEl.style.display = "block";
+    }
+
+    function plotPie(elId, labels, values, opts={}){
+      const showLegend = !!opts.showLegend;
+      const height = opts.height ?? 560;
+      const hole = opts.hole ?? 0.35;
+      const text = opts.text || null;
+      const textinfo = opts.textinfo ?? "text";
+      const textposition = opts.textposition ?? "inside";
+      const sort = false;
+
+      const data = [{
+        type:"pie",
+        labels,
+        values,
+        hole,
+        sort,
+        direction:"clockwise",
+        text,
+        textinfo,
+        textposition,
+        insidetextorientation:"radial",
+        hovertemplate: "%{label}<br>%{percent}<br>%{value:,}<extra></extra>"
+      }];
+
+      const layout = {
+        margin:{l:10,r:10,t:10,b:10},
+        height,
+        showlegend: showLegend,
+        paper_bgcolor:"rgba(0,0,0,0)",
+        plot_bgcolor:"rgba(0,0,0,0)",
+        font:{color:"rgba(255,255,255,0.88)", family:"Inter, sans-serif"}
+      };
+
+      Plotly.newPlot(elId, data, layout, {displayModeBar:false, responsive:true});
+    }
+
+    function plotCombo(elId, xLabels, faturamento, volume){
+      const data = [
+        {
+          type:"bar",
+          x: xLabels,
+          y: faturamento,
+          name:"Faturamento",
+          marker:{color: "rgba(56,189,248,0.75)"},
+          yaxis:"y"
+        },
+        {
+          type:"scatter",
+          x: xLabels,
+          y: volume,
+          name:"Volume",
+          mode:"lines+markers",
+          line:{color:"#22c55e", width:3},
+          marker:{color:"#22c55e", size:7},
+          yaxis:"y2"
+        }
+      ];
+
+      const layout = {
+        margin:{l:50,r:50,t:10,b:40},
+        paper_bgcolor:"rgba(0,0,0,0)",
+        plot_bgcolor:"rgba(0,0,0,0)",
+        font:{color:"rgba(255,255,255,0.88)", family:"Inter, sans-serif"},
+        xaxis:{
+          tickfont:{color:"rgba(255,255,255,0.70)"},
+          gridcolor:"rgba(255,255,255,0.06)"
+        },
+        yaxis:{
+          title:"Faturamento (R$)",
+          tickfont:{color:"rgba(255,255,255,0.70)"},
+          gridcolor:"rgba(255,255,255,0.06)"
+        },
+        yaxis2:{
+          title:"Volume (un)",
+          overlaying:"y",
+          side:"right",
+          tickfont:{color:"rgba(255,255,255,0.70)"},
+          gridcolor:"rgba(255,255,255,0.00)"
+        },
+        legend:{orientation:"h", y:1.18, x:0, font:{color:"rgba(255,255,255,0.70)"}}
+      };
+
+      Plotly.newPlot(elId, data, layout, {displayModeBar:false, responsive:true});
+    }
+
+    // ==========================
+    // MAIN recompute
+    // ==========================
+    function getFiltersFromUI(){
+      const sm = MONTH_MAP_NAME_TO_NUM[startMonthEl.value];
+      const em = MONTH_MAP_NAME_TO_NUM[endMonthEl.value];
+      const sy = Number(startYearEl.value);
+      const ey = Number(endYearEl.value);
+
+      const startComp = compDate(sy, sm);
+      const endComp = compDate(ey, em);
+
+      const rep = repSelectEl.value || "Todos";
+      return { startComp, endComp, rep };
+    }
+
+    function validatePeriod(startComp, endComp){
+      return startComp <= endComp;
+    }
+
+    function rebuildRepOptionsForPeriod(dfPeriod){
+      const reps = Array.from(new Set(dfPeriod.map(r=>String(r.Representante||"")).filter(Boolean))).sort();
+      const options = ["Todos", ...reps];
+
+      // preserve selection if still valid
+      const prev = repSelectEl.value || "Todos";
+      repSelectEl.innerHTML = options.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join("");
+      repSelectEl.value = options.includes(prev) ? prev : "Todos";
+    }
+
+    function recomputeAndRender(){
+      const { startComp, endComp, rep } = getFiltersFromUI();
+      if (!validatePeriod(startComp, endComp)){
+        alert("Período inicial não pode ser maior que o período final.");
+        return;
+      }
+
+      const span = monthsSpanInclusive(startComp, endComp);
+      const prevEnd = addMonths(startComp, -1);
+      const prevStart = addMonths(prevEnd, -(span-1));
+
+      const currentLabel = periodLabel(startComp, endComp);
+      const prevLabel = periodLabel(prevStart, prevEnd);
+
+      // Filter period
+      const dfPeriod = RAW.filter(r => r.Competencia >= startComp && r.Competencia <= endComp);
+      if (!dfPeriod.length){
+        repHeaderEl.innerHTML = `Representante: <b>${esc(rep==="Todos" ? "Todos" : rep)}</b>`;
+        periodHeaderEl.textContent = `Período selecionado: ${currentLabel}`;
+        kpisEl.innerHTML = `<div class="card"><div class="caption">Nenhuma venda no período selecionado.</div></div>`;
+        return;
+      }
+
+      // Rep options depend on dates (your requirement)
+      rebuildRepOptionsForPeriod(dfPeriod);
+
+      const repSel = repSelectEl.value || rep;
+
+      const dfRep = (repSel==="Todos") ? dfPeriod : dfPeriod.filter(r=>String(r.Representante||"")===repSel);
+      const dfPrevPeriod = RAW.filter(r => r.Competencia >= prevStart && r.Competencia <= prevEnd);
+      const dfRepPrev = (repSel==="Todos") ? dfPrevPeriod : dfPrevPeriod.filter(r=>String(r.Representante||"")===repSel);
+
+      // Save for city click
+      window.__CTX = { dfRep };
+
+      // HEADER
+      repHeaderEl.innerHTML = `Representante: <b>${esc(repSel==="Todos" ? "Todos" : repSel)}</b>`;
+      periodHeaderEl.textContent = `Período selecionado: ${currentLabel}`;
+
+      // KPIs
+      const totalRep = sum(dfRep, r=>r.Valor);
+      const totalVol = sum(dfRep, r=>r.Quantidade);
+
+      // months with sale
+      const byMonthKey = groupBy(dfRep, r => `${r.Ano}-${r.MesNum}`);
+      let mesesComVenda = 0;
+      for (const arr of byMonthKey.values()){
+        if (sum(arr, x=>x.Valor) > 0) mesesComVenda += 1;
+      }
+      const mediaMensal = mesesComVenda>0 ? totalRep/mesesComVenda : 0;
+
+      // clients distribution (HHI, N80 etc)
+      const byClient = groupBy(dfRep, r => String(r.Cliente||""));
+      const clientAgg = [];
+      for (const [cliente, arr] of byClient.entries()){
+        clientAgg.push({ Cliente: cliente, Valor: sum(arr, x=>x.Valor) });
+      }
+      clientAgg.sort((a,b)=>b.Valor-a.Valor);
+
+      const clientesAtendidos = clientAgg.length;
+      const shares = clientAgg.map(c => totalRep>0 ? c.Valor/totalRep : 0);
+      let cum = 0, n80Count = 0;
+      for (let i=0;i<shares.length;i++){
+        cum += shares[i];
+        n80Count = i+1;
+        if (cum >= 0.8) break;
+      }
+      const hhi = shares.reduce((acc,s)=>acc+s*s, 0);
+      let hhiLabelShort = "Sem dados";
+      if (totalRep>0){
+        if (hhi < 0.10) hhiLabelShort = "Baixa";
+        else if (hhi < 0.20) hhiLabelShort = "Moderada";
+        else hhiLabelShort = "Alta";
+      }
+
+      // Carteira
+      const clientesCarteira = buildCarteiraStatus(RAW, repSel, startComp, endComp);
+      const {score: carteiraScore, label: carteiraLabel} = computeCarteiraScore(clientesCarteira);
+
+      renderKPIs({ totalRep, mediaMensal, hhiLabelShort, n80Count, carteiraScore, carteiraLabel, clientesAtendidos });
+
+      // Destaques
+      const mensalMap = new Map();
+      for (const r of dfRep){
+        const k = `${r.Ano}-${r.MesNum}`;
+        if (!mensalMap.has(k)){
+          mensalMap.set(k, { Ano:r.Ano, MesNum:r.MesNum, Valor:0, Quantidade:0 });
+        }
+        const o = mensalMap.get(k);
+        o.Valor += r.Valor;
+        o.Quantidade += r.Quantidade;
+      }
+      const mensal = Array.from(mensalMap.values())
+        .map(o=>{
+          const d = compDate(o.Ano, o.MesNum);
+          return { ...o, Competencia:d, MesLabel:`${MONTH_MAP_NUM_TO_NAME[o.MesNum]} ${String(o.Ano).slice(2)}` };
+        })
+        .sort((a,b)=>a.Competencia-b.Competencia);
+
+      const bestFat = mensal.reduce((a,b)=> b.Valor>a.Valor ? b : a, mensal[0]);
+      const worstFat = mensal.reduce((a,b)=> b.Valor<a.Valor ? b : a, mensal[0]);
+      const bestVol = mensal.reduce((a,b)=> b.Quantidade>a.Quantidade ? b : a, mensal[0]);
+      const worstVol = mensal.reduce((a,b)=> b.Quantidade<a.Quantidade ? b : a, mensal[0]);
+
+      renderDestaques({ mensal, bestFat, worstFat, bestVol, worstVol });
+
+      // Coverage
+      const cityPairs = new Set(dfRep.map(r=>`${String(r.Estado||"")}||${String(r.Cidade||"")}`).filter(x=>!x.startsWith("||")));
+      const estados = new Set(dfRep.map(r=>String(r.Estado||"")).filter(Boolean));
+      covCitiesEl.textContent = String(cityPairs.size);
+      covStatesEl.textContent = String(estados.size);
+      covClientsEl.textContent = String(clientesAtendidos);
+
+      // Principais clientes (top 15, no scroll)
+      const byClientLoc = groupBy(dfRep, r => `${String(r.Cliente||"")}||${String(r.Cidade||"")}||${String(r.Estado||"")}`);
+      const topClients = [];
+      for (const [k, arr] of byClientLoc.entries()){
+        const [Cliente, Cidade, Estado] = k.split("||");
+        topClients.push({ Cliente, Cidade, Estado, Valor: sum(arr, x=>x.Valor) });
+      }
+      topClients.sort((a,b)=>b.Valor-a.Valor);
+      const top15 = topClients.slice(0,15);
+
+      topClientsBodyEl.innerHTML = top15.map(r=>`
+        <tr>
+          <td title="${esc(r.Cliente)}">${esc(shorten(r.Cliente, 42))}</td>
+          <td title="${esc(r.Cidade)}">${esc(shorten(r.Cidade, 24))}</td>
+          <td>${esc(r.Estado)}</td>
+          <td>${esc(formatBRL(r.Valor))}</td>
+        </tr>
+      `).join("");
+
+      // Map prep (merge geo)
+      const byCity = groupBy(dfRep, r => `${String(r.Estado||"").trim().toUpperCase()}|${String(r.Cidade||"").trim().toUpperCase()}`);
+      const cityAgg = [];
+      for (const [key, arr] of byCity.entries()){
+        const [Estado, Cidade] = key.split("|");
+        cityAgg.push({
+          key, Estado, Cidade,
+          Valor: sum(arr, x=>x.Valor),
+          Quantidade: sum(arr, x=>x.Quantidade),
+          Clientes: uniqueCount(arr, x=>String(x.Cliente||""))
+        });
+      }
+
+      const geoMap = new Map(GEO.map(g=>[g.key, g]));
+      const dfMap = cityAgg.map(c=>{
+        const g = geoMap.get(c.key);
+        if (!g) return null;
+        return { ...c, lat:g.lat, lon:g.lon };
+      }).filter(Boolean);
+
+      const metricCol = document.querySelector('input[name="mapMetric"]:checked')?.value || "Valor";
+      const metricLabel = (metricCol==="Valor") ? "Faturamento (R$)" : "Volume (un)";
+      const bins = buildDynamicBins(dfMap.map(r=>r[metricCol]), metricCol==="Valor");
+
+      renderMap({ dfMap, metricCol, metricLabel, bins });
+
+      // Distribuição por estados
+      const byEstado = groupBy(dfRep, r=>String(r.Estado||""));
+      const estadosAgg = [];
+      for (const [Estado, arr] of byEstado.entries()){
+        if (!Estado) continue;
+        estadosAgg.push({ Estado, Valor: sum(arr,x=>x.Valor), Quantidade: sum(arr,x=>x.Quantidade) });
+      }
+      estadosAgg.sort((a,b)=>b.Valor-a.Valor);
+      const top10Estados = estadosAgg.slice(0,10);
+
+      const totalValorAll = estadosAgg.reduce((acc,r)=>acc+r.Valor,0);
+      const totalQtdAll = estadosAgg.reduce((acc,r)=>acc+r.Quantidade,0);
+
+      // Pie (no legend)
+      const stLabels = top10Estados.map(r=>r.Estado);
+      const stValues = top10Estados.map(r=>r.Valor);
+      plotPie("statesPie", stLabels, stValues, {
+        showLegend:false,
+        height:560,
+        hole:0.35,
+        text: top10Estados.map(r=>{
+          const share = totalValorAll>0 ? (r.Valor/totalValorAll) : 0;
+          return (share>=0.07) ? `${r.Estado}<br>${(share*100).toFixed(1)}%` : "";
+        }),
+        textinfo:"text"
+      });
+
+      // Table
+      statesTableBodyEl.innerHTML = top10Estados.map(r=>{
+        const pFat = totalValorAll>0 ? r.Valor/totalValorAll : 0;
+        const pVol = totalQtdAll>0 ? r.Quantidade/totalQtdAll : 0;
+        return `
+          <tr>
+            <td>${esc(r.Estado)}</td>
+            <td>${esc(formatBRL(r.Valor))}</td>
+            <td>${esc((pFat*100).toFixed(1)+"%")}</td>
+            <td>${esc(formatUN(r.Quantidade))}</td>
+            <td>${esc((pVol*100).toFixed(1)+"%")}</td>
+          </tr>
+        `;
+      }).join("");
+
+      // Principais cidades por faturamento (top 15) + top 3 clients columns
+      const byCidadeEstado = groupBy(dfRep, r=>`${String(r.Cidade||"")}||${String(r.Estado||"")}`);
+      const cidadesAgg = [];
+      for (const [k, arr] of byCidadeEstado.entries()){
+        const [Cidade, Estado] = k.split("||");
+        if (!Cidade || !Estado) continue;
+        cidadesAgg.push({
+          Cidade, Estado,
+          Valor: sum(arr,x=>x.Valor),
+          Quantidade: sum(arr,x=>x.Quantidade)
+        });
+      }
+      cidadesAgg.sort((a,b)=>b.Valor-a.Valor);
+      const top15Cidades = cidadesAgg.slice(0,15);
+
+      // top 3 clients per city
+      const byCityClient = groupBy(dfRep, r=>`${String(r.Cidade||"")}||${String(r.Estado||"")}||${String(r.Cliente||"")}`);
+      const cityClientAgg = [];
+      for (const [k, arr] of byCityClient.entries()){
+        const [Cidade, Estado, Cliente] = k.split("||");
+        if (!Cidade || !Estado || !Cliente) continue;
+        cityClientAgg.push({ Cidade, Estado, Cliente, Valor: sum(arr,x=>x.Valor) });
+      }
+      cityClientAgg.sort((a,b)=> (a.Cidade===b.Cidade ? (a.Estado===b.Estado ? b.Valor-a.Valor : a.Estado.localeCompare(b.Estado)) : a.Cidade.localeCompare(b.Cidade)));
+
+      const topClientsByCity = new Map();
+      for (const row of cityClientAgg){
+        const key = `${row.Cidade}||${row.Estado}`;
+        if (!topClientsByCity.has(key)) topClientsByCity.set(key, []);
+        const arr = topClientsByCity.get(key);
+        if (arr.length < 3) arr.push(row);
+      }
+
+      function clientCell(c){
+        if (!c) return "";
+        const full = c.Cliente;
+        const sh = shorten(full, 26);
+        return `<div class="cell-small" title="${esc(full)}">
+          <div>${esc(sh)}</div>
+          <div class="v">${esc(formatBRLCompact(c.Valor))}</div>
+        </div>`;
+      }
+
+      citiesTableBodyEl.innerHTML = top15Cidades.map(r=>{
+        const pFat = totalValorAll>0 ? r.Valor/totalValorAll : 0;
+        const pVol = totalQtdAll>0 ? r.Quantidade/totalQtdAll : 0;
+        const key = `${r.Cidade}||${r.Estado}`;
+        const tops = topClientsByCity.get(key) || [];
+        return `
+          <tr>
+            <td title="${esc(r.Cidade)}">${esc(shorten(r.Cidade, 18))}</td>
+            <td>${esc(r.Estado)}</td>
+            <td>${esc(formatBRL(r.Valor))}</td>
+            <td>${esc((pFat*100).toFixed(1)+"%")}</td>
+            <td>${esc(formatUN(r.Quantidade))}</td>
+            <td>${esc((pVol*100).toFixed(1)+"%")}</td>
+            <td>${clientCell(tops[0])}</td>
+            <td>${clientCell(tops[1])}</td>
+            <td>${clientCell(tops[2])}</td>
+          </tr>
+        `;
+      }).join("");
+
+      // Evolução charts (current + prev)
+      function buildTS(rows){
+        const g = groupBy(rows, r=>`${r.Ano}-${r.MesNum}`);
+        const ts = [];
+        for (const [k, arr] of g.entries()){
+          const [Ano, MesNum] = k.split("-").map(Number);
+          const d = compDate(Ano, MesNum);
+          ts.push({
+            Competencia:d,
+            MesLabel:`${MONTH_MAP_NUM_TO_NAME[MesNum]} ${String(Ano).slice(2)}`,
+            Valor: sum(arr,x=>x.Valor),
+            Quantidade: sum(arr,x=>x.Quantidade)
+          });
+        }
+        ts.sort((a,b)=>a.Competencia-b.Competencia);
+        return ts;
+      }
+
+      const tsCurr = buildTS(dfRep);
+      const tsPrev = buildTS(dfRepPrev);
+
+      evoCurrentInfoEl.innerHTML = `<b>Período atual:</b> ${esc(currentLabel)} &nbsp;•&nbsp; <b>Faturamento:</b> ${esc(formatBRLCompact(sum(dfRep,x=>x.Valor)))} &nbsp;•&nbsp; <b>Volume:</b> ${esc(formatUN(sum(dfRep,x=>x.Quantidade)))}`;
+      plotCombo("evoCurrent", tsCurr.map(r=>r.MesLabel), tsCurr.map(r=>r.Valor), tsCurr.map(r=>r.Quantidade));
+
+      evoPrevInfoEl.innerHTML = `<b>Período anterior:</b> ${esc(prevLabel)} &nbsp;•&nbsp; <b>Faturamento:</b> ${esc(formatBRLCompact(sum(dfRepPrev,x=>x.Valor)))} &nbsp;•&nbsp; <b>Volume:</b> ${esc(formatUN(sum(dfRepPrev,x=>x.Quantidade)))}`;
+      plotCombo("evoPrev", tsPrev.map(r=>r.MesLabel), tsPrev.map(r=>r.Valor), tsPrev.map(r=>r.Quantidade));
+
+      // Categorias
+      const currCatG = groupBy(dfRep, r=>String(r.Categoria||""));
+      const prevCatG = groupBy(dfRepPrev, r=>String(r.Categoria||""));
+      const catSet = new Set([...currCatG.keys(), ...prevCatG.keys()]);
+      const catRows = [];
+      for (const cat of catSet){
+        if (!cat) continue;
+        const cur = currCatG.get(cat) || [];
+        const prv = prevCatG.get(cat) || [];
+        const ValorAtual = sum(cur,x=>x.Valor);
+        const ValorAnterior = sum(prv,x=>x.Valor);
+        catRows.push({ Categoria:cat, ValorAtual, ValorAnterior });
+      }
+      catRows.sort((a,b)=>b.ValorAtual-a.ValorAtual);
+
+      const totalCat = catRows.reduce((acc,r)=>acc+r.ValorAtual,0);
+      // Pie data: top10 + Outras
+      let pieCat = catRows.map(r=>({name:r.Categoria, value:r.ValorAtual})).filter(r=>r.value>0);
+      pieCat.sort((a,b)=>b.value-a.value);
+      if (pieCat.length > 10){
+        const top10 = pieCat.slice(0,10);
+        const others = pieCat.slice(10).reduce((acc,r)=>acc+r.value,0);
+        top10.push({name:"Outras", value:others});
+        pieCat = top10;
+      }
+      const pieCatTotal = pieCat.reduce((acc,r)=>acc+r.value,0);
+      const catText = pieCat.map(r=>{
+        const share = pieCatTotal>0 ? r.value/pieCatTotal : 0;
+        return (share>=0.07) ? `${r.name}<br>${(share*100).toFixed(1)}%` : "";
+      });
+      plotPie("catPie", pieCat.map(r=>r.name), pieCat.map(r=>r.value), {
+        showLegend:false, height:560, hole:0.35, text:catText, textinfo:"text"
+      });
+
+      // Cat table
+      catTableBodyEl.innerHTML = catRows.filter(r=>r.ValorAtual>0 || r.ValorAnterior>0).map(r=>{
+        const pct = totalCat>0 ? r.ValorAtual/totalCat : 0;
+        const variacao = r.ValorAtual - r.ValorAnterior;
+
+        let growth = "0.0%";
+        if (r.ValorAnterior>0) growth = ((r.ValorAtual-r.ValorAnterior)/r.ValorAnterior*100).toFixed(1) + "%";
+        else if (r.ValorAtual>0 && r.ValorAnterior===0) growth = "Novo";
+
+        const growthFmt = (growth==="Novo") ? "Novo" : ( (r.ValorAnterior>0) ? ( (r.ValorAtual-r.ValorAnterior)>=0 ? "+"+growth : growth ) : growth );
+
+        return `
+          <tr>
+            <td title="${esc(r.Categoria)}">${esc(shorten(r.Categoria, 30))}</td>
+            <td>${esc(formatBRL(r.ValorAtual))}</td>
+            <td>${esc((pct*100).toFixed(1)+"%")}</td>
+            <td>${esc(formatBRLSigned(variacao))}</td>
+            <td>${esc(growthFmt)}</td>
+          </tr>
+        `;
+      }).join("");
+
+      // Distribuição por clientes section
+      const top1Share = shares.slice(0,1).reduce((a,b)=>a+b,0);
+      const top3Share = shares.slice(0,3).reduce((a,b)=>a+b,0);
+      const top10Share = shares.slice(0,10).reduce((a,b)=>a+b,0);
+      const n80Ratio = clientesAtendidos>0 ? (n80Count/clientesAtendidos) : 0;
+
+      distKpisEl.innerHTML = [
+        {label:"N80", value:String(n80Count), delta:`${Math.round(n80Ratio*100)}% da carteira`},
+        {label:"Índice de concentração", value:hhiLabelShort, delta:`HHI ${hhi.toFixed(3)}`},
+        {label:"Top 1 cliente", value:(top1Share*100).toFixed(1)+"%"},
+        {label:"Top 3 clientes", value:(top3Share*100).toFixed(1)+"%"},
+        {label:"Top 10 clientes", value:(top10Share*100).toFixed(1)+"%"},
+      ].map(o=>`
+        <div class="card kpi">
+          <div class="label">${esc(o.label)}</div>
+          <div class="value">${esc(o.value)}</div>
+          <div class="delta">${o.delta ? `<span class="pill neutral">↑ ${esc(o.delta)}</span>` : ""}</div>
+        </div>
+      `).join("");
+
+      // Clients pie: top10 + Outros (no legend)
+      const clientVals = clientAgg.map(r=>({name:r.Cliente, value:r.Valor})).filter(r=>r.value>0);
+      clientVals.sort((a,b)=>b.value-a.value);
+      let pieClients = clientVals;
+      if (pieClients.length > 10){
+        const top10 = pieClients.slice(0,10);
+        const others = pieClients.slice(10).reduce((acc,r)=>acc+r.value,0);
+        top10.push({name:"Outros", value:others});
+        pieClients = top10;
+      }
+      const pieClientsTotal = pieClients.reduce((acc,r)=>acc+r.value,0);
+
+      // Order by value desc already; build inside text only for big slices
+      const pieClientLabels = pieClients.map(r=> shorten(r.name, 22));
+      const pieClientValues = pieClients.map(r=> r.value);
+      const pieClientText = pieClients.map(r=>{
+        const share = pieClientsTotal>0 ? r.value/pieClientsTotal : 0;
+        if (share >= 0.07){
+          return `${shorten(r.name, 18)}<br>${(share*100).toFixed(1)}%`;
+        }
+        return "";
+      });
+
+      plotPie("clientsPie", pieClientLabels.map((lbl,i)=>`${lbl} ${(pieClientsTotal>0?(pieClientValues[i]/pieClientsTotal*100):0).toFixed(1)}%`), pieClientValues, {
+        showLegend:false,
+        height:560,
+        hole:0.0,
+        text: pieClientText,
+        textinfo:"text"
+      });
+
+      // Clients table (top 15 detailed)
+      // Build full detailed list: Cliente, Cidade, Estado, Faturamento, % Fat, Volume
+      const dfClientFull = [];
+      for (const [k, arr] of byClientLoc.entries()){
+        const [Cliente, Cidade, Estado] = k.split("||");
+        dfClientFull.push({
+          Cliente, Cidade, Estado,
+          Valor: sum(arr,x=>x.Valor),
+          Quantidade: sum(arr,x=>x.Quantidade)
+        });
+      }
+      dfClientFull.sort((a,b)=>b.Valor-a.Valor);
+
+      clientsTableBodyEl.innerHTML = dfClientFull.slice(0,15).map(r=>{
+        const share = totalRep>0 ? r.Valor/totalRep : 0;
+        return `
+          <tr>
+            <td title="${esc(r.Cliente)}">${esc(shorten(r.Cliente, 40))}</td>
+            <td title="${esc(r.Cidade)}">${esc(shorten(r.Cidade, 20))}</td>
+            <td>${esc(r.Estado)}</td>
+            <td>${esc(formatBRL(r.Valor))}</td>
+            <td>${esc((share*100).toFixed(1)+"%")}</td>
+            <td>${esc(formatUN(r.Quantidade))}</td>
+          </tr>
+        `;
+      }).join("");
+
+      // Saúde da carteira – detalhes
+      carteiraScoreEl.textContent = `${Math.round(carteiraScore)} / 100`;
+      carteiraLabelEl.textContent = carteiraLabel;
+
+      // status distribution + resumo
+      const statusG = groupBy(clientesCarteira, r=>String(r[STATUS_COL]||""));
+      const statusCounts = [];
+      let totalClientesStatus = 0;
+      for (const s of STATUS_ORDER){
+        const arr = statusG.get(s) || [];
+        const qtd = arr.length;
+        totalClientesStatus += qtd;
+        const fatDelta = arr.reduce((acc,r)=>acc + (Number(r.ValorAtual||0) - Number(r.ValorAnterior||0)), 0);
+        statusCounts.push({ Status:s, QtdClientes:qtd, FatDelta:fatDelta });
+      }
+
+      // Pie
+      const pieStatusLabels = statusCounts.map(r=>r.Status);
+      const pieStatusValues = statusCounts.map(r=>r.QtdClientes);
+      const pieStatusTotal = pieStatusValues.reduce((a,b)=>a+b,0);
+      const pieStatusText = statusCounts.map(r=>{
+        const share = pieStatusTotal>0 ? r.QtdClientes/pieStatusTotal : 0;
+        return (share>=0.10) ? `${r.Status}<br>${(share*100).toFixed(0)}%` : "";
+      });
+
+      // custom colors order: Perdidos red, Caindo orange, Estáveis yellow, Crescendo green, Novos blue
+      const statusColorMap = { "Perdidos":"#ef4444", "Caindo":"#f97316", "Estáveis":"#eab308", "Crescendo":"#22c55e", "Novos":"#3b82f6" };
+      Plotly.newPlot("statusPie", [{
+        type:"pie",
+        labels: pieStatusLabels,
+        values: pieStatusValues,
+        hole: 0.35,
+        sort:false,
+        text: pieStatusText,
+        textinfo:"text",
+        textposition:"inside",
+        marker:{ colors: pieStatusLabels.map(l=>statusColorMap[l] || "#999") },
+        hovertemplate: "%{label}<br>%{percent}<br>%{value}<extra></extra>"
+      }], {
+        margin:{l:10,r:10,t:10,b:10},
+        height:320,
+        showlegend:true,
+        paper_bgcolor:"rgba(0,0,0,0)",
+        plot_bgcolor:"rgba(0,0,0,0)",
+        font:{color:"rgba(255,255,255,0.88)", family:"Inter, sans-serif"},
+        legend:{font:{color:"rgba(255,255,255,0.75)"}, orientation:"h", y:-0.05}
+      }, {displayModeBar:false, responsive:true});
+
+      // Resumo table (ordered)
+      statusResumoBodyEl.innerHTML = statusCounts.map(r=>{
+        const pct = totalClientesStatus>0 ? r.QtdClientes/totalClientesStatus : 0;
+        return `
+          <tr>
+            <td>${esc(r.Status)}</td>
+            <td>${esc(String(r.QtdClientes))}</td>
+            <td>${esc((pct*100).toFixed(1)+"%")}</td>
+            <td>${esc(formatBRLSigned(r.FatDelta))}</td>
+          </tr>
+        `;
+      }).join("");
+
+      statusObsEl.innerHTML =
+        `<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento entre o período atual (<b>${esc(currentLabel)}</b>) `+
+        `e o período anterior (<b>${esc(prevLabel)}</b>). Valores positivos indicam crescimento; valores negativos indicam queda.`;
+
+      // Status dos clientes (full list, search)
+      const search = (searchClienteEl.value || "").trim().toLowerCase();
+      const statusBuckets = new Map(STATUS_ORDER.map(s=>[s, []]));
+      for (const r of clientesCarteira){
+        const s = String(r[STATUS_COL]||"");
+        if (!statusBuckets.has(s)) continue;
+        if (search && !String(r.Cliente||"").toLowerCase().includes(search)) continue;
+        statusBuckets.get(s).push(r);
+      }
+      // sort each status by ValorAtual desc
+      for (const s of STATUS_ORDER){
+        statusBuckets.get(s).sort((a,b)=>(Number(b.ValorAtual||0)-Number(a.ValorAtual||0)));
+      }
+
+      statusTablesEl.innerHTML = "";
+      for (const s of STATUS_ORDER){
+        const rows = statusBuckets.get(s);
+        if (!rows.length) continue;
+
+        const title = document.createElement("h3");
+        title.textContent = s;
+        statusTablesEl.appendChild(title);
+
+        const tbl = document.createElement("table");
+        tbl.innerHTML = `
+          <colgroup class="tbl-status"><col><col><col><col><col><col></colgroup>
           <thead>
             <tr>
               <th>Cliente</th>
-              <th>Cidade</th>
               <th>Estado</th>
-              <th>Volume</th>
-              <th>Faturamento</th>
-              <th>Variação (R$)</th>
+              <th>Cidade</th>
+              <th>Status</th>
+              <th>Faturamento ${esc(currentLabel)}</th>
+              <th>Faturamento ${esc(prevLabel)}</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsHtml || `<tr><td colspan="6" style="color: rgba(255,255,255,0.6);">Sem clientes neste status.</td></tr>`}
+            ${rows.map(r=>`
+              <tr>
+                <td title="${esc(r.Cliente)}">${esc(shorten(r.Cliente, 56))}</td>
+                <td>${esc(r.Estado||"")}</td>
+                <td title="${esc(r.Cidade||"")}">${esc(shorten(r.Cidade||"", 26))}</td>
+                <td>${esc(s)}</td>
+                <td>${esc(formatBRL(Number(r.ValorAtual||0)))}</td>
+                <td>${esc(formatBRL(Number(r.ValorAnterior||0)))}</td>
+              </tr>
+            `).join("")}
           </tbody>
-        </table>
-      </div>
-    `;
-  }).join("");
+        `;
+        statusTablesEl.appendChild(tbl);
+        const spacer = document.createElement("div");
+        spacer.style.height = "10px";
+        statusTablesEl.appendChild(spacer);
+      }
 
-  wrap.innerHTML = tables;
-}
+      // Re-render map if metric changed via radio without hitting Apply
+      // (handled by radio change listener too)
+    }
 
-/* =======================
-   MAIN PIPELINE
-======================= */
-async function loadAll(){
-  const txt = await fetchCSV(URL_FATURAMENTO);
-  const parsed = await parseCSV(txt);
+    // ==========================
+    // INIT UI (month/year options)
+    // ==========================
+    function initSelectors(){
+      startMonthEl.innerHTML = MONTH_NAMES.map(m=>`<option value="${m}">${m}</option>`).join("");
+      endMonthEl.innerHTML = MONTH_NAMES.map(m=>`<option value="${m}">${m}</option>`).join("");
 
-  const data = parsed.data;
-  const headers = parsed.meta.fields || Object.keys(data[0]||{});
-  const mapH = buildHeaderMap(headers);
+      const years = Array.from(new Set(RAW.map(r=>r.Ano))).sort((a,b)=>a-b);
+      if (!years.length) throw new Error("Não foi possível identificar anos na base de dados.");
 
-  // Map expected names (your CSV headers are in Portuguese already, but keep robust)
-  const colAno = pickCol(mapH, ["Ano"]);
-  const colMes = pickCol(mapH, ["Mes","Mês"]);
-  const colValor = pickCol(mapH, ["Valor"]);
-  const colQtd = pickCol(mapH, ["Quantidade"]);
-  const colCliente = pickCol(mapH, ["Cliente"]);
-  const colEstado = pickCol(mapH, ["Estado","UF"]);
-  const colCidade = pickCol(mapH, ["Cidade"]);
-  const colRep = pickCol(mapH, ["Representante"]);
-  const colCat = pickCol(mapH, ["Categoria"]);
+      const lastYear = years[years.length-1];
 
-  if(!colAno || !colMes || !colValor || !colQtd || !colCliente || !colEstado || !colCidade || !colRep){
-    throw new Error("CSV inválido: colunas obrigatórias não encontradas (Ano, Mes, Valor, Quantidade, Cliente, Estado, Cidade, Representante).");
-  }
+      startYearEl.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join("");
+      endYearEl.innerHTML = years.map(y=>`<option value="${y}">${y}</option>`).join("");
 
-  RAW = data.map(r => ({
-    Ano: Number(r[colAno]),
-    Mes: Number(r[colMes]),
-    Valor: Number(String(r[colValor]||"0").replace(",", ".")) || 0,
-    Quantidade: Number(String(r[colQtd]||"0").replace(",", ".")) || 0,
-    Cliente: String(r[colCliente]||"").trim(),
-    Estado: String(r[colEstado]||"").trim(),
-    Cidade: String(r[colCidade]||"").trim(),
-    Representante: String(r[colRep]||"").trim(),
-    Categoria: colCat ? String(r[colCat]||"").trim() : ""
-  })).filter(r => Number.isFinite(r.Ano) && Number.isFinite(r.Mes));
+      // default months based on last year available months
+      const monthsLastYear = RAW.filter(r=>r.Ano===lastYear).map(r=>r.MesNum);
+      const minM = Math.min(...monthsLastYear);
+      const maxM = Math.max(...monthsLastYear);
 
-  // Load geo
-  try{
-    const txtGeo = await fetchCSV(URL_CIDADES_GEO);
-    const parsedGeo = await parseCSV(txtGeo);
-    const geoNorm = normalizeGeoRows(parsedGeo.data);
-    GEO = geoNorm;
-  }catch(e){
-    // keep GEO empty; map will show no markers
-    GEO = [];
-    console.warn("Geo load failed:", e);
-  }
+      startMonthEl.value = MONTH_MAP_NUM_TO_NAME[minM] || "JAN";
+      endMonthEl.value = MONTH_MAP_NUM_TO_NAME[maxM] || "DEZ";
+      startYearEl.value = String(lastYear);
+      endYearEl.value = String(lastYear);
 
-  document.getElementById("dataFreshness").textContent = `Última atualização: ${new Date().toLocaleString("pt-BR")}`;
+      // initial rep options based on default period
+      const startComp = compDate(lastYear, minM);
+      const endComp = compDate(lastYear, maxM);
+      const dfPeriod = RAW.filter(r => r.Competencia >= startComp && r.Competencia <= endComp);
+      const reps = Array.from(new Set(dfPeriod.map(r=>String(r.Representante||"")).filter(Boolean))).sort();
+      repSelectEl.innerHTML = ["Todos", ...reps].map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join("");
+      repSelectEl.value = "Todos";
+    }
 
-  populateFilters();
-  applyFilters(true);
-}
+    // ==========================
+    // Events
+    // ==========================
+    toggleSidebarBtn.addEventListener("click", ()=>{
+      appEl.classList.toggle("sidebar-collapsed");
+      // ensure plotly resizes
+      setTimeout(()=>{ Plotly.Plots.resize("statesPie"); Plotly.Plots.resize("evoCurrent"); Plotly.Plots.resize("evoPrev"); Plotly.Plots.resize("catPie"); Plotly.Plots.resize("clientsPie"); Plotly.Plots.resize("statusPie"); }, 200);
+      setTimeout(()=>{ if (map) map.invalidateSize(); }, 220);
+    });
 
-function populateFilters(){
-  const years = getAvailableYears(RAW);
-  const lastYear = years[years.length-1] || new Date().getFullYear();
+    printBtn.addEventListener("click", ()=> window.print());
 
-  // choose default: last year and its min/max months
-  const monthsLastYear = getAvailableMonthsForYear(RAW, lastYear);
-  const defSM = monthsLastYear[0] || 1;
-  const defEM = monthsLastYear[monthsLastYear.length-1] || 12;
+    applyBtn.addEventListener("click", ()=>{
+      recomputeAndRender();
+      // close sidebar after applying (optional)
+      appEl.classList.add("sidebar-collapsed");
+      setTimeout(()=>{ if (map) map.invalidateSize(); }, 220);
+    });
 
-  // rep
-  const reps = repList(RAW).map(r=>({value:r, label:(r==="Todos"?"Todos":""+r)}));
-  setOptions(document.getElementById("repSelect"), reps, "Todos");
+    document.getElementById("mapMetricRadio").addEventListener("change", ()=>{
+      // immediate map update without full recompute
+      recomputeAndRender();
+      setTimeout(()=>{ if (map) map.invalidateSize(); }, 120);
+    });
 
-  // year selects
-  const yearOpts = years.map(y=>({value:y, label:String(y)}));
-  setOptions(document.getElementById("startYear"), yearOpts, lastYear);
-  setOptions(document.getElementById("endYear"), yearOpts, lastYear);
+    searchClienteEl.addEventListener("input", ()=>{
+      // only re-render status tables quickly (simplest: recompute entire view)
+      recomputeAndRender();
+    });
 
-  // months selects based on selected years
-  const smOpts = getAvailableMonthsForYear(RAW, lastYear).map(m=>({value:m, label:monthLabel(m)}));
-  setOptions(document.getElementById("startMonth"), smOpts, defSM);
-
-  const emOpts = getAvailableMonthsForYear(RAW, lastYear).map(m=>({value:m, label:monthLabel(m)}));
-  setOptions(document.getElementById("endMonth"), emOpts, defEM);
-
-  // dynamic month options when year changes
-  document.getElementById("startYear").addEventListener("change", ()=>{
-    const y = Number(document.getElementById("startYear").value);
-    const ms = getAvailableMonthsForYear(RAW, y);
-    setOptions(document.getElementById("startMonth"), ms.map(m=>({value:m,label:monthLabel(m)})), ms[0]||1);
-  });
-  document.getElementById("endYear").addEventListener("change", ()=>{
-    const y = Number(document.getElementById("endYear").value);
-    const ms = getAvailableMonthsForYear(RAW, y);
-    setOptions(document.getElementById("endMonth"), ms.map(m=>({value:m,label:monthLabel(m)})), ms[ms.length-1]||12);
-  });
-}
-
-function labelPeriod(sAno,sMes,eAno,eMes){
-  return `${monthLabel(sMes)} ${String(sAno).slice(-2)} - ${monthLabel(eMes)} ${String(eAno).slice(-2)}`;
-}
-
-function applyFilters(initial=false){
-  const rep = document.getElementById("repSelect").value;
-  const sAno = Number(document.getElementById("startYear").value);
-  const sMes = Number(document.getElementById("startMonth").value);
-  const eAno = Number(document.getElementById("endYear").value);
-  const eMes = Number(document.getElementById("endMonth").value);
-
-  currentFiltered = filterByPeriod(RAW, rep, sAno,sMes,eAno,eMes);
-
-  const prev = computePrevPeriod(sAno,sMes,eAno,eMes);
-  prevFiltered = filterByPeriod(RAW, rep, prev.sAno,prev.sMes,prev.eAno,prev.eMes);
-
-  const repTitle = (rep==="Todos") ? "Representante: Todos" : `Representante: ${rep}`;
-  document.getElementById("titleSub").textContent = repTitle;
-
-  const curLabel = labelPeriod(sAno,sMes,eAno,eMes);
-  const prevLabel = labelPeriod(prev.sAno,prev.sMes,prev.eAno,prev.eMes);
-
-  document.getElementById("periodLine").textContent = `Período selecionado: ${curLabel}`;
-
-  // Monthly aggregations
-  const curMonthly = aggMonthly(currentFiltered);
-  const prevMonthly = aggMonthly(prevFiltered);
-
-  // Concentration + status + health
-  const conc = concentrationMetricsByClient(currentFiltered);
-
-  currentStatus = statusByClient(currentFiltered, prevFiltered);
-  const health = computeCarteiraScore(currentStatus);
-
-  // KPIs
-  buildKpis(rep, currentFiltered, prev, conc, health);
-
-  // Highlights
-  renderHighlights(curMonthly);
-
-  // Coverage + map + clients
-  renderCoverage(currentFiltered);
-  renderTopClients(currentFiltered);
-  renderMap(currentFiltered);
-
-  // States distribution
-  renderStatesPieAndTables(currentFiltered);
-
-  // Evolution charts totals
-  const curTotVal = sumField(currentFiltered,"Valor");
-  const curTotVol = sumField(currentFiltered,"Quantidade");
-  const prevTotVal = sumField(prevFiltered,"Valor");
-  const prevTotVol = sumField(prevFiltered,"Quantidade");
-
-  renderEvolution(
-    curMonthly, prevMonthly,
-    curLabel, prevLabel,
-    `${formatBRL(curTotVal)} • ${formatVolume(curTotVol)}`,
-    `${formatBRL(prevTotVal)} • ${formatVolume(prevTotVol)}`
-  );
-
-  // Categories
-  renderCategory(currentFiltered, prevFiltered);
-
-  // Client distribution
-  renderClientsDistribution(currentFiltered);
-
-  // Health section
-  renderHealth(currentStatus, health);
-
-  // Status tables full list
-  const searchTerm = document.getElementById("clientSearch").value;
-  renderStatusTables(currentStatus, curLabel, prevLabel, searchTerm);
-}
-
-/* =======================
-   EVENTS
-======================= */
-document.getElementById("applyBtn").addEventListener("click", ()=> applyFilters(false));
-document.getElementById("clientSearch").addEventListener("input", ()=> {
-  const rep = document.getElementById("repSelect").value;
-  const sAno = Number(document.getElementById("startYear").value);
-  const sMes = Number(document.getElementById("startMonth").value);
-  const eAno = Number(document.getElementById("endYear").value);
-  const eMes = Number(document.getElementById("endMonth").value);
-
-  const curLabel = labelPeriod(sAno,sMes,eAno,eMes);
-  const prev = computePrevPeriod(sAno,sMes,eAno,eMes);
-  const prevLabel = labelPeriod(prev.sAno,prev.sMes,prev.eAno,prev.eMes);
-
-  renderStatusTables(currentStatus, curLabel, prevLabel, document.getElementById("clientSearch").value);
-});
-
-// collapsible sidebar
-document.getElementById("collapseBtn").addEventListener("click", ()=>{
-  document.getElementById("sidebar").classList.toggle("collapsed");
-});
-
-// init
-loadAll().catch(err=>{
-  console.error(err);
-  alert("Erro ao carregar dados: " + err.message);
-});
-</script>
+    // ==========================
+    // BOOT
+    // ==========================
+    (async function boot(){
+      try{
+        await loadAllData();
+        initSelectors();
+        recomputeAndRender();
+      }catch(e){
+        console.error(e);
+        alert(String(e.message || e));
+      }
+    })();
+  </script>
 </body>
 </html>
