@@ -745,7 +745,7 @@ with _rep_left:
     pass
 
 with _rep_right:
-    _gen = st.button("📄 Gerar PDF", use_container_width=True, key="pdf_gen_btn")
+    
 
     if _gen:
         st.session_state["pdf_report_error"] = None
