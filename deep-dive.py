@@ -674,115 +674,212 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
     export_btn = st.button("Gerar PDF agora")
 
     if export_btn:
-        # Prepare tables for the report (best-effort, using what the app already computed)
-        estados_tbl_pdf = None
-        categorias_tbl_pdf = None
-        clientes_tbl_pdf = None
-        carteira_tbl_pdf = None
+        # ==========================================================
+        # IMPORTANT:
+        # This section must NOT depend on variables created later in the script.
+        # We compute everything from the already-filtered df_rep / df_rep_prev
+        # whenever they are available.
+        # ==========================================================
+        if "df_rep" not in globals() or df_rep is None or df_rep.empty:
+            st.error("Sem dados do período atual para gerar o relatório. Ajuste os filtros e tente novamente.")
+        else:
+            # --- Compute KPIs from df_rep (safe) ---
+            total_rep_pdf = float(df_rep["Valor"].sum()) if "Valor" in df_rep.columns else 0.0
 
-        try:
-            # Estados table exists later; re-build minimal version here
-            estados_df_pdf = df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Valor", ascending=False)
-            if not estados_df_pdf.empty:
-                estados_df_pdf["Faturamento"] = estados_df_pdf["Valor"].map(format_brl)
-                estados_df_pdf["Volume"] = estados_df_pdf["Quantidade"].map(format_un)
-                estados_tbl_pdf = estados_df_pdf[["Estado", "Faturamento", "Volume"]].head(15)
-        except Exception:
+            try:
+                mensal_pdf = (
+                    df_rep.groupby(["Ano", "MesNum"], as_index=False)[["Valor", "Quantidade"]]
+                    .sum()
+                    .sort_values(["Ano", "MesNum"])
+                )
+                media_mensal_pdf = float(mensal_pdf["Valor"].mean()) if not mensal_pdf.empty else 0.0
+            except Exception:
+                mensal_pdf = pd.DataFrame()
+                media_mensal_pdf = 0.0
+
+            clientes_atendidos_pdf = int(df_rep["Cliente"].nunique()) if "Cliente" in df_rep.columns else 0
+            cidades_atendidas_pdf = int(df_rep["Cidade"].nunique()) if "Cidade" in df_rep.columns else 0
+            estados_atendidos_pdf = int(df_rep["Estado"].nunique()) if "Estado" in df_rep.columns else 0
+
+            # --- N80 (compute on the fly) ---
+            n80_count_pdf = 0
+            try:
+                if "Cliente" in df_rep.columns and "Valor" in df_rep.columns and clientes_atendidos_pdf > 0:
+                    by_client = df_rep.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
+                    by_client["share"] = by_client["Valor"] / max(by_client["Valor"].sum(), 1e-9)
+                    by_client["cum_share"] = by_client["share"].cumsum()
+                    n80_count_pdf = int((by_client["cum_share"] <= 0.80).sum())
+                    # include the first client that crosses 80%
+                    if n80_count_pdf < len(by_client):
+                        n80_count_pdf += 1
+            except Exception:
+                n80_count_pdf = 0
+
+            # --- HHI (compute on the fly) ---
+            hhi_value_pdf = 0.0
+            hhi_label_short_pdf = "—"
+            try:
+                if "Cliente" in df_rep.columns and "Valor" in df_rep.columns and total_rep_pdf > 0:
+                    shares = (df_rep.groupby("Cliente")["Valor"].sum() / total_rep_pdf).clip(lower=0)
+                    hhi_value_pdf = float((shares ** 2).sum())
+                    # simple buckets
+                    if hhi_value_pdf < 0.10:
+                        hhi_label_short_pdf = "Baixa"
+                    elif hhi_value_pdf < 0.18:
+                        hhi_label_short_pdf = "Média"
+                    else:
+                        hhi_label_short_pdf = "Alta"
+            except Exception:
+                pass
+
+            # --- Carteira score (if already computed later, we fallback to placeholders) ---
+            carteira_score_pdf = None
+            carteira_label_pdf = None
+            try:
+                carteira_score_pdf = float(globals().get("carteira_score", None))
+                carteira_label_pdf = globals().get("carteira_label", None)
+            except Exception:
+                carteira_score_pdf = None
+                carteira_label_pdf = None
+
+            # --- Period labels / rep name (fallback safe) ---
+            rep_name_pdf = globals().get("titulo_rep", globals().get("rep_name", "—"))
+            current_period_label_pdf = globals().get("current_period_label", "Período atual")
+            previous_period_label_pdf = globals().get("previous_period_label", "Período anterior")
+
+            # Prepare tables for the report (best-effort, using what we have now)
             estados_tbl_pdf = None
-
-        try:
-            # Categorias table
-            curr_cat_pdf = df_rep.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAtual"})
-            prev_cat_pdf = df_rep_prev.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAnterior"})
-            cat_pdf = pd.merge(curr_cat_pdf, prev_cat_pdf, on="Categoria", how="outer").fillna(0.0)
-            cat_pdf["Valor"] = cat_pdf["ValorAtual"].map(format_brl)
-            cat_pdf["Variação (R$)"] = (cat_pdf["ValorAtual"] - cat_pdf["ValorAnterior"]).map(format_brl_signed)
-            categorias_tbl_pdf = cat_pdf.sort_values("ValorAtual", ascending=False)[["Categoria", "Valor", "Variação (R$)"]].head(25)
-        except Exception:
             categorias_tbl_pdf = None
-
-        try:
-            # Top clients table
-            cli_pdf = (df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False).agg(Valor=("Valor","sum"), Quantidade=("Quantidade","sum")).sort_values("Valor", ascending=False))
-            cli_pdf["Faturamento"] = cli_pdf["Valor"].map(format_brl)
-            cli_pdf["Volume"] = cli_pdf["Quantidade"].map(format_un)
-            clientes_tbl_pdf = cli_pdf[["Cliente", "Cidade", "Estado", "Faturamento", "Volume"]].head(25)
-        except Exception:
             clientes_tbl_pdf = None
-
-        try:
-            if clientes_carteira is not None and not clientes_carteira.empty:
-                status_counts_pdf = (clientes_carteira.groupby(STATUS_COL)["Cliente"].nunique().reset_index().rename(columns={STATUS_COL:"Status","Cliente":"Clientes"}))
-                status_counts_pdf["Status"] = pd.Categorical(status_counts_pdf["Status"], categories=STATUS_ORDER, ordered=True)
-                status_counts_pdf = status_counts_pdf.sort_values("Status")
-                carteira_tbl_pdf = status_counts_pdf
-        except Exception:
             carteira_tbl_pdf = None
 
-        # KPIs dictionary
-        kpis_pdf = {
-            "Total período": format_brl(total_rep),
-            "Média mensal": format_brl(media_mensal),
-            "Clientes atendidos": str(clientes_atendidos),
-            "Cidades atendidas": str(cidades_atendidas),
-            "Estados atendidos": str(estados_atendidos),
-            "N80": f"{n80_count} ({(n80_count/clientes_atendidos if clientes_atendidos else 0):.0%} da carteira)",
-            "Concentração (HHI)": f"{hhi_label_short} ({hhi_value:.3f})",
-            "Saúde da carteira": f"{carteira_score:.0f}/100 ({carteira_label})",
-        }
+            try:
+                estados_df_pdf = df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Valor", ascending=False)
+                if not estados_df_pdf.empty:
+                    estados_df_pdf["Faturamento"] = estados_df_pdf["Valor"].map(format_brl)
+                    estados_df_pdf["Volume"] = estados_df_pdf["Quantidade"].map(format_un)
+                    estados_tbl_pdf = estados_df_pdf[["Estado", "Faturamento", "Volume"]].head(15)
+            except Exception:
+                estados_tbl_pdf = None
 
-        highlights_pdf = {}
-        try:
-            if not df_rep.empty:
-                mensal_rep_pdf = df_rep.groupby(["Ano","MesNum"], as_index=False)[["Valor","Quantidade"]].sum()
-                mensal_rep_pdf["Competencia"] = pd.to_datetime(dict(year=mensal_rep_pdf["Ano"], month=mensal_rep_pdf["MesNum"], day=1))
-                mensal_rep_pdf["MesLabel"] = mensal_rep_pdf["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
-                best_fat_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Valor"].idxmax()]
-                worst_fat_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Valor"].idxmin()]
-                best_vol_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Quantidade"].idxmax()]
-                worst_vol_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Quantidade"].idxmin()]
-                highlights_pdf = {
-                    "Melhor mês (Faturamento)": f"{best_fat_pdf['MesLabel']} — {format_brl(best_fat_pdf['Valor'])}",
-                    "Pior mês (Faturamento)": f"{worst_fat_pdf['MesLabel']} — {format_brl(worst_fat_pdf['Valor'])}",
-                    "Melhor mês (Volume)": f"{best_vol_pdf['MesLabel']} — {format_un(best_vol_pdf['Quantidade'])}",
-                    "Pior mês (Volume)": f"{worst_vol_pdf['MesLabel']} — {format_un(worst_vol_pdf['Quantidade'])}",
-                }
-        except Exception:
+            try:
+                if "df_rep_prev" in globals() and df_rep_prev is not None and not df_rep_prev.empty and "Categoria" in df_rep.columns and "Categoria" in df_rep_prev.columns:
+                    curr_cat_pdf = df_rep.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAtual"})
+                    prev_cat_pdf = df_rep_prev.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAnterior"})
+                    cat_pdf = pd.merge(curr_cat_pdf, prev_cat_pdf, on="Categoria", how="outer").fillna(0.0)
+                else:
+                    curr_cat_pdf = df_rep.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAtual"})
+                    cat_pdf = curr_cat_pdf.copy()
+                    cat_pdf["ValorAnterior"] = 0.0
+
+                cat_pdf["Valor"] = cat_pdf["ValorAtual"].map(format_brl)
+                cat_pdf["Variação (R$)"] = (cat_pdf["ValorAtual"] - cat_pdf["ValorAnterior"]).map(format_brl_signed)
+                categorias_tbl_pdf = cat_pdf.sort_values("ValorAtual", ascending=False)[["Categoria", "Valor", "Variação (R$)"]].head(25)
+            except Exception:
+                categorias_tbl_pdf = None
+
+            try:
+                cli_pdf = (
+                    df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)
+                    .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
+                    .sort_values("Valor", ascending=False)
+                )
+                cli_pdf["Faturamento"] = cli_pdf["Valor"].map(format_brl)
+                cli_pdf["Volume"] = cli_pdf["Quantidade"].map(format_un)
+                clientes_tbl_pdf = cli_pdf[["Cliente", "Cidade", "Estado", "Faturamento", "Volume"]].head(25)
+            except Exception:
+                clientes_tbl_pdf = None
+
+            try:
+                clientes_carteira_local = globals().get("clientes_carteira", None)
+                if clientes_carteira_local is not None and hasattr(clientes_carteira_local, "empty") and not clientes_carteira_local.empty:
+                    status_col = globals().get("STATUS_COL", "Status")
+                    status_order = globals().get("STATUS_ORDER", None)
+                    status_counts_pdf = (
+                        clientes_carteira_local.groupby(status_col)["Cliente"]
+                        .nunique()
+                        .reset_index()
+                        .rename(columns={status_col: "Status", "Cliente": "Clientes"})
+                    )
+                    if status_order is not None:
+                        status_counts_pdf["Status"] = pd.Categorical(status_counts_pdf["Status"], categories=status_order, ordered=True)
+                        status_counts_pdf = status_counts_pdf.sort_values("Status")
+                    carteira_tbl_pdf = status_counts_pdf
+            except Exception:
+                carteira_tbl_pdf = None
+
+            # KPIs dictionary (safe)
+            kpis_pdf = {
+                "Total período": format_brl(total_rep_pdf),
+                "Média mensal": format_brl(media_mensal_pdf),
+                "Clientes atendidos": str(clientes_atendidos_pdf),
+                "Cidades atendidas": str(cidades_atendidas_pdf),
+                "Estados atendidos": str(estados_atendidos_pdf),
+                "N80": f"{n80_count_pdf} ({(n80_count_pdf/clientes_atendidos_pdf if clientes_atendidos_pdf else 0):.0%} da carteira)",
+                "Concentração (HHI)": f"{hhi_label_short_pdf} ({hhi_value_pdf:.3f})",
+                "Saúde da carteira": (f"{carteira_score_pdf:.0f}/100 ({carteira_label_pdf})" if carteira_score_pdf is not None else "—"),
+            }
+
+            # Highlights (best/worst month)
             highlights_pdf = {}
+            try:
+                if mensal_pdf is not None and not mensal_pdf.empty:
+                    mensal_pdf = mensal_pdf.copy()
+                    mensal_pdf["Competencia"] = pd.to_datetime(dict(year=mensal_pdf["Ano"], month=mensal_pdf["MesNum"], day=1))
+                    mensal_pdf["MesLabel"] = mensal_pdf["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
+                    best_fat_pdf = mensal_pdf.loc[mensal_pdf["Valor"].idxmax()]
+                    worst_fat_pdf = mensal_pdf.loc[mensal_pdf["Valor"].idxmin()]
+                    best_vol_pdf = mensal_pdf.loc[mensal_pdf["Quantidade"].idxmax()]
+                    worst_vol_pdf = mensal_pdf.loc[mensal_pdf["Quantidade"].idxmin()]
+                    highlights_pdf = {
+                        "Melhor mês (Faturamento)": f"{best_fat_pdf['MesLabel']} — {format_brl(best_fat_pdf['Valor'])}",
+                        "Pior mês (Faturamento)": f"{worst_fat_pdf['MesLabel']} — {format_brl(worst_fat_pdf['Valor'])}",
+                        "Melhor mês (Volume)": f"{best_vol_pdf['MesLabel']} — {format_un(best_vol_pdf['Quantidade'])}",
+                        "Pior mês (Volume)": f"{worst_vol_pdf['MesLabel']} — {format_un(worst_vol_pdf['Quantidade'])}",
+                    }
+            except Exception:
+                highlights_pdf = {}
 
-        # Charts (only if user wants and we can)
-        fig_states_pdf = fig_states if (include_charts and 'fig_states' in globals()) else None
-        fig_cat_pdf = fig_cat if (include_charts and 'fig_cat' in globals()) else None
-        fig_clients_pdf = fig if (include_charts and 'fig' in globals()) else None
+            # Charts (only if user wants and they exist at this point)
+            fig_states_pdf = globals().get("fig_states", None) if include_charts else None
+            fig_cat_pdf = globals().get("fig_cat", None) if include_charts else None
+            fig_clients_pdf = globals().get("fig", None) if include_charts else None
 
-        try:
-            pdf_bytes = build_pdf_report(
-                rep_name=titulo_rep,
-                current_period_label=current_period_label,
-                previous_period_label=previous_period_label,
-                kpis=kpis_pdf,
-                highlights=highlights_pdf,
-                estados_table=estados_tbl_pdf,
-                categorias_table=categorias_tbl_pdf,
-                clientes_table=clientes_tbl_pdf,
-                carteira_status_table=carteira_tbl_pdf,
-                chart_states_plotly=fig_states_pdf,
-                chart_cat_plotly=fig_cat_pdf,
-                chart_clients_plotly=fig_clients_pdf,
-            )
-            file_name = f"relatorio_insights_{re.sub(r'[^A-Za-z0-9_-]+','_', titulo_rep)[:40]}_{start_comp.strftime('%Y%m')}-{end_comp.strftime('%Y%m')}.pdf"
-            st.download_button(
-                "⬇️ Baixar PDF",
-                data=pdf_bytes,
-                file_name=file_name,
-                mime="application/pdf",
-            )
-            st.success("PDF gerado com sucesso.")
-        except Exception as ex:
-            st.error(f"Não foi possível gerar o PDF: {ex}")
+            try:
+                pdf_bytes = build_pdf_report(
+                    rep_name=rep_name_pdf,
+                    current_period_label=current_period_label_pdf,
+                    previous_period_label=previous_period_label_pdf,
+                    kpis=kpis_pdf,
+                    highlights=highlights_pdf,
+                    estados_table=estados_tbl_pdf,
+                    categorias_table=categorias_tbl_pdf,
+                    clientes_table=clientes_tbl_pdf,
+                    carteira_status_table=carteira_tbl_pdf,
+                    chart_states_plotly=fig_states_pdf,
+                    chart_cat_plotly=fig_cat_pdf,
+                    chart_clients_plotly=fig_clients_pdf,
+                )
+                safe_rep = re.sub(r"[^A-Za-z0-9_-]+", "_", str(rep_name_pdf))[:40]
+                # best-effort period in filename
+                start_comp = globals().get("start_comp", None)
+                end_comp = globals().get("end_comp", None)
+                if start_comp is not None and end_comp is not None and hasattr(start_comp, "strftime"):
+                    suffix = f"{start_comp.strftime('%Y%m')}-{end_comp.strftime('%Y%m')}"
+                else:
+                    suffix = "periodo"
+                file_name = f"relatorio_insights_{safe_rep}_{suffix}.pdf"
 
+                st.download_button(
+                    "⬇️ Baixar PDF",
+                    data=pdf_bytes,
+                    file_name=file_name,
+                    mime="application/pdf",
+                )
+                st.success("PDF gerado com sucesso.")
+            except Exception as ex:
+                st.error(f"Não foi possível gerar o PDF: {ex}")
 
-st.markdown("---")
 
 # ==========================
 # TOP KPIs (5 columns)
