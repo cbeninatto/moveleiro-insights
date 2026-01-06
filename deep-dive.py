@@ -13,6 +13,21 @@ import unicodedata
 import html
 
 # ==========================
+# PDF EXPORT (REPORT)
+# ==========================
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.units import cm
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
+
+try:
+    import plotly.io as pio
+except Exception:  # pragma: no cover
+    pio = None
+
+
+# ==========================
 # CONFIG
 # ==========================
 st.set_page_config(
@@ -404,6 +419,137 @@ def load_geo() -> pd.DataFrame:
     )
     return df_geo[["key", "Estado", "Cidade", "lat", "lon"]]
 
+
+# ==========================
+# PDF EXPORT HELPERS
+# ==========================
+def _safe_str(x) -> str:
+    return "" if x is None else str(x)
+
+def _plotly_to_png_bytes(fig, width_px: int = 1400, scale: int = 2):
+    """Best-effort Plotly -> PNG bytes. Requires kaleido in the environment."""
+    if fig is None or pio is None:
+        return None
+    try:
+        return fig.to_image(format="png", width=width_px, scale=scale)
+    except Exception:
+        return None
+
+def build_pdf_report(
+    rep_name: str,
+    current_period_label: str,
+    previous_period_label: str,
+    kpis: dict,
+    highlights: dict,
+    estados_table: pd.DataFrame | None = None,
+    categorias_table: pd.DataFrame | None = None,
+    clientes_table: pd.DataFrame | None = None,
+    carteira_status_table: pd.DataFrame | None = None,
+    chart_states_plotly=None,
+    chart_cat_plotly=None,
+    chart_clients_plotly=None,
+):
+    """Build a print-ready PDF (landscape A4) and return bytes."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=1.2*cm, rightMargin=1.2*cm, topMargin=1.0*cm, bottomMargin=1.0*cm,
+        title="Insights de Vendas - Relatório",
+    )
+
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="H1", parent=styles["Heading1"], fontSize=16, leading=18, spaceAfter=8))
+    styles.add(ParagraphStyle(name="H2", parent=styles["Heading2"], fontSize=12, leading=14, spaceBefore=8, spaceAfter=6))
+    styles.add(ParagraphStyle(name="BodyS", parent=styles["BodyText"], fontSize=9.5, leading=12))
+    styles.add(ParagraphStyle(name="Caption", parent=styles["BodyText"], fontSize=8.5, leading=10, textColor=colors.grey))
+
+    story = []
+    now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    story.append(Paragraph("Insights de Vendas — Relatório", styles["H1"]))
+    story.append(Paragraph(f"Representante: <b>{_safe_str(rep_name)}</b>", styles["BodyS"]))
+    story.append(Paragraph(f"Período selecionado: <b>{_safe_str(current_period_label)}</b>  |  Período anterior: <b>{_safe_str(previous_period_label)}</b>", styles["BodyS"]))
+    story.append(Paragraph(f"Gerado em: {now}", styles["Caption"]))
+    story.append(Spacer(1, 10))
+
+    # KPIs
+    story.append(Paragraph("Resumo (KPIs)", styles["H2"]))
+    kpi_rows = [["Métrica", "Valor"]] + [[k, v] for k, v in kpis.items()]
+    t = Table(kpi_rows, colWidths=[8.0*cm, 18.0*cm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,0), 9.5),
+        ("GRID", (0,0), (-1,-1), 0.25, colors.HexColor("#e5e7eb")),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f9fafb")]),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("LEFTPADDING", (0,0), (-1,-1), 6),
+        ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 10))
+
+    # Highlights
+    story.append(Paragraph("Destaques do período", styles["H2"]))
+    bullets = []
+    if highlights:
+        for k, v in highlights.items():
+            bullets.append(f"• <b>{_safe_str(k)}:</b> {_safe_str(v)}")
+    story.append(Paragraph("<br/>".join(bullets) if bullets else "Sem destaques para o período.", styles["BodyS"]))
+    story.append(Spacer(1, 10))
+
+    # Optional charts (Plotly) — best effort
+    charts = [("Distribuição por estados", chart_states_plotly), ("Participação por categoria", chart_cat_plotly), ("Participação por clientes", chart_clients_plotly)]
+    any_chart = False
+    for title, fig in charts:
+        png = _plotly_to_png_bytes(fig) if fig is not None else None
+        if png:
+            any_chart = True
+            story.append(Paragraph(title, styles["H2"]))
+            story.append(RLImage(io.BytesIO(png), width=25.5*cm, height=10.2*cm))
+            story.append(Spacer(1, 6))
+
+    if any_chart:
+        story.append(PageBreak())
+
+    def _add_df_table(title: str, df_in: pd.DataFrame | None, max_rows: int = 25):
+        if df_in is None or df_in.empty:
+            return
+        story.append(Paragraph(title, styles["H2"]))
+        df_show = df_in.head(max_rows).copy()
+        data = [list(df_show.columns)] + df_show.astype(str).values.tolist()
+        # simple auto widths: spread evenly
+        col_count = len(df_show.columns)
+        col_w = (26.0*cm) / max(col_count, 1)
+        tbl = Table(data, colWidths=[col_w]*col_count, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,0), 8.8),
+            ("FONTSIZE", (0,1), (-1,-1), 8.3),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.HexColor("#e5e7eb")),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f9fafb")]),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("LEFTPADDING", (0,0), (-1,-1), 4),
+            ("RIGHTPADDING", (0,0), (-1,-1), 4),
+            ("TOPPADDING", (0,0), (-1,-1), 3),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+        ]))
+        story.append(tbl)
+        story.append(Spacer(1, 8))
+
+    _add_df_table("Resumo – Top estados", estados_table, max_rows=15)
+    _add_df_table("Resumo – Categorias", categorias_table, max_rows=25)
+    _add_df_table("Resumo – Top clientes", clientes_table, max_rows=25)
+    _add_df_table("Saúde da carteira – Resumo", carteira_status_table, max_rows=10)
+
+    doc.build(story)
+    return buf.getvalue()
+
 # ==========================
 # LOAD DATA
 # ==========================
@@ -516,6 +662,126 @@ st.title("Insights de Vendas")
 titulo_rep = "Todos" if rep_selected == "Todos" else rep_selected
 st.subheader(f"Representante: **{titulo_rep}**")
 st.caption(f"Período selecionado: {current_period_label}")
+st.markdown("---")
+
+# ==========================
+# EXPORT PDF (REPORT)
+# ==========================
+with st.expander("📄 Exportar relatório (PDF)", expanded=False):
+    st.caption("Gera um PDF em A4 paisagem (print-ready), sem depender da impressão do browser.")
+    include_charts = st.checkbox("Incluir gráficos (quando possível)", value=True)
+    st.caption("Obs.: Para embutir gráficos no PDF, o ambiente precisa do Plotly + Kaleido. Se não estiver disponível, o relatório sai com tabelas e textos.")
+    export_btn = st.button("Gerar PDF agora")
+
+    if export_btn:
+        # Prepare tables for the report (best-effort, using what the app already computed)
+        estados_tbl_pdf = None
+        categorias_tbl_pdf = None
+        clientes_tbl_pdf = None
+        carteira_tbl_pdf = None
+
+        try:
+            # Estados table exists later; re-build minimal version here
+            estados_df_pdf = df_rep.groupby("Estado", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Valor", ascending=False)
+            if not estados_df_pdf.empty:
+                estados_df_pdf["Faturamento"] = estados_df_pdf["Valor"].map(format_brl)
+                estados_df_pdf["Volume"] = estados_df_pdf["Quantidade"].map(format_un)
+                estados_tbl_pdf = estados_df_pdf[["Estado", "Faturamento", "Volume"]].head(15)
+        except Exception:
+            estados_tbl_pdf = None
+
+        try:
+            # Categorias table
+            curr_cat_pdf = df_rep.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAtual"})
+            prev_cat_pdf = df_rep_prev.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAnterior"})
+            cat_pdf = pd.merge(curr_cat_pdf, prev_cat_pdf, on="Categoria", how="outer").fillna(0.0)
+            cat_pdf["Valor"] = cat_pdf["ValorAtual"].map(format_brl)
+            cat_pdf["Variação (R$)"] = (cat_pdf["ValorAtual"] - cat_pdf["ValorAnterior"]).map(format_brl_signed)
+            categorias_tbl_pdf = cat_pdf.sort_values("ValorAtual", ascending=False)[["Categoria", "Valor", "Variação (R$)"]].head(25)
+        except Exception:
+            categorias_tbl_pdf = None
+
+        try:
+            # Top clients table
+            cli_pdf = (df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False).agg(Valor=("Valor","sum"), Quantidade=("Quantidade","sum")).sort_values("Valor", ascending=False))
+            cli_pdf["Faturamento"] = cli_pdf["Valor"].map(format_brl)
+            cli_pdf["Volume"] = cli_pdf["Quantidade"].map(format_un)
+            clientes_tbl_pdf = cli_pdf[["Cliente", "Cidade", "Estado", "Faturamento", "Volume"]].head(25)
+        except Exception:
+            clientes_tbl_pdf = None
+
+        try:
+            if clientes_carteira is not None and not clientes_carteira.empty:
+                status_counts_pdf = (clientes_carteira.groupby(STATUS_COL)["Cliente"].nunique().reset_index().rename(columns={STATUS_COL:"Status","Cliente":"Clientes"}))
+                status_counts_pdf["Status"] = pd.Categorical(status_counts_pdf["Status"], categories=STATUS_ORDER, ordered=True)
+                status_counts_pdf = status_counts_pdf.sort_values("Status")
+                carteira_tbl_pdf = status_counts_pdf
+        except Exception:
+            carteira_tbl_pdf = None
+
+        # KPIs dictionary
+        kpis_pdf = {
+            "Total período": format_brl(total_rep),
+            "Média mensal": format_brl(media_mensal),
+            "Clientes atendidos": str(clientes_atendidos),
+            "Cidades atendidas": str(cidades_atendidas),
+            "Estados atendidos": str(estados_atendidos),
+            "N80": f"{n80_count} ({(n80_count/clientes_atendidos if clientes_atendidos else 0):.0%} da carteira)",
+            "Concentração (HHI)": f"{hhi_label_short} ({hhi_value:.3f})",
+            "Saúde da carteira": f"{carteira_score:.0f}/100 ({carteira_label})",
+        }
+
+        highlights_pdf = {}
+        try:
+            if not df_rep.empty:
+                mensal_rep_pdf = df_rep.groupby(["Ano","MesNum"], as_index=False)[["Valor","Quantidade"]].sum()
+                mensal_rep_pdf["Competencia"] = pd.to_datetime(dict(year=mensal_rep_pdf["Ano"], month=mensal_rep_pdf["MesNum"], day=1))
+                mensal_rep_pdf["MesLabel"] = mensal_rep_pdf["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
+                best_fat_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Valor"].idxmax()]
+                worst_fat_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Valor"].idxmin()]
+                best_vol_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Quantidade"].idxmax()]
+                worst_vol_pdf = mensal_rep_pdf.loc[mensal_rep_pdf["Quantidade"].idxmin()]
+                highlights_pdf = {
+                    "Melhor mês (Faturamento)": f"{best_fat_pdf['MesLabel']} — {format_brl(best_fat_pdf['Valor'])}",
+                    "Pior mês (Faturamento)": f"{worst_fat_pdf['MesLabel']} — {format_brl(worst_fat_pdf['Valor'])}",
+                    "Melhor mês (Volume)": f"{best_vol_pdf['MesLabel']} — {format_un(best_vol_pdf['Quantidade'])}",
+                    "Pior mês (Volume)": f"{worst_vol_pdf['MesLabel']} — {format_un(worst_vol_pdf['Quantidade'])}",
+                }
+        except Exception:
+            highlights_pdf = {}
+
+        # Charts (only if user wants and we can)
+        fig_states_pdf = fig_states if (include_charts and 'fig_states' in globals()) else None
+        fig_cat_pdf = fig_cat if (include_charts and 'fig_cat' in globals()) else None
+        fig_clients_pdf = fig if (include_charts and 'fig' in globals()) else None
+
+        try:
+            pdf_bytes = build_pdf_report(
+                rep_name=titulo_rep,
+                current_period_label=current_period_label,
+                previous_period_label=previous_period_label,
+                kpis=kpis_pdf,
+                highlights=highlights_pdf,
+                estados_table=estados_tbl_pdf,
+                categorias_table=categorias_tbl_pdf,
+                clientes_table=clientes_tbl_pdf,
+                carteira_status_table=carteira_tbl_pdf,
+                chart_states_plotly=fig_states_pdf,
+                chart_cat_plotly=fig_cat_pdf,
+                chart_clients_plotly=fig_clients_pdf,
+            )
+            file_name = f"relatorio_insights_{re.sub(r'[^A-Za-z0-9_-]+','_', titulo_rep)[:40]}_{start_comp.strftime('%Y%m')}-{end_comp.strftime('%Y%m')}.pdf"
+            st.download_button(
+                "⬇️ Baixar PDF",
+                data=pdf_bytes,
+                file_name=file_name,
+                mime="application/pdf",
+            )
+            st.success("PDF gerado com sucesso.")
+        except Exception as ex:
+            st.error(f"Não foi possível gerar o PDF: {ex}")
+
+
 st.markdown("---")
 
 # ==========================
@@ -842,7 +1108,7 @@ else:
             )
             fig_states.update_traces(textposition="inside", textinfo="percent+label")
             fig_states.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_states, width="stretch")
+            st.plotly_chart(fig_states, use_container_width="stretch")
 
         with c_right:
             st.markdown("**Resumo – Top 10 estados**")
@@ -1025,7 +1291,7 @@ chart_curr = make_evolucao_chart(df_rep, chart_height=300)
 if chart_curr is None:
     st.info("Sem dados para exibir no período atual.")
 else:
-    st.altair_chart(chart_curr, width="stretch")
+    st.altair_chart(chart_curr, use_container_width="stretch")
 
 st.markdown(
     f"**Período anterior:** {previous_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
@@ -1036,7 +1302,7 @@ chart_prev = make_evolucao_chart(df_rep_prev, chart_height=300)
 if chart_prev is None:
     st.info("Sem dados para exibir no período anterior.")
 else:
-    st.altair_chart(chart_prev, width="stretch")
+    st.altair_chart(chart_prev, use_container_width="stretch")
 
 # ==========================
 # CATEGORIAS VENDIDAS (Δ renamed to Variação)
@@ -1114,7 +1380,7 @@ else:
                 insidetextorientation="radial",
             )
             fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_cat, width="stretch")
+            st.plotly_chart(fig_cat, use_container_width="stretch")
 
         with col_tbl_cat:
             st.caption("Resumo – Categorias (com crescimento vs. período anterior)")
@@ -1215,7 +1481,7 @@ else:
             insidetextorientation="radial",
         )
         fig.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width="stretch")
 
     with col_tbl:
         st.caption("Resumo – clientes (mais detalhado)")
@@ -1322,7 +1588,7 @@ else:
                 )
                 .properties(height=320)
             )
-            st.altair_chart(chart_pie, width="stretch")
+            st.altair_chart(chart_pie, use_container_width="stretch")
 
     with col_table_s:
         st.caption("Resumo por status")
