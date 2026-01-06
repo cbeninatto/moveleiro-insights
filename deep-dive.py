@@ -728,7 +728,7 @@ _rep_left, _rep_right = st.columns([0.76, 0.24], vertical_alignment="center")
 with _rep_left:
     st.subheader(f"Representante: **{titulo_rep}**")
 with _rep_right:
-    _gen = st.button("📄 Gerar PDF", use_container_width=True)
+    _gen = st.button("📄 Gerar PDF", use_container_width=True, key="pdf_gen_btn")
 
 
 # ==========================
@@ -745,7 +745,7 @@ with _rep_left:
     pass
 
 with _rep_right:
-    _gen = st.button("📄 Gerar PDF", use_container_width=True)
+    _gen = st.button("📄 Gerar PDF", use_container_width=True, key="pdf_gen_btn")
 
     if _gen:
         st.session_state["pdf_report_error"] = None
@@ -897,18 +897,91 @@ with _rep_right:
             except Exception:
                 highlights_pdf = {}
 
+            # Build charts for the PDF (do NOT rely on globals defined later)
             chart_items = []
-            for var_name, title in [
-                ("chart_curr", "Histórico (período atual)"),
-                ("chart_prev", "Histórico (período anterior)"),
-                ("fig_states", "Distribuição por estados"),
-                ("fig_cat", "Participação por categoria"),
-                ("fig", "Participação por clientes"),
-            ]:
-                obj = globals().get(var_name, None)
-                png = _chart_to_png_bytes(obj)
-                if png:
-                    chart_items.append((title, png))
+            try:
+                import altair as alt
+            except Exception:
+                alt = None
+
+            try:
+                import plotly.express as px
+            except Exception:
+                px = None
+
+            # 1) Monthly trend (Altair) - Faturamento
+            if alt is not None and mensal_pdf is not None and not mensal_pdf.empty:
+                try:
+                    tmp = mensal_pdf.copy()
+                    tmp["Competencia"] = pd.to_datetime(dict(year=tmp["Ano"], month=tmp["MesNum"], day=1))
+                    c1 = (
+                        alt.Chart(tmp)
+                        .mark_line(point=True)
+                        .encode(
+                            x=alt.X("Competencia:T", title="Mês"),
+                            y=alt.Y("Valor:Q", title="Faturamento (R$)"),
+                            tooltip=["Ano:O", "MesNum:O", "Valor:Q"],
+                        )
+                        .properties(width=650, height=260, title="Histórico — Faturamento")
+                    )
+                    png = _chart_to_png_bytes(c1, width_px=1400, scale=2.0)
+                    if png:
+                        chart_items.append(("Histórico — Faturamento", png))
+                except Exception:
+                    pass
+
+                # 2) Monthly trend (Altair) - Volume
+                try:
+                    tmp = mensal_pdf.copy()
+                    tmp["Competencia"] = pd.to_datetime(dict(year=tmp["Ano"], month=tmp["MesNum"], day=1))
+                    c2 = (
+                        alt.Chart(tmp)
+                        .mark_line(point=True)
+                        .encode(
+                            x=alt.X("Competencia:T", title="Mês"),
+                            y=alt.Y("Quantidade:Q", title="Volume (un)"),
+                            tooltip=["Ano:O", "MesNum:O", "Quantidade:Q"],
+                        )
+                        .properties(width=650, height=260, title="Histórico — Volume")
+                    )
+                    png = _chart_to_png_bytes(c2, width_px=1400, scale=2.0)
+                    if png:
+                        chart_items.append(("Histórico — Volume", png))
+                except Exception:
+                    pass
+
+            # 3) Estados (Plotly) - Top 10
+            if px is not None and "Estado" in df_rep.columns and "Valor" in df_rep.columns:
+                try:
+                    st_df = df_rep.groupby("Estado", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False).head(10)
+                    fig_st = px.bar(st_df, x="Estado", y="Valor", title="Top 10 — Estados (Faturamento)")
+                    png = _chart_to_png_bytes(fig_st, width_px=1400, scale=2.0)
+                    if png:
+                        chart_items.append(("Top 10 — Estados (Faturamento)", png))
+                except Exception:
+                    pass
+
+            # 4) Categorias (Plotly) - share
+            if px is not None and "Categoria" in df_rep.columns and "Valor" in df_rep.columns:
+                try:
+                    cat_df = df_rep.groupby("Categoria", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False).head(10)
+                    fig_cat_pdf = px.pie(cat_df, names="Categoria", values="Valor", title="Top 10 — Categorias (participação)")
+                    png = _chart_to_png_bytes(fig_cat_pdf, width_px=1400, scale=2.0)
+                    if png:
+                        chart_items.append(("Top 10 — Categorias (participação)", png))
+                except Exception:
+                    pass
+
+            # 5) Clientes (Plotly) - Top 10
+            if px is not None and "Cliente" in df_rep.columns and "Valor" in df_rep.columns:
+                try:
+                    cli_df = df_rep.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False).head(10)
+                    fig_cli = px.bar(cli_df, x="Cliente", y="Valor", title="Top 10 — Clientes (Faturamento)")
+                    png = _chart_to_png_bytes(fig_cli, width_px=1400, scale=2.0)
+                    if png:
+                        chart_items.append(("Top 10 — Clientes (Faturamento)", png))
+                except Exception:
+                    pass
 
             try:
                 pdf_bytes = build_pdf_report(
