@@ -723,28 +723,28 @@ clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp
 # ==========================
 st.title("Insights de Vendas")
 titulo_rep = "Todos" if rep_selected == "Todos" else rep_selected
-st.subheader(f"Representante: **{titulo_rep}**")
-st.caption(f"Período selecionado: {current_period_label}")
-st.markdown("---")
+# Representative row + PDF button
+_rep_left, _rep_right = st.columns([0.76, 0.24], vertical_alignment="center")
+with _rep_left:
+    st.subheader(f"Representante: **{titulo_rep}**")
+with _rep_right:
+    _gen = st.button("📄 Gerar PDF", use_container_width=True)
+
 
 # ==========================
-# EXPORT PDF (REPORT)
-# ==========================
-
-# ==========================
-# PDF EXPORT (REPORT) - TOP RIGHT BUTTON
+# PDF EXPORT (REPORT) - HEADER RIGHT BUTTON
 # ==========================
 if "pdf_report_bytes" not in st.session_state:
     st.session_state["pdf_report_bytes"] = None
     st.session_state["pdf_report_name"] = None
     st.session_state["pdf_report_error"] = None
 
-# Put button on the same row as the title/header
-_header_left, _header_right = st.columns([0.78, 0.22], vertical_alignment="center")
-with _header_left:
+_rep_left, _rep_right = st.columns([0.76, 0.24], vertical_alignment="center")
+with _rep_left:
+    # repeat the representative line here to align with the button (hide the original spacing)
     pass
 
-with _header_right:
+with _rep_right:
     _gen = st.button("📄 Gerar PDF", use_container_width=True)
 
     if _gen:
@@ -802,8 +802,8 @@ with _header_right:
             except Exception:
                 pass
 
-            # --- Period labels / rep name (fallback safe) ---
-            rep_name_pdf = globals().get("titulo_rep", globals().get("rep_name", "—"))
+            # --- Period labels / rep name ---
+            rep_name_pdf = titulo_rep
             current_period_label_pdf = globals().get("current_period_label", "Período atual")
             previous_period_label_pdf = globals().get("previous_period_label", "Período anterior")
 
@@ -868,7 +868,6 @@ with _header_right:
             except Exception:
                 carteira_tbl_pdf = None
 
-            # KPIs dictionary (safe)
             kpis_pdf = {
                 "Total período": format_brl(total_rep_pdf),
                 "Média mensal": format_brl(media_mensal_pdf),
@@ -877,10 +876,8 @@ with _header_right:
                 "Estados atendidos": str(estados_atendidos_pdf),
                 "N80": f"{n80_count_pdf} ({(n80_count_pdf/clientes_atendidos_pdf if clientes_atendidos_pdf else 0):.0%} da carteira)",
                 "Concentração (HHI)": f"{hhi_label_short_pdf} ({hhi_value_pdf:.3f})",
-                "Saúde da carteira": "—",
             }
 
-            # Highlights
             highlights_pdf = {}
             try:
                 if mensal_pdf is not None and not mensal_pdf.empty:
@@ -900,20 +897,10 @@ with _header_right:
             except Exception:
                 highlights_pdf = {}
 
-            # Collect charts that may exist (Altair + Plotly) at this point
             chart_items = []
-            # Altair objects commonly used in this app
             for var_name, title in [
                 ("chart_curr", "Histórico (período atual)"),
                 ("chart_prev", "Histórico (período anterior)"),
-            ]:
-                obj = globals().get(var_name, None)
-                png = _chart_to_png_bytes(obj)
-                if png:
-                    chart_items.append((title, png))
-
-            # Plotly figs (if present)
-            for var_name, title in [
                 ("fig_states", "Distribuição por estados"),
                 ("fig_cat", "Participação por categoria"),
                 ("fig", "Participação por clientes"),
@@ -950,82 +937,24 @@ with _header_right:
             except Exception as ex:
                 st.session_state["pdf_report_error"] = str(ex)
 
-    # Show download (if generated)
-    if st.session_state.get("pdf_report_error"):
-        st.error(f"Não foi possível gerar o PDF: {st.session_state['pdf_report_error']}")
-    if st.session_state.get("pdf_report_bytes") and st.session_state.get("pdf_report_name"):
-        st.download_button(
-            "⬇️ Baixar PDF",
-            data=st.session_state["pdf_report_bytes"],
-            file_name=st.session_state["pdf_report_name"],
-            mime="application/pdf",
-            use_container_width=True,
-        )
+# Show download below header (if generated)
+if st.session_state.get("pdf_report_error"):
+    st.error(f"Não foi possível gerar o PDF: {st.session_state['pdf_report_error']}")
+if st.session_state.get("pdf_report_bytes") and st.session_state.get("pdf_report_name"):
+    st.download_button(
+        "⬇️ Baixar PDF",
+        data=st.session_state["pdf_report_bytes"],
+        file_name=st.session_state["pdf_report_name"],
+        mime="application/pdf",
+        use_container_width=False,
+    )
 
+st.caption(f"Período selecionado: {current_period_label}")
+st.markdown("---")
 
 # ==========================
-# TOP KPIs (5 columns)
+# EXPORT PDF (REPORT)
 # ==========================
-col1, col2, col3, col4, col5 = st.columns(5)
-
-total_rep = float(df_rep["Valor"].sum())
-total_vol_rep = float(df_rep["Quantidade"].sum())
-
-if not df_rep.empty:
-    meses_rep = df_rep.groupby([df_rep["Ano"], df_rep["MesNum"]])["Valor"].sum().reset_index(name="ValorMes")
-    meses_com_venda = int((meses_rep["ValorMes"] > 0).sum())
-else:
-    meses_com_venda = 0
-
-media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
-
-if not df_rep.empty and total_rep > 0:
-    df_clientes_tot = df_rep.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
-    num_clientes_rep = int(df_clientes_tot["Cliente"].nunique())
-
-    shares = df_clientes_tot["Valor"] / total_rep
-    cum_share = shares.cumsum()
-
-    n80_count = 0
-    for i, v in enumerate(cum_share, start=1):
-        n80_count = i
-        if v >= 0.8:
-            break
-
-    hhi_value = float((shares ** 2).sum())
-    if hhi_value < 0.10:
-        hhi_label_short = "Baixa"
-    elif hhi_value < 0.20:
-        hhi_label_short = "Moderada"
-    else:
-        hhi_label_short = "Alta"
-
-    top1_share = float(shares.iloc[:1].sum())
-    top3_share = float(shares.iloc[:3].sum())
-    top10_share = float(shares.iloc[:10].sum())
-else:
-    num_clientes_rep = 0
-    n80_count = 0
-    hhi_value = 0.0
-    hhi_label_short = "Sem dados"
-    top1_share = 0.0
-    top3_share = 0.0
-    top10_share = 0.0
-
-clientes_atendidos = num_clientes_rep
-cidades_atendidas = int(df_rep[["Estado", "Cidade"]].dropna().drop_duplicates().shape[0])
-estados_atendidos = int(df_rep["Estado"].dropna().nunique())
-
-if not clientes_carteira.empty:
-    carteira_score, carteira_label = compute_carteira_score(clientes_carteira)
-else:
-    carteira_score, carteira_label = 50.0, "Neutra"
-
-col1.metric("Total período", format_brl_compact(total_rep))
-col2.metric("Média mensal", format_brl_compact(media_mensal))
-col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
-col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
-col5.metric("Clientes atendidos", f"{clientes_atendidos}")
 
 st.markdown("---")
 
