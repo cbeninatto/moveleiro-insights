@@ -27,6 +27,11 @@ try:
 except Exception:  # pragma: no cover
     pio = None
 
+try:
+    import vl_convert as vlc
+except Exception:  # pragma: no cover
+    vlc = None
+
 
 # ==========================
 # CONFIG
@@ -431,6 +436,33 @@ def _plotly_to_png_bytes(fig, width_px: int = 1400, scale: int = 2):
     """Best-effort Plotly -> PNG bytes. Requires kaleido in the environment."""
     if fig is None or pio is None:
         return None
+
+def _altair_to_png_bytes(chart, width_px: int = 1400, scale: float = 2.0):
+    """Best-effort Altair/Vega-Lite -> PNG bytes. Requires vl-convert-python."""
+    if chart is None or vlc is None:
+        return None
+    try:
+        spec = chart.to_dict()
+        # Ensure width for print
+        spec.setdefault("width", width_px)
+        return vlc.vegalite_to_png(spec, scale=scale)
+    except Exception:
+        return None
+
+def _chart_to_png_bytes(obj, width_px: int = 1400, scale: float = 2.0):
+    """Convert Plotly or Altair charts to PNG bytes (best effort)."""
+    if obj is None:
+        return None
+    # Plotly
+    if hasattr(obj, "to_image"):
+        try:
+            return obj.to_image(format="png", width=width_px, scale=int(scale))
+        except Exception:
+            return None
+    # Altair
+    if hasattr(obj, "to_dict"):
+        return _altair_to_png_bytes(obj, width_px=width_px, scale=scale)
+    return None
     try:
         return fig.to_image(format="png", width=width_px, scale=scale)
     except Exception:
@@ -446,9 +478,7 @@ def build_pdf_report(
     categorias_table: pd.DataFrame | None = None,
     clientes_table: pd.DataFrame | None = None,
     carteira_status_table: pd.DataFrame | None = None,
-    chart_states_plotly=None,
-    chart_cat_plotly=None,
-    chart_clients_plotly=None,
+    chart_items: list[tuple[str, bytes]] | None = None,
 ):
     """Build a print-ready PDF (landscape A4) and return bytes."""
     buf = io.BytesIO()
@@ -501,19 +531,51 @@ def build_pdf_report(
             bullets.append(f"• <b>{_safe_str(k)}:</b> {_safe_str(v)}")
     story.append(Paragraph("<br/>".join(bullets) if bullets else "Sem destaques para o período.", styles["BodyS"]))
     story.append(Spacer(1, 10))
+    # Charts (PNG) — 2 per page (landscape)
+    if chart_items:
+        story.append(Paragraph("Gráficos", styles["H2"]))
+        # page width for content ~ 26cm; 2 charts side by side
+        chart_w = 12.7*cm
+        chart_h = 7.6*cm
 
-    # Optional charts (Plotly) — best effort
-    charts = [("Distribuição por estados", chart_states_plotly), ("Participação por categoria", chart_cat_plotly), ("Participação por clientes", chart_clients_plotly)]
-    any_chart = False
-    for title, fig in charts:
-        png = _plotly_to_png_bytes(fig) if fig is not None else None
-        if png:
-            any_chart = True
-            story.append(Paragraph(title, styles["H2"]))
-            story.append(RLImage(io.BytesIO(png), width=25.5*cm, height=10.2*cm))
-            story.append(Spacer(1, 6))
+        # chunk by 2
+        chunk = []
+        for title, png in chart_items:
+            if not png:
+                continue
+            chunk.append((title, png))
+            if len(chunk) == 2:
+                row_imgs = []
+                row_caps = []
+                for ttitle, tpng in chunk:
+                    row_imgs.append(RLImage(io.BytesIO(tpng), width=chart_w, height=chart_h))
+                    row_caps.append(Paragraph(ttitle, styles["Caption"]))
+                tbl = Table([row_imgs, row_caps], colWidths=[chart_w, chart_w])
+                tbl.setStyle(TableStyle([
+                    ("VALIGN", (0,0), (-1,-1), "TOP"),
+                    ("LEFTPADDING", (0,0), (-1,-1), 0),
+                    ("RIGHTPADDING", (0,0), (-1,-1), 0),
+                    ("TOPPADDING", (0,0), (-1,-1), 2),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+                ]))
+                story.append(tbl)
+                story.append(Spacer(1, 6))
+                chunk = []
 
-    if any_chart:
+        # last odd chart
+        if len(chunk) == 1:
+            ttitle, tpng = chunk[0]
+            tbl = Table([[RLImage(io.BytesIO(tpng), width=chart_w, height=chart_h), ""] ,
+                         [Paragraph(ttitle, styles["Caption"]), ""]], colWidths=[chart_w, chart_w])
+            tbl.setStyle(TableStyle([
+                ("VALIGN", (0,0), (-1,-1), "TOP"),
+                ("LEFTPADDING", (0,0), (-1,-1), 0),
+                ("RIGHTPADDING", (0,0), (-1,-1), 0),
+                ("TOPPADDING", (0,0), (-1,-1), 2),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+            ]))
+            story.append(tbl)
+
         story.append(PageBreak())
 
     def _add_df_table(title: str, df_in: pd.DataFrame | None, max_rows: int = 25):
@@ -668,21 +730,30 @@ st.markdown("---")
 # ==========================
 # EXPORT PDF (REPORT)
 # ==========================
-with st.expander("📄 Exportar relatório (PDF)", expanded=False):
-    st.caption("Gera um PDF em A4 paisagem (print-ready), sem depender da impressão do browser.")
-    include_charts = st.checkbox("Incluir gráficos (quando possível)", value=True)
-    st.caption("Obs.: Para embutir gráficos no PDF, o ambiente precisa do Plotly + Kaleido. Se não estiver disponível, o relatório sai com tabelas e textos.")
-    export_btn = st.button("Gerar PDF agora")
 
-    if export_btn:
-        # ==========================================================
-        # IMPORTANT:
-        # This section must NOT depend on variables created later in the script.
-        # We compute everything from the already-filtered df_rep / df_rep_prev
-        # whenever they are available.
-        # ==========================================================
+# ==========================
+# PDF EXPORT (REPORT) - TOP RIGHT BUTTON
+# ==========================
+if "pdf_report_bytes" not in st.session_state:
+    st.session_state["pdf_report_bytes"] = None
+    st.session_state["pdf_report_name"] = None
+    st.session_state["pdf_report_error"] = None
+
+# Put button on the same row as the title/header
+_header_left, _header_right = st.columns([0.78, 0.22], vertical_alignment="center")
+with _header_left:
+    pass
+
+with _header_right:
+    _gen = st.button("📄 Gerar PDF", use_container_width=True)
+
+    if _gen:
+        st.session_state["pdf_report_error"] = None
+        st.session_state["pdf_report_bytes"] = None
+        st.session_state["pdf_report_name"] = None
+
         if "df_rep" not in globals() or df_rep is None or df_rep.empty:
-            st.error("Sem dados do período atual para gerar o relatório. Ajuste os filtros e tente novamente.")
+            st.session_state["pdf_report_error"] = "Sem dados do período atual para gerar o relatório. Ajuste os filtros e tente novamente."
         else:
             # --- Compute KPIs from df_rep (safe) ---
             total_rep_pdf = float(df_rep["Valor"].sum()) if "Valor" in df_rep.columns else 0.0
@@ -702,7 +773,7 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
             cidades_atendidas_pdf = int(df_rep["Cidade"].nunique()) if "Cidade" in df_rep.columns else 0
             estados_atendidos_pdf = int(df_rep["Estado"].nunique()) if "Estado" in df_rep.columns else 0
 
-            # --- N80 (compute on the fly) ---
+            # --- N80 (on the fly) ---
             n80_count_pdf = 0
             try:
                 if "Cliente" in df_rep.columns and "Valor" in df_rep.columns and clientes_atendidos_pdf > 0:
@@ -710,20 +781,18 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
                     by_client["share"] = by_client["Valor"] / max(by_client["Valor"].sum(), 1e-9)
                     by_client["cum_share"] = by_client["share"].cumsum()
                     n80_count_pdf = int((by_client["cum_share"] <= 0.80).sum())
-                    # include the first client that crosses 80%
                     if n80_count_pdf < len(by_client):
                         n80_count_pdf += 1
             except Exception:
                 n80_count_pdf = 0
 
-            # --- HHI (compute on the fly) ---
+            # --- HHI (on the fly) ---
             hhi_value_pdf = 0.0
             hhi_label_short_pdf = "—"
             try:
                 if "Cliente" in df_rep.columns and "Valor" in df_rep.columns and total_rep_pdf > 0:
                     shares = (df_rep.groupby("Cliente")["Valor"].sum() / total_rep_pdf).clip(lower=0)
                     hhi_value_pdf = float((shares ** 2).sum())
-                    # simple buckets
                     if hhi_value_pdf < 0.10:
                         hhi_label_short_pdf = "Baixa"
                     elif hhi_value_pdf < 0.18:
@@ -733,22 +802,12 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
             except Exception:
                 pass
 
-            # --- Carteira score (if already computed later, we fallback to placeholders) ---
-            carteira_score_pdf = None
-            carteira_label_pdf = None
-            try:
-                carteira_score_pdf = float(globals().get("carteira_score", None))
-                carteira_label_pdf = globals().get("carteira_label", None)
-            except Exception:
-                carteira_score_pdf = None
-                carteira_label_pdf = None
-
             # --- Period labels / rep name (fallback safe) ---
             rep_name_pdf = globals().get("titulo_rep", globals().get("rep_name", "—"))
             current_period_label_pdf = globals().get("current_period_label", "Período atual")
             previous_period_label_pdf = globals().get("previous_period_label", "Período anterior")
 
-            # Prepare tables for the report (best-effort, using what we have now)
+            # Prepare tables for the report
             estados_tbl_pdf = None
             categorias_tbl_pdf = None
             clientes_tbl_pdf = None
@@ -818,10 +877,10 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
                 "Estados atendidos": str(estados_atendidos_pdf),
                 "N80": f"{n80_count_pdf} ({(n80_count_pdf/clientes_atendidos_pdf if clientes_atendidos_pdf else 0):.0%} da carteira)",
                 "Concentração (HHI)": f"{hhi_label_short_pdf} ({hhi_value_pdf:.3f})",
-                "Saúde da carteira": (f"{carteira_score_pdf:.0f}/100 ({carteira_label_pdf})" if carteira_score_pdf is not None else "—"),
+                "Saúde da carteira": "—",
             }
 
-            # Highlights (best/worst month)
+            # Highlights
             highlights_pdf = {}
             try:
                 if mensal_pdf is not None and not mensal_pdf.empty:
@@ -841,10 +900,28 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
             except Exception:
                 highlights_pdf = {}
 
-            # Charts (only if user wants and they exist at this point)
-            fig_states_pdf = globals().get("fig_states", None) if include_charts else None
-            fig_cat_pdf = globals().get("fig_cat", None) if include_charts else None
-            fig_clients_pdf = globals().get("fig", None) if include_charts else None
+            # Collect charts that may exist (Altair + Plotly) at this point
+            chart_items = []
+            # Altair objects commonly used in this app
+            for var_name, title in [
+                ("chart_curr", "Histórico (período atual)"),
+                ("chart_prev", "Histórico (período anterior)"),
+            ]:
+                obj = globals().get(var_name, None)
+                png = _chart_to_png_bytes(obj)
+                if png:
+                    chart_items.append((title, png))
+
+            # Plotly figs (if present)
+            for var_name, title in [
+                ("fig_states", "Distribuição por estados"),
+                ("fig_cat", "Participação por categoria"),
+                ("fig", "Participação por clientes"),
+            ]:
+                obj = globals().get(var_name, None)
+                png = _chart_to_png_bytes(obj)
+                if png:
+                    chart_items.append((title, png))
 
             try:
                 pdf_bytes = build_pdf_report(
@@ -857,12 +934,9 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
                     categorias_table=categorias_tbl_pdf,
                     clientes_table=clientes_tbl_pdf,
                     carteira_status_table=carteira_tbl_pdf,
-                    chart_states_plotly=fig_states_pdf,
-                    chart_cat_plotly=fig_cat_pdf,
-                    chart_clients_plotly=fig_clients_pdf,
+                    chart_items=chart_items if chart_items else None,
                 )
                 safe_rep = re.sub(r"[^A-Za-z0-9_-]+", "_", str(rep_name_pdf))[:40]
-                # best-effort period in filename
                 start_comp = globals().get("start_comp", None)
                 end_comp = globals().get("end_comp", None)
                 if start_comp is not None and end_comp is not None and hasattr(start_comp, "strftime"):
@@ -871,15 +945,22 @@ with st.expander("📄 Exportar relatório (PDF)", expanded=False):
                     suffix = "periodo"
                 file_name = f"relatorio_insights_{safe_rep}_{suffix}.pdf"
 
-                st.download_button(
-                    "⬇️ Baixar PDF",
-                    data=pdf_bytes,
-                    file_name=file_name,
-                    mime="application/pdf",
-                )
-                st.success("PDF gerado com sucesso.")
+                st.session_state["pdf_report_bytes"] = pdf_bytes
+                st.session_state["pdf_report_name"] = file_name
             except Exception as ex:
-                st.error(f"Não foi possível gerar o PDF: {ex}")
+                st.session_state["pdf_report_error"] = str(ex)
+
+    # Show download (if generated)
+    if st.session_state.get("pdf_report_error"):
+        st.error(f"Não foi possível gerar o PDF: {st.session_state['pdf_report_error']}")
+    if st.session_state.get("pdf_report_bytes") and st.session_state.get("pdf_report_name"):
+        st.download_button(
+            "⬇️ Baixar PDF",
+            data=st.session_state["pdf_report_bytes"],
+            file_name=st.session_state["pdf_report_name"],
+            mime="application/pdf",
+            use_container_width=True,
+        )
 
 
 # ==========================
