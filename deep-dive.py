@@ -1108,7 +1108,7 @@ else:
             )
             fig_states.update_traces(textposition="inside", textinfo="percent+label")
             fig_states.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_states, use_container_width="stretch")
+            st.plotly_chart(fig_states, width="stretch")
 
         with c_right:
             st.markdown("**Resumo – Top 10 estados**")
@@ -1291,7 +1291,7 @@ chart_curr = make_evolucao_chart(df_rep, chart_height=300)
 if chart_curr is None:
     st.info("Sem dados para exibir no período atual.")
 else:
-    st.altair_chart(chart_curr, use_container_width="stretch")
+    st.altair_chart(chart_curr, width="stretch")
 
 st.markdown(
     f"**Período anterior:** {previous_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
@@ -1302,7 +1302,7 @@ chart_prev = make_evolucao_chart(df_rep_prev, chart_height=300)
 if chart_prev is None:
     st.info("Sem dados para exibir no período anterior.")
 else:
-    st.altair_chart(chart_prev, use_container_width="stretch")
+    st.altair_chart(chart_prev, width="stretch")
 
 # ==========================
 # CATEGORIAS VENDIDAS (Δ renamed to Variação)
@@ -1380,7 +1380,7 @@ else:
                 insidetextorientation="radial",
             )
             fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_cat, use_container_width="stretch")
+            st.plotly_chart(fig_cat, width="stretch")
 
         with col_tbl_cat:
             st.caption("Resumo – Categorias (com crescimento vs. período anterior)")
@@ -1481,7 +1481,7 @@ else:
             insidetextorientation="radial",
         )
         fig.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig, use_container_width="stretch")
+        st.plotly_chart(fig, width="stretch")
 
     with col_tbl:
         st.caption("Resumo – clientes (mais detalhado)")
@@ -1588,7 +1588,7 @@ else:
                 )
                 .properties(height=320)
             )
-            st.altair_chart(chart_pie, use_container_width="stretch")
+            st.altair_chart(chart_pie, width="stretch")
 
     with col_table_s:
         st.caption("Resumo por status")
