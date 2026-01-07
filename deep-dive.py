@@ -834,6 +834,195 @@ else:
 
 st.markdown("---")
 
+# ==========================
+# EVOLUÇÃO – FATURAMENTO x VOLUME
+# ==========================
+st.subheader("Evolução – Faturamento x Volume")
+
+def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
+    if df_in is None or df_in.empty:
+        return None
+
+    ts = df_in.groupby("Competencia", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Competencia")
+    if ts.empty:
+        return None
+
+    ts["MesLabelBr"] = ts["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
+    ts["VolumeFmt"] = ts["Quantidade"].map(format_un)
+    ts["FaturamentoFmt"] = ts["Valor"].map(format_brl)
+
+    x_order = ts["MesLabelBr"].tolist()
+
+    base = alt.Chart(ts).encode(
+        x=alt.X("MesLabelBr:N", sort=x_order, axis=alt.Axis(title=None))
+    )
+
+    bars = base.mark_bar(color="#38bdf8").encode(
+        y=alt.Y("Valor:Q", axis=alt.Axis(title="Faturamento (R$)")),
+        tooltip=[
+            alt.Tooltip("MesLabelBr:N", title="Mês"),
+            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
+            alt.Tooltip("VolumeFmt:N", title="Volume"),
+        ],
+    )
+
+    line = base.mark_line(
+        color="#22c55e",
+        strokeWidth=3,
+        point=alt.OverlayMarkDef(color="#22c55e", filled=True, size=70),
+    ).encode(
+        y=alt.Y("Quantidade:Q", axis=alt.Axis(title="Volume (un)", orient="right")),
+        tooltip=[
+            alt.Tooltip("MesLabelBr:N", title="Mês"),
+            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
+            alt.Tooltip("VolumeFmt:N", title="Volume"),
+        ],
+    )
+
+    return alt.layer(bars, line).resolve_scale(y="independent").properties(height=chart_height)
+
+fat_curr = float(df_rep["Valor"].sum()) if not df_rep.empty else 0.0
+vol_curr = float(df_rep["Quantidade"].sum()) if not df_rep.empty else 0.0
+fat_prev = float(df_rep_prev["Valor"].sum()) if not df_rep_prev.empty else 0.0
+vol_prev = float(df_rep_prev["Quantidade"].sum()) if not df_rep_prev.empty else 0.0
+
+st.markdown(
+    f"**Período atual:** {current_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Faturamento:** {format_brl_compact(fat_curr)} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Volume:** {format_un(vol_curr)}"
+)
+chart_curr = make_evolucao_chart(df_rep, chart_height=300)
+if chart_curr is None:
+    st.info("Sem dados para exibir no período atual.")
+else:
+    st.altair_chart(chart_curr, width="stretch")
+
+st.markdown(
+    f"**Período anterior:** {previous_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Faturamento:** {format_brl_compact(fat_prev)} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Volume:** {format_un(vol_prev)}"
+)
+chart_prev = make_evolucao_chart(df_rep_prev, chart_height=300)
+if chart_prev is None:
+    st.info("Sem dados para exibir no período anterior.")
+else:
+    st.altair_chart(chart_prev, width="stretch")
+
+
+# ==========================
+# CATEGORIAS VENDIDAS
+# ==========================
+st.markdown("---")
+st.subheader("Categorias vendidas")
+
+fig_cat = None
+cat_disp = pd.DataFrame()
+
+if df_rep.empty:
+    st.info("Não há vendas no período selecionado.")
+else:
+    curr_cat = (
+        df_rep.groupby("Categoria", as_index=False)["Valor"]
+        .sum()
+        .rename(columns={"Valor": "ValorAtual"})
+    )
+    prev_cat = (
+        df_rep_prev.groupby("Categoria", as_index=False)["Valor"]
+        .sum()
+        .rename(columns={"Valor": "ValorAnterior"})
+    )
+
+    cat = pd.merge(curr_cat, prev_cat, on="Categoria", how="outer")
+    cat["ValorAtual"] = pd.to_numeric(cat["ValorAtual"], errors="coerce").fillna(0.0)
+    cat["ValorAnterior"] = pd.to_numeric(cat["ValorAnterior"], errors="coerce").fillna(0.0)
+
+    total_cat = float(cat["ValorAtual"].sum())
+    if total_cat <= 0:
+        st.info("Sem faturamento para exibir categorias nesse período.")
+    else:
+        cat["%"] = cat["ValorAtual"] / total_cat
+        cat["Variação (R$)"] = cat["ValorAtual"] - cat["ValorAnterior"]
+
+        def pct_growth(row):
+            prevv = float(row["ValorAnterior"])
+            currv = float(row["ValorAtual"])
+            if prevv > 0:
+                return (currv - prevv) / prevv
+            if currv > 0 and prevv == 0:
+                return None  # "Novo"
+            return 0.0
+
+        cat["% Crescimento"] = cat.apply(pct_growth, axis=1)
+        cat = cat.sort_values("ValorAtual", ascending=False)
+
+        col_pie_cat, col_tbl_cat = st.columns([1.0, 1.25])
+
+        with col_pie_cat:
+            df_pie = cat[["Categoria", "ValorAtual"]].copy().rename(columns={"ValorAtual": "Valor"})
+            df_pie = df_pie.sort_values("Valor", ascending=False).reset_index(drop=True)
+
+            if len(df_pie) > 10:
+                top10 = df_pie.head(10).copy()
+                others_val = float(df_pie.iloc[10:]["Valor"].sum())
+                top10 = pd.concat([top10, pd.DataFrame([{"Categoria": "Outras", "Valor": others_val}])], ignore_index=True)
+                df_pie = top10
+
+            df_pie["Share"] = df_pie["Valor"] / float(df_pie["Valor"].sum()) if float(df_pie["Valor"].sum()) > 0 else 0.0
+            df_pie["Legenda"] = df_pie.apply(lambda r: f"{r['Categoria']} {r['Share']*100:.1f}%", axis=1)
+
+            def make_text_cat(row):
+                if row["Share"] >= 0.07:
+                    return f"{row['Categoria']}<br>{row['Share']*100:.1f}%"
+                return ""
+
+            df_pie["Text"] = df_pie.apply(make_text_cat, axis=1)
+            order_leg = df_pie.sort_values("Share", ascending=False)["Legenda"].tolist()
+
+            fig_cat = px.pie(df_pie, values="Valor", names="Legenda", hole=0.35, category_orders={"Legenda": order_leg})
+            fig_cat.update_traces(text=df_pie["Text"], textposition="inside", textinfo="text", insidetextorientation="radial")
+            fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_cat, width="stretch")
+
+        with col_tbl_cat:
+            cat_disp = cat.copy()
+            cat_disp["Valor"] = cat_disp["ValorAtual"].map(format_brl)
+            cat_disp["%"] = cat_disp["%"].map(lambda x: f"{x:.1%}")
+            cat_disp["Variação (R$)"] = cat_disp["Variação (R$)"].map(format_brl_signed)
+
+            def fmt_growth(v):
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return "Novo"
+                return f"{v:+.1%}"
+
+            cat_disp["Crescimento vs anterior"] = cat_disp["% Crescimento"].apply(fmt_growth)
+            cat_disp = cat_disp[["Categoria", "Valor", "%", "Variação (R$)", "Crescimento vs anterior"]]
+
+            st.markdown(
+                """
+<style>
+table.cat-resumo { width: 100%; border-collapse: collapse; }
+table.cat-resumo th, table.cat-resumo td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.84rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap;
+}
+</style>
+""",
+                unsafe_allow_html=True,
+            )
+
+            cols_k = list(cat_disp.columns)
+            html_k = "<table class='cat-resumo'><thead><tr>"
+            html_k += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_k)
+            html_k += "</tr></thead><tbody>"
+            for _, r in cat_disp.iterrows():
+                html_k += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_k) + "</tr>"
+            html_k += "</tbody></table>"
+            st.markdown(html_k, unsafe_allow_html=True)
+
+st.markdown("---")
 
 # ==========================
 # MAPA DE CLIENTES
@@ -1103,197 +1292,6 @@ st.markdown("---")
 # PAGE BREAK (print)
 # ==========================
 st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
-
-
-# ==========================
-# EVOLUÇÃO – FATURAMENTO x VOLUME
-# ==========================
-st.subheader("Evolução – Faturamento x Volume")
-
-def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
-    if df_in is None or df_in.empty:
-        return None
-
-    ts = df_in.groupby("Competencia", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Competencia")
-    if ts.empty:
-        return None
-
-    ts["MesLabelBr"] = ts["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
-    ts["VolumeFmt"] = ts["Quantidade"].map(format_un)
-    ts["FaturamentoFmt"] = ts["Valor"].map(format_brl)
-
-    x_order = ts["MesLabelBr"].tolist()
-
-    base = alt.Chart(ts).encode(
-        x=alt.X("MesLabelBr:N", sort=x_order, axis=alt.Axis(title=None))
-    )
-
-    bars = base.mark_bar(color="#38bdf8").encode(
-        y=alt.Y("Valor:Q", axis=alt.Axis(title="Faturamento (R$)")),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
-            alt.Tooltip("VolumeFmt:N", title="Volume"),
-        ],
-    )
-
-    line = base.mark_line(
-        color="#22c55e",
-        strokeWidth=3,
-        point=alt.OverlayMarkDef(color="#22c55e", filled=True, size=70),
-    ).encode(
-        y=alt.Y("Quantidade:Q", axis=alt.Axis(title="Volume (un)", orient="right")),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
-            alt.Tooltip("VolumeFmt:N", title="Volume"),
-        ],
-    )
-
-    return alt.layer(bars, line).resolve_scale(y="independent").properties(height=chart_height)
-
-fat_curr = float(df_rep["Valor"].sum()) if not df_rep.empty else 0.0
-vol_curr = float(df_rep["Quantidade"].sum()) if not df_rep.empty else 0.0
-fat_prev = float(df_rep_prev["Valor"].sum()) if not df_rep_prev.empty else 0.0
-vol_prev = float(df_rep_prev["Quantidade"].sum()) if not df_rep_prev.empty else 0.0
-
-st.markdown(
-    f"**Período atual:** {current_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Faturamento:** {format_brl_compact(fat_curr)} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Volume:** {format_un(vol_curr)}"
-)
-chart_curr = make_evolucao_chart(df_rep, chart_height=300)
-if chart_curr is None:
-    st.info("Sem dados para exibir no período atual.")
-else:
-    st.altair_chart(chart_curr, width="stretch")
-
-st.markdown(
-    f"**Período anterior:** {previous_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Faturamento:** {format_brl_compact(fat_prev)} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Volume:** {format_un(vol_prev)}"
-)
-chart_prev = make_evolucao_chart(df_rep_prev, chart_height=300)
-if chart_prev is None:
-    st.info("Sem dados para exibir no período anterior.")
-else:
-    st.altair_chart(chart_prev, width="stretch")
-
-
-# ==========================
-# CATEGORIAS VENDIDAS
-# ==========================
-st.markdown("---")
-st.subheader("Categorias vendidas")
-
-fig_cat = None
-cat_disp = pd.DataFrame()
-
-if df_rep.empty:
-    st.info("Não há vendas no período selecionado.")
-else:
-    curr_cat = (
-        df_rep.groupby("Categoria", as_index=False)["Valor"]
-        .sum()
-        .rename(columns={"Valor": "ValorAtual"})
-    )
-    prev_cat = (
-        df_rep_prev.groupby("Categoria", as_index=False)["Valor"]
-        .sum()
-        .rename(columns={"Valor": "ValorAnterior"})
-    )
-
-    cat = pd.merge(curr_cat, prev_cat, on="Categoria", how="outer")
-    cat["ValorAtual"] = pd.to_numeric(cat["ValorAtual"], errors="coerce").fillna(0.0)
-    cat["ValorAnterior"] = pd.to_numeric(cat["ValorAnterior"], errors="coerce").fillna(0.0)
-
-    total_cat = float(cat["ValorAtual"].sum())
-    if total_cat <= 0:
-        st.info("Sem faturamento para exibir categorias nesse período.")
-    else:
-        cat["%"] = cat["ValorAtual"] / total_cat
-        cat["Variação (R$)"] = cat["ValorAtual"] - cat["ValorAnterior"]
-
-        def pct_growth(row):
-            prevv = float(row["ValorAnterior"])
-            currv = float(row["ValorAtual"])
-            if prevv > 0:
-                return (currv - prevv) / prevv
-            if currv > 0 and prevv == 0:
-                return None  # "Novo"
-            return 0.0
-
-        cat["% Crescimento"] = cat.apply(pct_growth, axis=1)
-        cat = cat.sort_values("ValorAtual", ascending=False)
-
-        col_pie_cat, col_tbl_cat = st.columns([1.0, 1.25])
-
-        with col_pie_cat:
-            df_pie = cat[["Categoria", "ValorAtual"]].copy().rename(columns={"ValorAtual": "Valor"})
-            df_pie = df_pie.sort_values("Valor", ascending=False).reset_index(drop=True)
-
-            if len(df_pie) > 10:
-                top10 = df_pie.head(10).copy()
-                others_val = float(df_pie.iloc[10:]["Valor"].sum())
-                top10 = pd.concat([top10, pd.DataFrame([{"Categoria": "Outras", "Valor": others_val}])], ignore_index=True)
-                df_pie = top10
-
-            df_pie["Share"] = df_pie["Valor"] / float(df_pie["Valor"].sum()) if float(df_pie["Valor"].sum()) > 0 else 0.0
-            df_pie["Legenda"] = df_pie.apply(lambda r: f"{r['Categoria']} {r['Share']*100:.1f}%", axis=1)
-
-            def make_text_cat(row):
-                if row["Share"] >= 0.07:
-                    return f"{row['Categoria']}<br>{row['Share']*100:.1f}%"
-                return ""
-
-            df_pie["Text"] = df_pie.apply(make_text_cat, axis=1)
-            order_leg = df_pie.sort_values("Share", ascending=False)["Legenda"].tolist()
-
-            fig_cat = px.pie(df_pie, values="Valor", names="Legenda", hole=0.35, category_orders={"Legenda": order_leg})
-            fig_cat.update_traces(text=df_pie["Text"], textposition="inside", textinfo="text", insidetextorientation="radial")
-            fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_cat, width="stretch")
-
-        with col_tbl_cat:
-            cat_disp = cat.copy()
-            cat_disp["Valor"] = cat_disp["ValorAtual"].map(format_brl)
-            cat_disp["%"] = cat_disp["%"].map(lambda x: f"{x:.1%}")
-            cat_disp["Variação (R$)"] = cat_disp["Variação (R$)"].map(format_brl_signed)
-
-            def fmt_growth(v):
-                if v is None or (isinstance(v, float) and pd.isna(v)):
-                    return "Novo"
-                return f"{v:+.1%}"
-
-            cat_disp["Crescimento vs anterior"] = cat_disp["% Crescimento"].apply(fmt_growth)
-            cat_disp = cat_disp[["Categoria", "Valor", "%", "Variação (R$)", "Crescimento vs anterior"]]
-
-            st.markdown(
-                """
-<style>
-table.cat-resumo { width: 100%; border-collapse: collapse; }
-table.cat-resumo th, table.cat-resumo td {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.84rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  text-align: left;
-  white-space: nowrap;
-}
-</style>
-""",
-                unsafe_allow_html=True,
-            )
-
-            cols_k = list(cat_disp.columns)
-            html_k = "<table class='cat-resumo'><thead><tr>"
-            html_k += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_k)
-            html_k += "</tr></thead><tbody>"
-            for _, r in cat_disp.iterrows():
-                html_k += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_k) + "</tr>"
-            html_k += "</tbody></table>"
-            st.markdown(html_k, unsafe_allow_html=True)
-
-st.markdown("---")
 
 
 # ==========================
