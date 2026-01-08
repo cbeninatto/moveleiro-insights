@@ -1288,12 +1288,6 @@ table.estados-resumo th, table.estados-resumo td {
 
 st.markdown("---")
 
-
-# ==========================
-# PAGE BREAK (print)
-# ==========================
-st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
-
 # ==========================
 # DISTRIBUIÇÃO POR CLIENTES
 # ==========================
