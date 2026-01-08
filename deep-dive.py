@@ -506,39 +506,37 @@ def build_pdf_report(
     story.append(Spacer(1, 8))
 
     # KPI cards row (wrap into 2 rows if many)
-    kpi_items = list(kpis.items())
-    if kpi_items:
-        # make cards with Paragraphs (so bold works)
-        cards = []
-        for title, value in kpi_items:
-            cards.append([
-                Paragraph(html.escape(str(title)), styles["KpiTitle"]),
-                Paragraph(f"<b>{html.escape(str(value))}</b>", styles["KpiValue"]),
-            ])
+kpi_items = list(kpis.items())
+if kpi_items:
+    cards = []
+    for title, value in kpi_items:
+        cards.append([
+            [Paragraph(html.escape(str(title)), styles["KpiTitle"])],
+            [Paragraph(f"<b>{html.escape(str(value))}</b>", styles["KpiValue"])],
+        ])
 
-        # 4 cards per row is a good fit in landscape A4
-        per_row = 4
-        rows = [cards[i:i+per_row] for i in range(0, len(cards), per_row)]
+    per_row = 4
+    rows = [cards[i:i+per_row] for i in range(0, len(cards), per_row)]
 
-        for r in rows:
-            # each card is a 2-row mini table inside a bigger row table
-            row_cells = []
-            for card in r:
-                t = Table(card, colWidths=[(doc.width/per_row) - 10])
-                t.setStyle(TableStyle([
-                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7F7F7")),
-                    ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#DDDDDD")),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                    ("TOPPADDING", (0, 0), (-1, -1), 5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                ]))
-                row_cells.append(t)
+    for r in rows:
+        row_cells = []
+        for card in r:
+            # card is now a proper table data matrix: 2 rows x 1 col
+            t = Table(card, colWidths=[(doc.width / per_row) - 10])
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7F7F7")),
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#DDDDDD")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            row_cells.append(t)
 
-            outer = Table([row_cells], colWidths=[doc.width/per_row]*len(row_cells))
-            outer.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-            story.append(outer)
-            story.append(Spacer(1, 6))
+        outer = Table([row_cells], colWidths=[doc.width/per_row]*len(row_cells))
+        outer.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        story.append(outer)
+        story.append(Spacer(1, 6))
 
     # Destaques
     story.append(Paragraph("Destaques do período", styles["H2"]))
