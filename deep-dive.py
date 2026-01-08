@@ -15,14 +15,15 @@ import html
 from datetime import datetime
 
 # PDF (ReportLab)
+import plotly.io as pio
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_LEFT
 
 # ==========================
 # CONFIG
@@ -422,174 +423,171 @@ def load_geo() -> pd.DataFrame:
 # ==========================
 # PDF HELPERS (charts -> PNG)
 # ==========================
-def _plotly_to_png_bytes(fig, scale: int = 2) -> bytes | None:
+def _plotly_to_png_bytes(fig, scale: int = 2) -> tuple[bytes | None, str | None]:
+    """Return (png_bytes, error_message)."""
     if fig is None:
-        return None
+        return None, "fig is None"
     try:
-        # requires kaleido
-        return fig.to_image(format="png", scale=scale)
-    except Exception:
-        return None
+        b = pio.to_image(fig, format="png", scale=scale)  # requires kaleido
+        return b, None
+    except Exception as e:
+        return None, f"plotly export failed: {e}"
 
-def _altair_to_png_bytes(chart, scale: float = 2.0) -> bytes | None:
+
+def _altair_to_png_bytes(chart, scale: float = 2.0) -> tuple[bytes | None, str | None]:
+    """Return (png_bytes, error_message). Uses Altair's saver (vl-convert-python)."""
     if chart is None:
-        return None
+        return None, "chart is None"
     try:
-        import vl_convert as vlc
-        spec = chart.to_dict()
-        return vlc.vegalite_to_png(spec, scale=scale)
-    except Exception:
-        return None
+        buf = io.BytesIO()
+        # Altair will use vl-convert-python automatically when available.
+        # scale is supported in newer altair; if it errors, we retry without scale.
+        try:
+            chart.save(buf, format="png", scale=scale)
+        except TypeError:
+            chart.save(buf, format="png")
+        return buf.getvalue(), None
+    except Exception as e:
+        return None, f"altair export failed: {e}"
 
-def _rl_image_from_png(png_bytes: bytes, max_width_pt: float, max_height_pt: float):
-    """Return a reportlab Image scaled to fit within max dimensions."""
+
+def _rl_image_from_png(png_bytes: bytes, max_w: float, max_h: float) -> RLImage | None:
+    """Scale image to fit within max_w/max_h (points)."""
     if not png_bytes:
         return None
     bio = io.BytesIO(png_bytes)
     img = RLImage(bio)
     iw, ih = img.imageWidth, img.imageHeight
-
     if iw <= 0 or ih <= 0:
         return None
-
-    scale = min(max_width_pt / iw, max_height_pt / ih)
-    img.drawWidth = iw * scale
-    img.drawHeight = ih * scale
+    s = min(max_w / iw, max_h / ih)
+    img.drawWidth = iw * s
+    img.drawHeight = ih * s
     return img
-
 
 def build_pdf_report(
     rep_title: str,
     current_period_label: str,
     previous_period_label: str,
-    kpis: dict,
+    kpis: dict[str, str],
     highlights_lines: list[str],
-    charts_png: dict[str, bytes],
+    charts_png: dict[str, bytes | None],
 ) -> bytes:
-    """
-    A4 landscape PDF with embedded charts.
-    charts_png keys (if present):
-      - evolucao_curr, evolucao_prev (altair)
-      - pie_cat, pie_states, pie_clients (plotly)
-      - pie_status (altair)
-    """
     buff = io.BytesIO()
-
     doc = SimpleDocTemplate(
         buff,
         pagesize=landscape(A4),
-        leftMargin=1.2 * cm,
-        rightMargin=1.2 * cm,
-        topMargin=1.0 * cm,
-        bottomMargin=1.0 * cm,
+        leftMargin=1.0 * cm,
+        rightMargin=1.0 * cm,
+        topMargin=0.9 * cm,
+        bottomMargin=0.9 * cm,
         title="Insights de Vendas",
-        author="Streamlit",
     )
 
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="H1", parent=styles["Heading1"], alignment=TA_LEFT, fontSize=16, leading=18, spaceAfter=6))
-    styles.add(ParagraphStyle(name="H2", parent=styles["Heading2"], alignment=TA_LEFT, fontSize=12, leading=14, spaceBefore=8, spaceAfter=4))
-    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontSize=9, leading=11))
-    styles.add(ParagraphStyle(name="SmallMuted", parent=styles["BodyText"], fontSize=9, leading=11, textColor=colors.HexColor("#666666")))
-    styles.add(ParagraphStyle(name="KPI", parent=styles["BodyText"], fontSize=10, leading=12))
+    styles.add(ParagraphStyle("H1", parent=styles["Heading1"], fontSize=16, leading=18, spaceAfter=4))
+    styles.add(ParagraphStyle("H2", parent=styles["Heading2"], fontSize=11.5, leading=14, spaceBefore=8, spaceAfter=4))
+    styles.add(ParagraphStyle("Small", parent=styles["BodyText"], fontSize=9, leading=11))
+    styles.add(ParagraphStyle("Muted", parent=styles["BodyText"], fontSize=9, leading=11, textColor=colors.HexColor("#666666")))
+    styles.add(ParagraphStyle("KpiTitle", parent=styles["BodyText"], fontSize=8.8, leading=10, textColor=colors.HexColor("#444444")))
+    styles.add(ParagraphStyle("KpiValue", parent=styles["BodyText"], fontSize=10.5, leading=12, textColor=colors.HexColor("#111111")))
+    styles["BodyText"].alignment = TA_LEFT
 
     story = []
 
+    # Header
     story.append(Paragraph("Insights de Vendas", styles["H1"]))
-    story.append(Paragraph(f"<b>Representante:</b> {html.escape(rep_title)}", styles["BodyText"]))
-    story.append(Paragraph(f"<b>Período:</b> {html.escape(current_period_label)}  &nbsp;&nbsp;•&nbsp;&nbsp; "
-                           f"<b>Anterior:</b> {html.escape(previous_period_label)}", styles["SmallMuted"]))
+    story.append(Paragraph(f"<b>Representante:</b> {html.escape(rep_title)}", styles["Small"]))
+    story.append(Paragraph(
+        f"<b>Período:</b> {html.escape(current_period_label)} &nbsp;&nbsp;•&nbsp;&nbsp; "
+        f"<b>Anterior:</b> {html.escape(previous_period_label)}",
+        styles["Muted"]
+    ))
     story.append(Spacer(1, 8))
 
-    # KPI table (2 rows x N columns)
+    # KPI cards row (wrap into 2 rows if many)
     kpi_items = list(kpis.items())
     if kpi_items:
-        data = [["<b>" + html.escape(k) + "</b>" for k, _ in kpi_items],
-                [html.escape(str(v)) for _, v in kpi_items]]
+        # make cards with Paragraphs (so bold works)
+        cards = []
+        for title, value in kpi_items:
+            cards.append([
+                Paragraph(html.escape(str(title)), styles["KpiTitle"]),
+                Paragraph(f"<b>{html.escape(str(value))}</b>", styles["KpiValue"]),
+            ])
 
-        tbl = Table(data, hAlign="LEFT")
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F2F2F2")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111111")),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#DDDDDD")),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTNAME", (0, 1), (-1, 1), "Helvetica"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        story.append(tbl)
+        # 4 cards per row is a good fit in landscape A4
+        per_row = 4
+        rows = [cards[i:i+per_row] for i in range(0, len(cards), per_row)]
 
-    story.append(Spacer(1, 10))
+        for r in rows:
+            # each card is a 2-row mini table inside a bigger row table
+            row_cells = []
+            for card in r:
+                t = Table(card, colWidths=[(doc.width/per_row) - 10])
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7F7F7")),
+                    ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#DDDDDD")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]))
+                row_cells.append(t)
 
+            outer = Table([row_cells], colWidths=[doc.width/per_row]*len(row_cells))
+            outer.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+            story.append(outer)
+            story.append(Spacer(1, 6))
+
+    # Destaques
     story.append(Paragraph("Destaques do período", styles["H2"]))
     if highlights_lines:
         for line in highlights_lines:
             story.append(Paragraph("• " + html.escape(line), styles["Small"]))
     else:
-        story.append(Paragraph("Sem destaques disponíveis para o período.", styles["SmallMuted"]))
+        story.append(Paragraph("Sem destaques disponíveis para o período.", styles["Muted"]))
 
-    story.append(Spacer(1, 10))
-
-    # Layout: 2 columns grid using a table of images
-    page_w, page_h = landscape(A4)
-    max_img_w = (page_w - doc.leftMargin - doc.rightMargin - 12) / 2.0
-    max_img_h = 230  # points
-
-    def img_cell(key):
-        b = charts_png.get(key)
-        if not b:
-            return Paragraph("<font color='#999999'>—</font>", styles["SmallMuted"])
-        img = _rl_image_from_png(b, max_width_pt=max_img_w, max_height_pt=max_img_h)
-        if img is None:
-            return Paragraph("<font color='#999999'>—</font>", styles["SmallMuted"])
-        return img
-
-    # Row 1: Evolução (curr / prev)
-    story.append(Paragraph("Evolução – Faturamento x Volume", styles["H2"]))
-    grid1 = Table(
-        [
-            [Paragraph(f"<b>Período atual:</b> {html.escape(current_period_label)}", styles["Small"]),
-             Paragraph(f"<b>Período anterior:</b> {html.escape(previous_period_label)}", styles["Small"])],
-            [img_cell("evolucao_curr"), img_cell("evolucao_prev")],
-        ],
-        colWidths=[max_img_w, max_img_w],
-        hAlign="LEFT",
-    )
-    grid1.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(grid1)
     story.append(Spacer(1, 8))
 
-    # Row 2: Pies
+    # Charts sizing
+    page_w, _ = landscape(A4)
+    max_w_full = doc.width
+    max_h_full = 250  # points
+
+    max_w_half = (doc.width - 10) / 2
+    max_h_half = 220
+
+    def img_or_blank(key, w, h):
+        b = charts_png.get(key)
+        img = _rl_image_from_png(b, w, h) if b else None
+        return img if img else Paragraph("<font color='#999999'>—</font>", styles["Muted"])
+
+    # Evolução full width (prefer current; if you want both, change to 2 columns)
+    story.append(Paragraph("Evolução – Faturamento x Volume (Período atual)", styles["H2"]))
+    story.append(img_or_blank("evolucao_curr", max_w_full, max_h_full))
+    story.append(Spacer(1, 8))
+
     story.append(Paragraph("Distribuições", styles["H2"]))
-    grid2 = Table(
+    grid = Table(
         [
-            [Paragraph("<b>Categorias</b>", styles["Small"]),
-             Paragraph("<b>Estados</b>", styles["Small"])],
-            [img_cell("pie_cat"), img_cell("pie_states")],
-            [Paragraph("<b>Clientes</b>", styles["Small"]),
-             Paragraph("<b>Status da carteira</b>", styles["Small"])],
-            [img_cell("pie_clients"), img_cell("pie_status")],
+            [Paragraph("<b>Categorias</b>", styles["Small"]), Paragraph("<b>Estados</b>", styles["Small"])],
+            [img_or_blank("pie_cat", max_w_half, max_h_half), img_or_blank("pie_states", max_w_half, max_h_half)],
+            [Paragraph("<b>Clientes</b>", styles["Small"]), Paragraph("<b>Status da carteira</b>", styles["Small"])],
+            [img_or_blank("pie_clients", max_w_half, max_h_half), img_or_blank("pie_status", max_w_half, max_h_half)],
         ],
-        colWidths=[max_img_w, max_img_w],
+        colWidths=[max_w_half, max_w_half],
         hAlign="LEFT",
     )
-    grid2.setStyle(TableStyle([
+    grid.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
     ]))
-    story.append(grid2)
+    story.append(grid)
 
-    # Footer note
     story.append(Spacer(1, 10))
-    story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["SmallMuted"]))
+    story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Muted"]))
 
     doc.build(story)
     return buff.getvalue()
@@ -1584,24 +1582,49 @@ if "pdf_report_error" not in st.session_state:
 
 if gerar_pdf:
     try:
-        # Collect chart images
+        export_errors = []
+
+        b1, e1 = _altair_to_png_bytes(chart_curr, scale=2.0)
+        if e1: export_errors.append(("evolucao_curr", e1))
+
+        b2, e2 = _altair_to_png_bytes(chart_prev, scale=2.0)
+        if e2: export_errors.append(("evolucao_prev", e2))
+
+        b3, e3 = _plotly_to_png_bytes(fig_cat, scale=2)
+        if e3: export_errors.append(("pie_cat", e3))
+
+        b4, e4 = _plotly_to_png_bytes(fig_states, scale=2)
+        if e4: export_errors.append(("pie_states", e4))
+
+        b5, e5 = _plotly_to_png_bytes(fig_clients, scale=2)
+        if e5: export_errors.append(("pie_clients", e5))
+
+        b6, e6 = _altair_to_png_bytes(chart_pie_status, scale=2.0)
+        if e6: export_errors.append(("pie_status", e6))
+
         charts_png = {
-            "evolucao_curr": _altair_to_png_bytes(chart_curr, scale=2.0),
-            "evolucao_prev": _altair_to_png_bytes(chart_prev, scale=2.0),
-            "pie_cat": _plotly_to_png_bytes(fig_cat, scale=2),
-            "pie_states": _plotly_to_png_bytes(fig_states, scale=2),
-            "pie_clients": _plotly_to_png_bytes(fig_clients, scale=2),
-            "pie_status": _altair_to_png_bytes(chart_pie_status, scale=2.0),
+            "evolucao_curr": b1,
+            "evolucao_prev": b2,
+            "pie_cat": b3,
+            "pie_states": b4,
+            "pie_clients": b5,
+            "pie_status": b6,
         }
 
-        # KPI summary in the PDF
+        # OPTIONAL: show warnings in the app if any chart failed
+        if export_errors:
+            st.warning(
+                "Alguns gráficos não puderam ser exportados para o PDF:\n\n" +
+                "\n".join([f"- {k}: {msg}" for k, msg in export_errors])
+            )
+
         kpis_pdf = {
             "Total período": format_brl(total_rep),
             "Média mensal": format_brl(media_mensal),
             "Clientes atendidos": str(clientes_atendidos),
             "Cidades atendidas": str(cidades_atendidas),
             "Estados atendidos": str(estados_atendidos),
-            "N80": f"{n80_count} ({(n80_count/clientes_atendidos):.0%} da carteira)" if clientes_atendidos > 0 else "0",
+            "N80": f"{n80_count} ({(n80_count/clientes_atendidos):.0%})" if clientes_atendidos > 0 else "0",
             "Concentração": f"{hhi_label_short} (HHI {hhi_value:.3f})" if total_rep > 0 else "Sem dados",
             "Saúde carteira": f"{carteira_score:.0f}/100 ({carteira_label})",
         }
@@ -1623,6 +1646,7 @@ if gerar_pdf:
         st.session_state["pdf_report_error"] = str(e)
         st.session_state["pdf_report_bytes"] = None
         st.session_state["pdf_report_name"] = None
+
 
 # Download UI (right below header area would also work, but keeping here is safer)
 if st.session_state.get("pdf_report_error"):
