@@ -12,6 +12,18 @@ import re
 import unicodedata
 import html
 
+from datetime import datetime
+
+# PDF (ReportLab)
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.units import cm
+from reportlab.lib import colors
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
+
 # ==========================
 # CONFIG
 # ==========================
@@ -21,6 +33,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# (Optional) Keep your print CSS if you still use browser print sometimes
 st.markdown(
     """
 <style>
@@ -63,6 +76,7 @@ STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
 
 # green = higher, red = lower
 MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
+
 
 # ==========================
 # HELPERS
@@ -404,6 +418,183 @@ def load_geo() -> pd.DataFrame:
     )
     return df_geo[["key", "Estado", "Cidade", "lat", "lon"]]
 
+
+# ==========================
+# PDF HELPERS (charts -> PNG)
+# ==========================
+def _plotly_to_png_bytes(fig, scale: int = 2) -> bytes | None:
+    if fig is None:
+        return None
+    try:
+        # requires kaleido
+        return fig.to_image(format="png", scale=scale)
+    except Exception:
+        return None
+
+def _altair_to_png_bytes(chart, scale: float = 2.0) -> bytes | None:
+    if chart is None:
+        return None
+    try:
+        import vl_convert as vlc
+        spec = chart.to_dict()
+        return vlc.vegalite_to_png(spec, scale=scale)
+    except Exception:
+        return None
+
+def _rl_image_from_png(png_bytes: bytes, max_width_pt: float, max_height_pt: float):
+    """Return a reportlab Image scaled to fit within max dimensions."""
+    if not png_bytes:
+        return None
+    bio = io.BytesIO(png_bytes)
+    img = RLImage(bio)
+    iw, ih = img.imageWidth, img.imageHeight
+
+    if iw <= 0 or ih <= 0:
+        return None
+
+    scale = min(max_width_pt / iw, max_height_pt / ih)
+    img.drawWidth = iw * scale
+    img.drawHeight = ih * scale
+    return img
+
+
+def build_pdf_report(
+    rep_title: str,
+    current_period_label: str,
+    previous_period_label: str,
+    kpis: dict,
+    highlights_lines: list[str],
+    charts_png: dict[str, bytes],
+) -> bytes:
+    """
+    A4 landscape PDF with embedded charts.
+    charts_png keys (if present):
+      - evolucao_curr, evolucao_prev (altair)
+      - pie_cat, pie_states, pie_clients (plotly)
+      - pie_status (altair)
+    """
+    buff = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buff,
+        pagesize=landscape(A4),
+        leftMargin=1.2 * cm,
+        rightMargin=1.2 * cm,
+        topMargin=1.0 * cm,
+        bottomMargin=1.0 * cm,
+        title="Insights de Vendas",
+        author="Streamlit",
+    )
+
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="H1", parent=styles["Heading1"], alignment=TA_LEFT, fontSize=16, leading=18, spaceAfter=6))
+    styles.add(ParagraphStyle(name="H2", parent=styles["Heading2"], alignment=TA_LEFT, fontSize=12, leading=14, spaceBefore=8, spaceAfter=4))
+    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontSize=9, leading=11))
+    styles.add(ParagraphStyle(name="SmallMuted", parent=styles["BodyText"], fontSize=9, leading=11, textColor=colors.HexColor("#666666")))
+    styles.add(ParagraphStyle(name="KPI", parent=styles["BodyText"], fontSize=10, leading=12))
+
+    story = []
+
+    story.append(Paragraph("Insights de Vendas", styles["H1"]))
+    story.append(Paragraph(f"<b>Representante:</b> {html.escape(rep_title)}", styles["BodyText"]))
+    story.append(Paragraph(f"<b>Período:</b> {html.escape(current_period_label)}  &nbsp;&nbsp;•&nbsp;&nbsp; "
+                           f"<b>Anterior:</b> {html.escape(previous_period_label)}", styles["SmallMuted"]))
+    story.append(Spacer(1, 8))
+
+    # KPI table (2 rows x N columns)
+    kpi_items = list(kpis.items())
+    if kpi_items:
+        data = [["<b>" + html.escape(k) + "</b>" for k, _ in kpi_items],
+                [html.escape(str(v)) for _, v in kpi_items]]
+
+        tbl = Table(data, hAlign="LEFT")
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F2F2F2")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111111")),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#DDDDDD")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (-1, 1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(tbl)
+
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("Destaques do período", styles["H2"]))
+    if highlights_lines:
+        for line in highlights_lines:
+            story.append(Paragraph("• " + html.escape(line), styles["Small"]))
+    else:
+        story.append(Paragraph("Sem destaques disponíveis para o período.", styles["SmallMuted"]))
+
+    story.append(Spacer(1, 10))
+
+    # Layout: 2 columns grid using a table of images
+    page_w, page_h = landscape(A4)
+    max_img_w = (page_w - doc.leftMargin - doc.rightMargin - 12) / 2.0
+    max_img_h = 230  # points
+
+    def img_cell(key):
+        b = charts_png.get(key)
+        if not b:
+            return Paragraph("<font color='#999999'>—</font>", styles["SmallMuted"])
+        img = _rl_image_from_png(b, max_width_pt=max_img_w, max_height_pt=max_img_h)
+        if img is None:
+            return Paragraph("<font color='#999999'>—</font>", styles["SmallMuted"])
+        return img
+
+    # Row 1: Evolução (curr / prev)
+    story.append(Paragraph("Evolução – Faturamento x Volume", styles["H2"]))
+    grid1 = Table(
+        [
+            [Paragraph(f"<b>Período atual:</b> {html.escape(current_period_label)}", styles["Small"]),
+             Paragraph(f"<b>Período anterior:</b> {html.escape(previous_period_label)}", styles["Small"])],
+            [img_cell("evolucao_curr"), img_cell("evolucao_prev")],
+        ],
+        colWidths=[max_img_w, max_img_w],
+        hAlign="LEFT",
+    )
+    grid1.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(grid1)
+    story.append(Spacer(1, 8))
+
+    # Row 2: Pies
+    story.append(Paragraph("Distribuições", styles["H2"]))
+    grid2 = Table(
+        [
+            [Paragraph("<b>Categorias</b>", styles["Small"]),
+             Paragraph("<b>Estados</b>", styles["Small"])],
+            [img_cell("pie_cat"), img_cell("pie_states")],
+            [Paragraph("<b>Clientes</b>", styles["Small"]),
+             Paragraph("<b>Status da carteira</b>", styles["Small"])],
+            [img_cell("pie_clients"), img_cell("pie_status")],
+        ],
+        colWidths=[max_img_w, max_img_w],
+        hAlign="LEFT",
+    )
+    grid2.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(grid2)
+
+    # Footer note
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["SmallMuted"]))
+
+    doc.build(story)
+    return buff.getvalue()
+
+
 # ==========================
 # LOAD DATA
 # ==========================
@@ -416,6 +607,7 @@ except Exception as e:
 if df.empty:
     st.warning("O arquivo de dados está vazio.")
     st.stop()
+
 
 # ==========================
 # SIDEBAR – FILTERS
@@ -509,14 +701,40 @@ df_rep_prev = df_prev_period.copy() if rep_selected == "Todos" else df_prev_peri
 
 clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp)
 
+
 # ==========================
-# HEADER
+# SAFE DEFAULTS (avoid NameError if blocks are skipped)
+# ==========================
+clientes_atendidos = 0
+cidades_atendidas = 0
+estados_atendidas = 0  # (typo safe; we’ll set estados_atendidos below)
+estados_atendidos = 0
+n80_count = 0
+hhi_value = 0.0
+hhi_label_short = "Sem dados"
+top1_share = 0.0
+top3_share = 0.0
+top10_share = 0.0
+total_rep = 0.0
+media_mensal = 0.0
+
+
+# ==========================
+# HEADER (button top-right, same row as Representante)
 # ==========================
 st.title("Insights de Vendas")
-titulo_rep = "Todos" if rep_selected == "Todos" else rep_selected
-st.subheader(f"Representante: **{titulo_rep}**")
-st.caption(f"Período selecionado: {current_period_label}")
+
+rep_title = "Todos" if rep_selected == "Todos" else rep_selected
+
+h_left, h_right = st.columns([0.78, 0.22], vertical_alignment="center")
+with h_left:
+    st.subheader(f"Representante: **{rep_title}**")
+    st.caption(f"Período selecionado: {current_period_label}")
+with h_right:
+    gerar_pdf = st.button("📄 Gerar PDF", key="pdf_gen_btn", width="stretch")
+
 st.markdown("---")
+
 
 # ==========================
 # TOP KPIs (5 columns)
@@ -567,9 +785,10 @@ else:
     top3_share = 0.0
     top10_share = 0.0
 
-clientes_atendidos = num_clientes_rep
-cidades_atendidas = int(df_rep[["Estado", "Cidade"]].dropna().drop_duplicates().shape[0])
-estados_atendidos = int(df_rep["Estado"].dropna().nunique())
+# always define these before any later sections use them
+clientes_atendidos = int(num_clientes_rep)
+cidades_atendidas = int(df_rep[["Estado", "Cidade"]].dropna().drop_duplicates().shape[0]) if not df_rep.empty else 0
+estados_atendidos = int(df_rep["Estado"].dropna().nunique()) if not df_rep.empty else 0
 
 if not clientes_carteira.empty:
     carteira_score, carteira_label = compute_carteira_score(clientes_carteira)
@@ -584,10 +803,13 @@ col5.metric("Clientes atendidos", f"{clientes_atendidos}")
 
 st.markdown("---")
 
+
 # ==========================
 # DESTAQUES DO PERÍODO
 # ==========================
 st.subheader("Destaques do período")
+
+highlights_lines = []
 
 if df_rep.empty:
     st.info("Não há vendas no período selecionado.")
@@ -604,14 +826,221 @@ else:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Faturamento**")
-        st.write(f"• Melhor mês: **{best_fat['MesLabel']}** — {format_brl(best_fat['Valor'])}")
-        st.write(f"• Pior mês: **{worst_fat['MesLabel']}** — {format_brl(worst_fat['Valor'])}")
+        l1 = f"Melhor mês: {best_fat['MesLabel']} — {format_brl(best_fat['Valor'])}"
+        l2 = f"Pior mês: {worst_fat['MesLabel']} — {format_brl(worst_fat['Valor'])}"
+        st.write("• " + l1)
+        st.write("• " + l2)
+        highlights_lines.extend([l1, l2])
     with c2:
         st.markdown("**Volume**")
-        st.write(f"• Melhor mês: **{best_vol['MesLabel']}** — {format_un(best_vol['Quantidade'])}")
-        st.write(f"• Pior mês: **{worst_vol['MesLabel']}** — {format_un(worst_vol['Quantidade'])}")
+        l3 = f"Melhor mês: {best_vol['MesLabel']} — {format_un(best_vol['Quantidade'])}"
+        l4 = f"Pior mês: {worst_vol['MesLabel']} — {format_un(worst_vol['Quantidade'])}"
+        st.write("• " + l3)
+        st.write("• " + l4)
+        highlights_lines.extend([l3, l4])
 
 st.markdown("---")
+
+
+# ==========================
+# EVOLUÇÃO – FATURAMENTO x VOLUME (moved up: right after Destaques)
+# ==========================
+st.subheader("Evolução – Faturamento x Volume")
+
+def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
+    if df_in is None or df_in.empty:
+        return None
+
+    ts = df_in.groupby("Competencia", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Competencia")
+    if ts.empty:
+        return None
+
+    ts["MesLabelBr"] = ts["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
+    ts["VolumeFmt"] = ts["Quantidade"].map(format_un)
+    ts["FaturamentoFmt"] = ts["Valor"].map(format_brl)
+
+    x_order = ts["MesLabelBr"].tolist()
+
+    base = alt.Chart(ts).encode(
+        x=alt.X("MesLabelBr:N", sort=x_order, axis=alt.Axis(title=None))
+    )
+
+    bars = base.mark_bar(color="#38bdf8").encode(
+        y=alt.Y("Valor:Q", axis=alt.Axis(title="Faturamento (R$)")),
+        tooltip=[
+            alt.Tooltip("MesLabelBr:N", title="Mês"),
+            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
+            alt.Tooltip("VolumeFmt:N", title="Volume"),
+        ],
+    )
+
+    line = base.mark_line(
+        color="#22c55e",
+        strokeWidth=3,
+        point=alt.OverlayMarkDef(color="#22c55e", filled=True, size=70),
+    ).encode(
+        y=alt.Y("Quantidade:Q", axis=alt.Axis(title="Volume (un)", orient="right")),
+        tooltip=[
+            alt.Tooltip("MesLabelBr:N", title="Mês"),
+            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
+            alt.Tooltip("VolumeFmt:N", title="Volume"),
+        ],
+    )
+
+    return alt.layer(bars, line).resolve_scale(y="independent").properties(height=chart_height)
+
+fat_curr = float(df_rep["Valor"].sum())
+vol_curr = float(df_rep["Quantidade"].sum())
+fat_prev = float(df_rep_prev["Valor"].sum())
+vol_prev = float(df_rep_prev["Quantidade"].sum())
+
+st.markdown(
+    f"**Período atual:** {current_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Faturamento:** {format_brl_compact(fat_curr)} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Volume:** {format_un(vol_curr)}"
+)
+chart_curr = make_evolucao_chart(df_rep, chart_height=300)
+if chart_curr is None:
+    st.info("Sem dados para exibir no período atual.")
+else:
+    st.altair_chart(chart_curr, width="stretch")
+
+st.markdown(
+    f"**Período anterior:** {previous_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Faturamento:** {format_brl_compact(fat_prev)} &nbsp;&nbsp;•&nbsp;&nbsp; "
+    f"**Volume:** {format_un(vol_prev)}"
+)
+chart_prev = make_evolucao_chart(df_rep_prev, chart_height=300)
+if chart_prev is None:
+    st.info("Sem dados para exibir no período anterior.")
+else:
+    st.altair_chart(chart_prev, width="stretch")
+
+st.markdown("---")
+
+
+# ==========================
+# CATEGORIAS VENDIDAS (moved up: right after Evolução)
+# ==========================
+st.subheader("Categorias vendidas")
+
+fig_cat = None
+
+if df_rep.empty:
+    st.info("Não há vendas no período selecionado.")
+else:
+    curr_cat = (
+        df_rep.groupby("Categoria", as_index=False)["Valor"]
+        .sum()
+        .rename(columns={"Valor": "ValorAtual"})
+    )
+    prev_cat = (
+        df_rep_prev.groupby("Categoria", as_index=False)["Valor"]
+        .sum()
+        .rename(columns={"Valor": "ValorAnterior"})
+    )
+
+    cat = pd.merge(curr_cat, prev_cat, on="Categoria", how="outer")
+    cat["ValorAtual"] = pd.to_numeric(cat["ValorAtual"], errors="coerce").fillna(0.0)
+    cat["ValorAnterior"] = pd.to_numeric(cat["ValorAnterior"], errors="coerce").fillna(0.0)
+
+    total_cat = float(cat["ValorAtual"].sum())
+    if total_cat <= 0:
+        st.info("Sem faturamento para exibir categorias nesse período.")
+    else:
+        cat["%"] = cat["ValorAtual"] / total_cat
+        cat["Variação (R$)"] = cat["ValorAtual"] - cat["ValorAnterior"]
+
+        def pct_growth(row):
+            prevv = float(row["ValorAnterior"])
+            currv = float(row["ValorAtual"])
+            if prevv > 0:
+                return (currv - prevv) / prevv
+            if currv > 0 and prevv == 0:
+                return None  # "Novo"
+            return 0.0
+
+        cat["% Crescimento"] = cat.apply(pct_growth, axis=1)
+        cat = cat.sort_values("ValorAtual", ascending=False)
+
+        col_pie_cat, col_tbl_cat = st.columns([1.0, 1.25])
+
+        with col_pie_cat:
+            st.caption("Participação por categoria")
+
+            df_pie = cat[["Categoria", "ValorAtual"]].copy().rename(columns={"ValorAtual": "Valor"})
+            df_pie = df_pie.sort_values("Valor", ascending=False).reset_index(drop=True)
+
+            if len(df_pie) > 10:
+                top10 = df_pie.head(10).copy()
+                others_val = float(df_pie.iloc[10:]["Valor"].sum())
+                top10 = pd.concat([top10, pd.DataFrame([{"Categoria": "Outras", "Valor": others_val}])], ignore_index=True)
+                df_pie = top10
+
+            df_pie["Share"] = df_pie["Valor"] / float(df_pie["Valor"].sum()) if float(df_pie["Valor"].sum()) > 0 else 0.0
+            df_pie["Legenda"] = df_pie.apply(lambda r: f"{r['Categoria']} {r['Share']*100:.1f}%", axis=1)
+
+            def make_text_cat(row):
+                if row["Share"] >= 0.07:
+                    return f"{row['Categoria']}<br>{row['Share']*100:.1f}%"
+                return ""
+
+            df_pie["Text"] = df_pie.apply(make_text_cat, axis=1)
+            order_leg = df_pie.sort_values("Share", ascending=False)["Legenda"].tolist()
+
+            fig_cat = px.pie(df_pie, values="Valor", names="Legenda", hole=0.35, category_orders={"Legenda": order_leg})
+            fig_cat.update_traces(
+                text=df_pie["Text"],
+                textposition="inside",
+                textinfo="text",
+                insidetextorientation="radial",
+            )
+            fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_cat, width="stretch")
+
+        with col_tbl_cat:
+            st.caption("Resumo – Categorias (com crescimento vs. período anterior)")
+
+            cat_disp = cat.copy()
+            cat_disp["Valor"] = cat_disp["ValorAtual"].map(format_brl)
+            cat_disp["%"] = cat_disp["%"].map(lambda x: f"{x:.1%}")
+            cat_disp["Variação (R$)"] = cat_disp["Variação (R$)"].map(format_brl_signed)
+
+            def fmt_growth(v):
+                if v is None or (isinstance(v, float) and pd.isna(v)):
+                    return "Novo"
+                return f"{v:+.1%}"
+
+            cat_disp["Crescimento vs anterior"] = cat_disp["% Crescimento"].apply(fmt_growth)
+            cat_disp = cat_disp[["Categoria", "Valor", "%", "Variação (R$)", "Crescimento vs anterior"]]
+
+            st.markdown(
+                """
+<style>
+table.cat-resumo { width: 100%; border-collapse: collapse; }
+table.cat-resumo th, table.cat-resumo td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.84rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap;
+}
+</style>
+""",
+                unsafe_allow_html=True,
+            )
+
+            cols_k = list(cat_disp.columns)
+            html_k = "<table class='cat-resumo'><thead><tr>"
+            html_k += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_k)
+            html_k += "</tr></thead><tbody>"
+            for _, r in cat_disp.iterrows():
+                html_k += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_k) + "</tr>"
+            html_k += "</tbody></table>"
+            st.markdown(html_k, unsafe_allow_html=True)
+
+st.markdown("---")
+
 
 # ==========================
 # MAPA DE CLIENTES
@@ -803,10 +1232,13 @@ table.city-table td { text-align: left; }
 
 st.markdown("---")
 
+
 # ==========================
 # DISTRIBUIÇÃO POR ESTADOS
 # ==========================
 st.subheader("Distribuição por estados")
+
+fig_states = None
 
 if df_rep.empty:
     st.info("Não há vendas no período selecionado.")
@@ -842,7 +1274,7 @@ else:
             )
             fig_states.update_traces(textposition="inside", textinfo="percent+label")
             fig_states.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_states, use_container_width=True)
+            st.plotly_chart(fig_states, width="stretch")
 
         with c_right:
             st.markdown("**Resumo – Top 10 estados**")
@@ -870,300 +1302,15 @@ table.estados-resumo th, table.estados-resumo td {
             html_e += "</tbody></table>"
             st.markdown(html_e, unsafe_allow_html=True)
 
-        cidades_top = (
-            df_rep.groupby(["Cidade", "Estado"], as_index=False)
-            .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
-            .sort_values("Valor", ascending=False)
-            .head(15)
-            .copy()
-        )
-        cidades_top["% Faturamento"] = cidades_top["Valor"] / total_valor_all if total_valor_all > 0 else 0
-        cidades_top["% Volume"] = cidades_top["Quantidade"] / total_qtd_all if total_qtd_all > 0 else 0
-
-        city_client_agg = (
-            df_rep.groupby(["Cidade", "Estado", "Cliente"], as_index=False)["Valor"]
-            .sum()
-            .sort_values(["Cidade", "Estado", "Valor"], ascending=[True, True, False])
-        )
-        city_client_agg["Rank"] = city_client_agg.groupby(["Cidade", "Estado"]).cumcount() + 1
-        city_client_agg = city_client_agg[city_client_agg["Rank"] <= 3].copy()
-
-        top_cli = city_client_agg.pivot_table(index=["Cidade", "Estado"], columns="Rank", values="Cliente", aggfunc="first")
-        top_val = city_client_agg.pivot_table(index=["Cidade", "Estado"], columns="Rank", values="Valor", aggfunc="first")
-
-        top3_wide = pd.DataFrame(index=top_cli.index).reset_index()
-        for i in [1, 2, 3]:
-            top3_wide[f"TopCliente_{i}"] = top_cli[i].values if i in top_cli.columns else ""
-            top3_wide[f"TopValor_{i}"] = top_val[i].values if i in top_val.columns else float("nan")
-
-        cidades_disp = cidades_top.merge(top3_wide, on=["Cidade", "Estado"], how="left")
-
-        cidades_disp["Faturamento"] = cidades_disp["Valor"].map(format_brl)
-        cidades_disp["Volume"] = cidades_disp["Quantidade"].map(format_un)
-        cidades_disp["% Faturamento"] = cidades_disp["% Faturamento"].map(lambda x: f"{x:.1%}")
-        cidades_disp["% Volume"] = cidades_disp["% Volume"].map(lambda x: f"{x:.1%}")
-
-        def client_cell(name, val):
-            if name is None or str(name).strip() == "" or pd.isna(name):
-                return ""
-            full = str(name).strip()
-            short = shorten_name(full, 28)
-            return (
-                f"<span title='{html.escape(full)}'>{html.escape(short)}</span>"
-                f"<br><span style='opacity:.85'>{html.escape(format_brl_compact(val))}</span>"
-            )
-
-        cidades_disp["Top 1 cliente"] = cidades_disp.apply(lambda r: client_cell(r.get("TopCliente_1"), r.get("TopValor_1")), axis=1)
-        cidades_disp["Top 2 cliente"] = cidades_disp.apply(lambda r: client_cell(r.get("TopCliente_2"), r.get("TopValor_2")), axis=1)
-        cidades_disp["Top 3 cliente"] = cidades_disp.apply(lambda r: client_cell(r.get("TopCliente_3"), r.get("TopValor_3")), axis=1)
-
-        cidades_disp = cidades_disp[
-            ["Cidade", "Estado", "Faturamento", "% Faturamento", "Volume", "% Volume", "Top 1 cliente", "Top 2 cliente", "Top 3 cliente"]
-        ]
-
-        st.markdown("**Principais cidades por faturamento**")
-        st.markdown(
-            """
-<style>
-table.cidades-top { width: 100%; border-collapse: collapse; }
-table.cidades-top th, table.cidades-top td {
-  padding: 0.22rem 0.45rem;
-  font-size: 0.80rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  text-align: left;
-  vertical-align: top;
-}
-table.cidades-top th:nth-child(-n+6), table.cidades-top td:nth-child(-n+6) { white-space: nowrap; }
-table.cidades-top th:nth-child(n+7), table.cidades-top td:nth-child(n+7) { white-space: normal; }
-table.cidades-top th:nth-child(7), table.cidades-top th:nth-child(8), table.cidades-top th:nth-child(9) { width: 18%; }
-</style>
-""",
-            unsafe_allow_html=True,
-        )
-
-        cols_ct = list(cidades_disp.columns)
-        html_ct = "<table class='cidades-top'><thead><tr>"
-        html_ct += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_ct)
-        html_ct += "</tr></thead><tbody>"
-        for _, r in cidades_disp.iterrows():
-            html_ct += "<tr>"
-            for c in cols_ct:
-                val = r[c]
-                if c.startswith("Top "):
-                    html_ct += f"<td>{val if isinstance(val, str) else ''}</td>"
-                else:
-                    html_ct += f"<td>{html.escape(str(val))}</td>"
-            html_ct += "</tr>"
-        html_ct += "</tbody></table>"
-        st.markdown(html_ct, unsafe_allow_html=True)
-
 st.markdown("---")
 
-# ==========================
-# PAGE BREAK (print)
-# ==========================
-st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
-
-# ==========================
-# EVOLUÇÃO – FATURAMENTO x VOLUME
-# ==========================
-st.subheader("Evolução – Faturamento x Volume")
-
-def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
-    if df_in is None or df_in.empty:
-        return None
-
-    ts = df_in.groupby("Competencia", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Competencia")
-    if ts.empty:
-        return None
-
-    ts["MesLabelBr"] = ts["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
-    ts["VolumeFmt"] = ts["Quantidade"].map(format_un)
-    ts["FaturamentoFmt"] = ts["Valor"].map(format_brl)
-
-    x_order = ts["MesLabelBr"].tolist()
-
-    base = alt.Chart(ts).encode(
-        x=alt.X("MesLabelBr:N", sort=x_order, axis=alt.Axis(title=None))
-    )
-
-    bars = base.mark_bar(color="#38bdf8").encode(
-        y=alt.Y("Valor:Q", axis=alt.Axis(title="Faturamento (R$)")),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
-            alt.Tooltip("VolumeFmt:N", title="Volume"),
-        ],
-    )
-
-    line = base.mark_line(
-        color="#22c55e",
-        strokeWidth=3,
-        point=alt.OverlayMarkDef(color="#22c55e", filled=True, size=70),
-    ).encode(
-        y=alt.Y("Quantidade:Q", axis=alt.Axis(title="Volume (un)", orient="right")),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
-            alt.Tooltip("VolumeFmt:N", title="Volume"),
-        ],
-    )
-
-    return alt.layer(bars, line).resolve_scale(y="independent").properties(height=chart_height)
-
-fat_curr = float(df_rep["Valor"].sum())
-vol_curr = float(df_rep["Quantidade"].sum())
-fat_prev = float(df_rep_prev["Valor"].sum())
-vol_prev = float(df_rep_prev["Quantidade"].sum())
-
-st.markdown(
-    f"**Período atual:** {current_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Faturamento:** {format_brl_compact(fat_curr)} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Volume:** {format_un(vol_curr)}"
-)
-chart_curr = make_evolucao_chart(df_rep, chart_height=300)
-if chart_curr is None:
-    st.info("Sem dados para exibir no período atual.")
-else:
-    st.altair_chart(chart_curr, use_container_width=True)
-
-st.markdown(
-    f"**Período anterior:** {previous_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Faturamento:** {format_brl_compact(fat_prev)} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Volume:** {format_un(vol_prev)}"
-)
-chart_prev = make_evolucao_chart(df_rep_prev, chart_height=300)
-if chart_prev is None:
-    st.info("Sem dados para exibir no período anterior.")
-else:
-    st.altair_chart(chart_prev, use_container_width=True)
-
-# ==========================
-# CATEGORIAS VENDIDAS (Δ renamed to Variação)
-# ==========================
-st.markdown("---")
-st.subheader("Categorias vendidas")
-
-if df_rep.empty:
-    st.info("Não há vendas no período selecionado.")
-else:
-    curr_cat = (
-        df_rep.groupby("Categoria", as_index=False)["Valor"]
-        .sum()
-        .rename(columns={"Valor": "ValorAtual"})
-    )
-    prev_cat = (
-        df_rep_prev.groupby("Categoria", as_index=False)["Valor"]
-        .sum()
-        .rename(columns={"Valor": "ValorAnterior"})
-    )
-
-    cat = pd.merge(curr_cat, prev_cat, on="Categoria", how="outer")
-    cat["ValorAtual"] = pd.to_numeric(cat["ValorAtual"], errors="coerce").fillna(0.0)
-    cat["ValorAnterior"] = pd.to_numeric(cat["ValorAnterior"], errors="coerce").fillna(0.0)
-
-    total_cat = float(cat["ValorAtual"].sum())
-    if total_cat <= 0:
-        st.info("Sem faturamento para exibir categorias nesse período.")
-    else:
-        cat["%"] = cat["ValorAtual"] / total_cat
-        cat["Variação (R$)"] = cat["ValorAtual"] - cat["ValorAnterior"]
-
-        def pct_growth(row):
-            prevv = float(row["ValorAnterior"])
-            currv = float(row["ValorAtual"])
-            if prevv > 0:
-                return (currv - prevv) / prevv
-            if currv > 0 and prevv == 0:
-                return None  # "Novo"
-            return 0.0
-
-        cat["% Crescimento"] = cat.apply(pct_growth, axis=1)
-        cat = cat.sort_values("ValorAtual", ascending=False)
-
-        col_pie_cat, col_tbl_cat = st.columns([1.0, 1.25])
-
-        with col_pie_cat:
-            st.caption("Participação por categoria")
-
-            df_pie = cat[["Categoria", "ValorAtual"]].copy().rename(columns={"ValorAtual": "Valor"})
-            df_pie = df_pie.sort_values("Valor", ascending=False).reset_index(drop=True)
-
-            if len(df_pie) > 10:
-                top10 = df_pie.head(10).copy()
-                others_val = float(df_pie.iloc[10:]["Valor"].sum())
-                top10 = pd.concat([top10, pd.DataFrame([{"Categoria": "Outras", "Valor": others_val}])], ignore_index=True)
-                df_pie = top10
-
-            df_pie["Share"] = df_pie["Valor"] / float(df_pie["Valor"].sum()) if float(df_pie["Valor"].sum()) > 0 else 0.0
-            df_pie["Legenda"] = df_pie.apply(lambda r: f"{r['Categoria']} {r['Share']*100:.1f}%", axis=1)
-
-            def make_text_cat(row):
-                if row["Share"] >= 0.07:
-                    return f"{row['Categoria']}<br>{row['Share']*100:.1f}%"
-                return ""
-
-            df_pie["Text"] = df_pie.apply(make_text_cat, axis=1)
-            order_leg = df_pie.sort_values("Share", ascending=False)["Legenda"].tolist()
-
-            fig_cat = px.pie(df_pie, values="Valor", names="Legenda", hole=0.35, category_orders={"Legenda": order_leg})
-            fig_cat.update_traces(
-                text=df_pie["Text"],
-                textposition="inside",
-                textinfo="text",
-                insidetextorientation="radial",
-            )
-            fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_cat, use_container_width=True)
-
-        with col_tbl_cat:
-            st.caption("Resumo – Categorias (com crescimento vs. período anterior)")
-
-            cat_disp = cat.copy()
-            cat_disp["Valor"] = cat_disp["ValorAtual"].map(format_brl)
-            cat_disp["%"] = cat_disp["%"].map(lambda x: f"{x:.1%}")
-            cat_disp["Variação (R$)"] = cat_disp["Variação (R$)"].map(format_brl_signed)
-
-            def fmt_growth(v):
-                if v is None or (isinstance(v, float) and pd.isna(v)):
-                    return "Novo"
-                return f"{v:+.1%}"
-
-            cat_disp["Crescimento vs anterior"] = cat_disp["% Crescimento"].apply(fmt_growth)
-
-            cat_disp = cat_disp[["Categoria", "Valor", "%", "Variação (R$)", "Crescimento vs anterior"]]
-
-            st.markdown(
-                """
-<style>
-table.cat-resumo { width: 100%; border-collapse: collapse; }
-table.cat-resumo th, table.cat-resumo td {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.84rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  text-align: left;
-  white-space: nowrap;
-}
-</style>
-""",
-                unsafe_allow_html=True,
-            )
-
-            cols_k = list(cat_disp.columns)
-            html_k = "<table class='cat-resumo'><thead><tr>"
-            html_k += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_k)
-            html_k += "</tr></thead><tbody>"
-            for _, r in cat_disp.iterrows():
-                html_k += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_k) + "</tr>"
-            html_k += "</tbody></table>"
-            st.markdown(html_k, unsafe_allow_html=True)
-
-st.markdown("---")
 
 # ==========================
 # DISTRIBUIÇÃO POR CLIENTES
 # ==========================
 st.subheader("Distribuição por clientes")
+
+fig_clients = None
 
 if df_rep.empty or clientes_atendidos == 0:
     st.info("Nenhum cliente com vendas no período selecionado.")
@@ -1207,15 +1354,15 @@ else:
         dist_df["Text"] = dist_df.apply(make_text, axis=1)
         order_legenda = dist_df["Legenda"].tolist()
 
-        fig = px.pie(dist_df, values="Valor", names="Legenda", category_orders={"Legenda": order_legenda})
-        fig.update_traces(
+        fig_clients = px.pie(dist_df, values="Valor", names="Legenda", category_orders={"Legenda": order_legenda})
+        fig_clients.update_traces(
             text=dist_df["Text"],
             textposition="inside",
             textinfo="text",
             insidetextorientation="radial",
         )
-        fig.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        fig_clients.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_clients, width="stretch")
 
     with col_tbl:
         st.caption("Resumo – clientes (mais detalhado)")
@@ -1255,6 +1402,7 @@ table.clientes-resumo th, table.clientes-resumo td {
 
 st.markdown("---")
 
+
 # ==========================
 # SAÚDE DA CARTEIRA – DETALHES
 # ==========================
@@ -1268,6 +1416,9 @@ with c_score2:
         "A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos) "
         "no comparativo entre período atual e anterior."
     )
+
+status_disp = pd.DataFrame()
+chart_pie_status = None
 
 if clientes_carteira.empty:
     st.info("Não há clientes com movimento nos períodos atual / anterior para calcular a carteira.")
@@ -1301,7 +1452,7 @@ else:
         if total_clientes == 0:
             st.info("Nenhum cliente com status definido.")
         else:
-            chart_pie = (
+            chart_pie_status = (
                 alt.Chart(status_counts)
                 .mark_arc(outerRadius=120)
                 .encode(
@@ -1322,7 +1473,7 @@ else:
                 )
                 .properties(height=320)
             )
-            st.altair_chart(chart_pie, use_container_width=True)
+            st.altair_chart(chart_pie_status, width="stretch")
 
     with col_table_s:
         st.caption("Resumo por status")
@@ -1356,23 +1507,8 @@ table.status-resumo th, table.status-resumo td {
         html_sr += "</tbody></table>"
         st.markdown(html_sr, unsafe_allow_html=True)
 
-        st.markdown(
-            (
-                f"<span style='font-size:0.8rem;opacity:0.8;'>"
-                f"<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento "
-                f"entre o período atual (<b>{current_period_label}</b>) e o período anterior "
-                f"(<b>{previous_period_label}</b>). Valores positivos indicam crescimento; "
-                f"valores negativos indicam queda.</span>"
-            ),
-            unsafe_allow_html=True,
-        )
-
 st.markdown("---")
 
-# ==========================
-# PAGE BREAK (print)
-# ==========================
-st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
 
 # ==========================
 # STATUS DOS CLIENTES
@@ -1434,3 +1570,69 @@ for status_name in STATUS_ORDER:
     html_status += "</tbody></table>"
 
     st.markdown(html_status, unsafe_allow_html=True)
+
+
+# ==========================
+# PDF GENERATION (single block, at the END)
+# ==========================
+if "pdf_report_bytes" not in st.session_state:
+    st.session_state["pdf_report_bytes"] = None
+if "pdf_report_name" not in st.session_state:
+    st.session_state["pdf_report_name"] = None
+if "pdf_report_error" not in st.session_state:
+    st.session_state["pdf_report_error"] = None
+
+if gerar_pdf:
+    try:
+        # Collect chart images
+        charts_png = {
+            "evolucao_curr": _altair_to_png_bytes(chart_curr, scale=2.0),
+            "evolucao_prev": _altair_to_png_bytes(chart_prev, scale=2.0),
+            "pie_cat": _plotly_to_png_bytes(fig_cat, scale=2),
+            "pie_states": _plotly_to_png_bytes(fig_states, scale=2),
+            "pie_clients": _plotly_to_png_bytes(fig_clients, scale=2),
+            "pie_status": _altair_to_png_bytes(chart_pie_status, scale=2.0),
+        }
+
+        # KPI summary in the PDF
+        kpis_pdf = {
+            "Total período": format_brl(total_rep),
+            "Média mensal": format_brl(media_mensal),
+            "Clientes atendidos": str(clientes_atendidos),
+            "Cidades atendidas": str(cidades_atendidas),
+            "Estados atendidos": str(estados_atendidos),
+            "N80": f"{n80_count} ({(n80_count/clientes_atendidos):.0%} da carteira)" if clientes_atendidos > 0 else "0",
+            "Concentração": f"{hhi_label_short} (HHI {hhi_value:.3f})" if total_rep > 0 else "Sem dados",
+            "Saúde carteira": f"{carteira_score:.0f}/100 ({carteira_label})",
+        }
+
+        pdf_bytes = build_pdf_report(
+            rep_title=rep_title,
+            current_period_label=current_period_label,
+            previous_period_label=previous_period_label,
+            kpis=kpis_pdf,
+            highlights_lines=highlights_lines,
+            charts_png=charts_png,
+        )
+
+        st.session_state["pdf_report_bytes"] = pdf_bytes
+        st.session_state["pdf_report_name"] = f"Insights_{rep_title}_{start_year}{start_month:02d}-{end_year}{end_month:02d}.pdf"
+        st.session_state["pdf_report_error"] = None
+
+    except Exception as e:
+        st.session_state["pdf_report_error"] = str(e)
+        st.session_state["pdf_report_bytes"] = None
+        st.session_state["pdf_report_name"] = None
+
+# Download UI (right below header area would also work, but keeping here is safer)
+if st.session_state.get("pdf_report_error"):
+    st.error(f"Não foi possível gerar o PDF: {st.session_state['pdf_report_error']}")
+
+if st.session_state.get("pdf_report_bytes"):
+    st.download_button(
+        label="📥 Baixar PDF",
+        data=st.session_state["pdf_report_bytes"],
+        file_name=st.session_state.get("pdf_report_name") or "Insights.pdf",
+        mime="application/pdf",
+        key="pdf_download_btn",
+    )

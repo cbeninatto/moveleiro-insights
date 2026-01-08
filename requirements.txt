@@ -7,3 +7,5 @@ streamlit-folium
 altair
 plotly
 reportlab
+kaleido
+vl-convert-python
