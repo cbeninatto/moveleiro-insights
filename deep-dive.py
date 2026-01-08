@@ -498,45 +498,47 @@ def build_pdf_report(
     # Header
     story.append(Paragraph("Insights de Vendas", styles["H1"]))
     story.append(Paragraph(f"<b>Representante:</b> {html.escape(rep_title)}", styles["Small"]))
-    story.append(Paragraph(
-        f"<b>Período:</b> {html.escape(current_period_label)} &nbsp;&nbsp;•&nbsp;&nbsp; "
-        f"<b>Anterior:</b> {html.escape(previous_period_label)}",
-        styles["Muted"]
-    ))
+    story.append(
+        Paragraph(
+            f"<b>Período:</b> {html.escape(current_period_label)} &nbsp;&nbsp;•&nbsp;&nbsp; "
+            f"<b>Anterior:</b> {html.escape(previous_period_label)}",
+            styles["Muted"],
+        )
+    )
     story.append(Spacer(1, 8))
 
-    # KPI cards row (wrap into 2 rows if many)
-kpi_items = list(kpis.items())
-if kpi_items:
-    cards = []
-    for title, value in kpi_items:
-        cards.append([
-            [Paragraph(html.escape(str(title)), styles["KpiTitle"])],
-            [Paragraph(f"<b>{html.escape(str(value))}</b>", styles["KpiValue"])],
-        ])
+    # KPI cards
+    kpi_items = list(kpis.items())
+    if kpi_items:
+        cards = []
+        for title, value in kpi_items:
+            # 2 rows x 1 col (correct table shape)
+            cards.append([
+                [Paragraph(html.escape(str(title)), styles["KpiTitle"])],
+                [Paragraph(f"<b>{html.escape(str(value))}</b>", styles["KpiValue"])],
+            ])
 
-    per_row = 4
-    rows = [cards[i:i+per_row] for i in range(0, len(cards), per_row)]
+        per_row = 4
+        rows = [cards[i:i + per_row] for i in range(0, len(cards), per_row)]
 
-    for r in rows:
-        row_cells = []
-        for card in r:
-            # card is now a proper table data matrix: 2 rows x 1 col
-            t = Table(card, colWidths=[(doc.width / per_row) - 10])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7F7F7")),
-                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#DDDDDD")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]))
-            row_cells.append(t)
+        for r in rows:
+            row_cells = []
+            for card in r:
+                t = Table(card, colWidths=[(doc.width / per_row) - 10])
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7F7F7")),
+                    ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#DDDDDD")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]))
+                row_cells.append(t)
 
-        outer = Table([row_cells], colWidths=[doc.width/per_row]*len(row_cells))
-        outer.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        story.append(outer)
-        story.append(Spacer(1, 6))
+            outer = Table([row_cells], colWidths=[doc.width / per_row] * len(row_cells))
+            outer.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+            story.append(outer)
+            story.append(Spacer(1, 6))
 
     # Destaques
     story.append(Paragraph("Destaques do período", styles["H2"]))
@@ -548,10 +550,9 @@ if kpi_items:
 
     story.append(Spacer(1, 8))
 
-    # Charts sizing
-    page_w, _ = landscape(A4)
+    # Chart sizes
     max_w_full = doc.width
-    max_h_full = 250  # points
+    max_h_full = 250
 
     max_w_half = (doc.width - 10) / 2
     max_h_half = 220
@@ -561,11 +562,12 @@ if kpi_items:
         img = _rl_image_from_png(b, w, h) if b else None
         return img if img else Paragraph("<font color='#999999'>—</font>", styles["Muted"])
 
-    # Evolução full width (prefer current; if you want both, change to 2 columns)
+    # Evolução (full width)
     story.append(Paragraph("Evolução – Faturamento x Volume (Período atual)", styles["H2"]))
     story.append(img_or_blank("evolucao_curr", max_w_full, max_h_full))
     story.append(Spacer(1, 8))
 
+    # 2x2 distributions
     story.append(Paragraph("Distribuições", styles["H2"]))
     grid = Table(
         [
@@ -589,6 +591,7 @@ if kpi_items:
 
     doc.build(story)
     return buff.getvalue()
+
 
 
 # ==========================
