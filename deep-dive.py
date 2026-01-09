@@ -671,9 +671,68 @@ if start_comp > end_comp:
     st.sidebar.error("Período inicial não pode ser maior que o período final.")
     st.stop()
 
-months_span_for_carteira = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
-prev_end = start_comp - pd.DateOffset(months=1)
-prev_start = prev_end - pd.DateOffset(months=months_span_for_carteira - 1)
+# ==========================
+# PERÍODO ANTERIOR (AUTO ou MANUAL)
+# ==========================
+st.sidebar.markdown("### Período anterior")
+use_manual_prev = st.sidebar.toggle("Definir período anterior manualmente", value=False, key="use_manual_prev")
+
+if use_manual_prev:
+    st.sidebar.caption("Período anterior (início)")
+    col_pmi, col_pai = st.sidebar.columns(2)
+    with col_pmi:
+        prev_start_month_name = st.selectbox(
+            "Mês (ant. início)",
+            options=month_names,
+            index=month_names.index(start_month_name),
+            key="prev_start_month",
+        )
+    with col_pai:
+        prev_start_year = st.selectbox(
+            "Ano (ant. início)",
+            options=[int(a) for a in anos_disponiveis],
+            index=list(anos_disponiveis).index(int(start_year)),
+            key="prev_start_year",
+        )
+
+    st.sidebar.caption("Período anterior (fim)")
+    col_pmf, col_paf = st.sidebar.columns(2)
+    with col_pmf:
+        prev_end_month_name = st.selectbox(
+            "Mês (ant. fim)",
+            options=month_names,
+            index=month_names.index(end_month_name),
+            key="prev_end_month",
+        )
+    with col_paf:
+        prev_end_year = st.selectbox(
+            "Ano (ant. fim)",
+            options=[int(a) for a in anos_disponiveis],
+            index=list(anos_disponiveis).index(int(end_year)),
+            key="prev_end_year",
+        )
+
+    prev_start_month = MONTH_MAP_NAME_TO_NUM[prev_start_month_name]
+    prev_end_month = MONTH_MAP_NAME_TO_NUM[prev_end_month_name]
+
+    prev_start = pd.Timestamp(year=int(prev_start_year), month=int(prev_start_month), day=1)
+    prev_end = pd.Timestamp(year=int(prev_end_year), month=int(prev_end_month), day=1)
+
+    if prev_start > prev_end:
+        st.sidebar.error("Período anterior (início) não pode ser maior que o fim.")
+        st.stop()
+
+    # (opcional) aviso se período anterior encosta/sobrepõe o atual
+    if prev_end >= start_comp:
+        st.sidebar.warning("Atenção: o período anterior termina dentro ou após o período atual.")
+
+    months_span_for_carteira = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
+
+else:
+    # AUTO: mesmo tamanho do período atual, imediatamente anterior
+    months_span_for_carteira = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
+    prev_end = start_comp - pd.DateOffset(months=1)
+    prev_start = prev_end - pd.DateOffset(months=months_span_for_carteira - 1)
 
 current_period_label = format_period_label(start_comp, end_comp)
 previous_period_label = format_period_label(prev_start, prev_end)
