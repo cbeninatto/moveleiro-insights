@@ -899,6 +899,246 @@ else:
 
 st.markdown("---")
 
+# ==========================
+# PERFORMANCE DE REPRESENTANTES (novo)
+# ==========================
+st.subheader("Performance de Representantes")
+
+# Base do período atual (sempre)
+df_team = df_period.copy()
+
+# Agregado por representante no período atual
+rep_perf = (
+    df_team.groupby("Representante", as_index=False)
+    .agg(
+        Faturamento=("Valor", "sum"),
+        Volume=("Quantidade", "sum"),
+        Clientes=("Cliente", "nunique"),
+    )
+)
+
+# Sanidade
+rep_perf["Faturamento"] = pd.to_numeric(rep_perf["Faturamento"], errors="coerce").fillna(0.0)
+rep_perf["Volume"] = pd.to_numeric(rep_perf["Volume"], errors="coerce").fillna(0.0)
+rep_perf["Clientes"] = pd.to_numeric(rep_perf["Clientes"], errors="coerce").fillna(0).astype(int)
+
+rep_perf = rep_perf.sort_values("Faturamento", ascending=False).reset_index(drop=True)
+
+if rep_perf.empty or (rep_perf["Faturamento"].sum() <= 0 and rep_perf["Volume"].sum() <= 0):
+    st.info("Sem dados suficientes para ranquear/comparar representantes no período selecionado.")
+else:
+    if rep_selected == "Todos":
+        # -------- Ranking do time --------
+        st.caption("Ranking no período selecionado (faturamento e volume)")
+
+        # Ranking por Faturamento
+        top_n = 15
+        rep_fat = rep_perf.sort_values("Faturamento", ascending=False).head(top_n).copy()
+        rep_fat["Rank"] = range(1, len(rep_fat) + 1)
+        rep_fat["FaturamentoFmt"] = rep_fat["Faturamento"].map(format_brl_compact)
+        rep_fat["VolumeFmt"] = rep_fat["Volume"].map(format_un)
+
+        # Ranking por Volume
+        rep_vol = rep_perf.sort_values("Volume", ascending=False).head(top_n).copy()
+        rep_vol["Rank"] = range(1, len(rep_vol) + 1)
+        rep_vol["FaturamentoFmt"] = rep_vol["Faturamento"].map(format_brl_compact)
+        rep_vol["VolumeFmt"] = rep_vol["Volume"].map(format_un)
+
+        cA, cB = st.columns(2)
+
+        with cA:
+            st.markdown("**Top por Faturamento**")
+            st.dataframe(
+                rep_fat[["Rank", "Representante", "FaturamentoFmt", "VolumeFmt", "Clientes"]]
+                .rename(columns={"FaturamentoFmt": "Faturamento", "VolumeFmt": "Volume"}),
+                use_container_width=True,
+                height=520,
+            )
+
+            # Barras (Altair)
+            rep_fat_chart = rep_fat.copy()
+            rep_fat_chart["RepShort"] = rep_fat_chart["Representante"].apply(lambda x: shorten_name(x, 26))
+            chart_fat = (
+                alt.Chart(rep_fat_chart)
+                .mark_bar()
+                .encode(
+                    y=alt.Y("RepShort:N", sort="-x", title=None),
+                    x=alt.X("Faturamento:Q", title="Faturamento (R$)"),
+                    tooltip=[
+                        alt.Tooltip("Representante:N", title="Representante"),
+                        alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
+                        alt.Tooltip("VolumeFmt:N", title="Volume"),
+                        alt.Tooltip("Clientes:Q", title="Clientes"),
+                    ],
+                )
+                .properties(height=520)
+            )
+            st.altair_chart(chart_fat, width="stretch")
+
+        with cB:
+            st.markdown("**Top por Volume**")
+            st.dataframe(
+                rep_vol[["Rank", "Representante", "VolumeFmt", "FaturamentoFmt", "Clientes"]]
+                .rename(columns={"FaturamentoFmt": "Faturamento", "VolumeFmt": "Volume"}),
+                use_container_width=True,
+                height=520,
+            )
+
+            rep_vol_chart = rep_vol.copy()
+            rep_vol_chart["RepShort"] = rep_vol_chart["Representante"].apply(lambda x: shorten_name(x, 26))
+            chart_vol = (
+                alt.Chart(rep_vol_chart)
+                .mark_bar()
+                .encode(
+                    y=alt.Y("RepShort:N", sort="-x", title=None),
+                    x=alt.X("Volume:Q", title="Volume (un)"),
+                    tooltip=[
+                        alt.Tooltip("Representante:N", title="Representante"),
+                        alt.Tooltip("VolumeFmt:N", title="Volume"),
+                        alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
+                        alt.Tooltip("Clientes:Q", title="Clientes"),
+                    ],
+                )
+                .properties(height=520)
+            )
+            st.altair_chart(chart_vol, width="stretch")
+
+    else:
+        # -------- Comparação de um rep vs líder e média --------
+        st.caption("Comparação do representante selecionado vs líder do período e média do time")
+
+        # Linha do selecionado
+        row_sel = rep_perf[rep_perf["Representante"] == rep_selected].copy()
+        if row_sel.empty:
+            st.info("Representante selecionado não tem dados no período.")
+        else:
+            sel_fat = float(row_sel["Faturamento"].iloc[0])
+            sel_vol = float(row_sel["Volume"].iloc[0])
+            sel_cli = int(row_sel["Clientes"].iloc[0])
+
+            # Líder (por faturamento)
+            leader_row = rep_perf.sort_values("Faturamento", ascending=False).head(1)
+            leader_name = str(leader_row["Representante"].iloc[0])
+            leader_fat = float(leader_row["Faturamento"].iloc[0])
+            leader_vol = float(leader_row["Volume"].iloc[0])
+
+            # Média do time (média por representante)
+            avg_fat = float(rep_perf["Faturamento"].mean())
+            avg_vol = float(rep_perf["Volume"].mean())
+
+            # Ranks do selecionado
+            rep_perf_rank = rep_perf.copy()
+            rep_perf_rank["RankFat"] = rep_perf_rank["Faturamento"].rank(method="min", ascending=False).astype(int)
+            rep_perf_rank["RankVol"] = rep_perf_rank["Volume"].rank(method="min", ascending=False).astype(int)
+            rank_fat = int(rep_perf_rank.loc[rep_perf_rank["Representante"] == rep_selected, "RankFat"].iloc[0])
+            rank_vol = int(rep_perf_rank.loc[rep_perf_rank["Representante"] == rep_selected, "RankVol"].iloc[0])
+            team_size = int(rep_perf_rank["Representante"].nunique())
+
+            # Helpers deltas
+            def pct_diff(a, b):
+                # a vs b
+                if b == 0:
+                    return None
+                return (a - b) / b
+
+            # Deltas vs líder
+            fat_vs_leader = sel_fat - leader_fat
+            vol_vs_leader = sel_vol - leader_vol
+            fat_vs_leader_pct = pct_diff(sel_fat, leader_fat)
+            vol_vs_leader_pct = pct_diff(sel_vol, leader_vol)
+
+            # Deltas vs média
+            fat_vs_avg = sel_fat - avg_fat
+            vol_vs_avg = sel_vol - avg_vol
+            fat_vs_avg_pct = pct_diff(sel_fat, avg_fat)
+            vol_vs_avg_pct = pct_diff(sel_vol, avg_vol)
+
+            # KPIs resumo
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric("Faturamento (rep)", format_brl_compact(sel_fat))
+            k2.metric("Volume (rep)", format_un(sel_vol))
+            k3.metric("Clientes (rep)", f"{sel_cli}")
+            k4.metric("Rank Faturamento", f"{rank_fat} / {team_size}")
+            k5.metric("Rank Volume", f"{rank_vol} / {team_size}")
+
+            st.markdown("**Comparativos**")
+
+            comp = pd.DataFrame(
+                [
+                    {
+                        "Comparação": "vs Líder (Faturamento)",
+                        "Valor": format_brl_compact(leader_fat),
+                        "Diferença": format_brl_signed(fat_vs_leader),
+                        "Diferença %": ("—" if fat_vs_leader_pct is None else f"{fat_vs_leader_pct:+.1%}"),
+                        "Referência": leader_name,
+                    },
+                    {
+                        "Comparação": "vs Média do time (Faturamento)",
+                        "Valor": format_brl_compact(avg_fat),
+                        "Diferença": format_brl_signed(fat_vs_avg),
+                        "Diferença %": ("—" if fat_vs_avg_pct is None else f"{fat_vs_avg_pct:+.1%}"),
+                        "Referência": f"Média de {team_size} reps",
+                    },
+                    {
+                        "Comparação": "vs Líder (Volume)",
+                        "Valor": format_un(leader_vol),
+                        "Diferença": format_un(vol_vs_leader),
+                        "Diferença %": ("—" if vol_vs_leader_pct is None else f"{vol_vs_leader_pct:+.1%}"),
+                        "Referência": leader_name,
+                    },
+                    {
+                        "Comparação": "vs Média do time (Volume)",
+                        "Valor": format_un(avg_vol),
+                        "Diferença": format_un(vol_vs_avg),
+                        "Diferença %": ("—" if vol_vs_avg_pct is None else f"{vol_vs_avg_pct:+.1%}"),
+                        "Referência": f"Média de {team_size} reps",
+                    },
+                ]
+            )
+
+            st.dataframe(comp, use_container_width=True, hide_index=True)
+
+            # Mini gráfico: selecionado vs líder vs média (fat/vol)
+            df_cmp = pd.DataFrame(
+                [
+                    {"Grupo": "Representante", "Métrica": "Faturamento", "Valor": sel_fat},
+                    {"Grupo": "Líder",         "Métrica": "Faturamento", "Valor": leader_fat},
+                    {"Grupo": "Média time",    "Métrica": "Faturamento", "Valor": avg_fat},
+                    {"Grupo": "Representante", "Métrica": "Volume",      "Valor": sel_vol},
+                    {"Grupo": "Líder",         "Métrica": "Volume",      "Valor": leader_vol},
+                    {"Grupo": "Média time",    "Métrica": "Volume",      "Valor": avg_vol},
+                ]
+            )
+
+            cX, cY = st.columns(2)
+
+            with cX:
+                chart_cmp_fat = (
+                    alt.Chart(df_cmp[df_cmp["Métrica"] == "Faturamento"])
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("Grupo:N", title=None),
+                        y=alt.Y("Valor:Q", title="Faturamento (R$)"),
+                        tooltip=["Grupo:N", "Valor:Q"],
+                    )
+                    .properties(height=260)
+                )
+                st.altair_chart(chart_cmp_fat, width="stretch")
+
+            with cY:
+                chart_cmp_vol = (
+                    alt.Chart(df_cmp[df_cmp["Métrica"] == "Volume"])
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("Grupo:N", title=None),
+                        y=alt.Y("Valor:Q", title="Volume (un)"),
+                        tooltip=["Grupo:N", "Valor:Q"],
+                    )
+                    .properties(height=260)
+                )
+                st.altair_chart(chart_cmp_vol, width="stretch")
+
+st.markdown("---")
 
 # ==========================
 # EVOLUÇÃO – FATURAMENTO x VOLUME (moved up: right after Destaques)
