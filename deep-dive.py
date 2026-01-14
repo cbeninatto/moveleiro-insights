@@ -1042,15 +1042,9 @@ table.cat-resumo th, table.cat-resumo td {
 render_categorias(df_rep, df_rep_prev, caption_prefix="Período atual")
 
 with st.expander("PERÍODO ANTERIOR", expanded=False):
-    # Aqui exibimos a “mesma” seção, mas usando o período anterior como “atual” (e o anterior do anterior como base)
-    prev2_end = prev_start - pd.DateOffset(months=1)
-    prev2_start = prev2_end - pd.DateOffset(months=months_span_for_carteira - 1)
-    mask_prev2 = (df["Competencia"] >= prev2_start) & (df["Competencia"] <= prev2_end)
-    df_prev2 = df.loc[mask_prev2].copy()
-    df_rep_prev2 = df_prev2.copy() if rep_selected == "Todos" else df_prev2[df_prev2["Representante"] == rep_selected].copy()
-
     st.caption(f"Período anterior: {previous_period_label}")
-    render_categorias(df_rep_prev, df_rep_prev2, caption_prefix="Período anterior")
+    # Compare o período anterior manual vs período atual manual (mesmo layout)
+    render_categorias(df_rep_prev, df_rep, caption_prefix="Período anterior")
 
 st.markdown("---")
 
