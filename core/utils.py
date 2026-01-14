@@ -1,7 +1,6 @@
-# core/utils.py
 import pandas as pd
 
-# Constants
+# --- Constants ---
 STATUS_WEIGHTS = {
     "Novos": 1, "Novo": 1,
     "Crescendo": 2, "CRESCENDO": 2,
@@ -20,6 +19,7 @@ MONTH_MAP_NUM_TO_NAME = {
     9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ",
 }
 
+# --- Formatters ---
 def format_brl(value: float) -> str:
     if pd.isna(value):
         return "R$ 0,00"
@@ -37,13 +37,6 @@ def format_brl_compact(value: float) -> str:
     if av >= 1_000:
         return "R$ " + f"{v/1_000:.1f} mil".replace(".", ",")
     return format_brl(v)
-
-def format_brl_signed(value: float) -> str:
-    if pd.isna(value):
-        return "R$ 0,00"
-    v = float(value)
-    sign = "-" if v < 0 else ""
-    return sign + format_brl(abs(v))
 
 def format_un(value: float) -> str:
     if pd.isna(value):
