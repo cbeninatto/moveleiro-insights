@@ -283,7 +283,9 @@ def format_period_label(start: pd.Timestamp, end: pd.Timestamp) -> str:
         return fmt(start)
     return f"{fmt(start)} - {fmt(end)}"
 
-def build_carteira_status(df_all: pd.DataFrame, rep: str, start_comp: pd.Timestamp, end_comp: pd.Timestamp) -> pd.DataFrame:
+def build_carteira_status_manual_prev(df_all: pd.DataFrame, rep: str,
+                                      start_comp: pd.Timestamp, end_comp: pd.Timestamp,
+                                      prev_start: pd.Timestamp, prev_end: pd.Timestamp) -> pd.DataFrame:
     if rep is None or rep == "Todos":
         df_rep_all = df_all.copy()
     else:
@@ -291,10 +293,6 @@ def build_carteira_status(df_all: pd.DataFrame, rep: str, start_comp: pd.Timesta
 
     if df_rep_all.empty:
         return pd.DataFrame(columns=["Cliente", "Estado", "Cidade", "ValorAtual", "ValorAnterior", STATUS_COL])
-
-    months_span = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
-    prev_end = start_comp - pd.DateOffset(months=1)
-    prev_start = prev_end - pd.DateOffset(months=months_span - 1)
 
     mask_curr = (df_rep_all["Competencia"] >= start_comp) & (df_rep_all["Competencia"] <= end_comp)
     mask_prev = (df_rep_all["Competencia"] >= prev_start) & (df_rep_all["Competencia"] <= prev_end)
@@ -541,13 +539,65 @@ end_month = MONTH_MAP_NAME_TO_NUM[end_month_name]
 start_comp = pd.Timestamp(year=int(start_year), month=int(start_month), day=1)
 end_comp = pd.Timestamp(year=int(end_year), month=int(end_month), day=1)
 
+st.sidebar.markdown("### Período anterior (manual)")
+
+# defaults = período anterior automático (mesma janela), só para sugerir
+months_span_default = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
+_prev_end_default = start_comp - pd.DateOffset(months=1)
+_prev_start_default = _prev_end_default - pd.DateOffset(months=months_span_default - 1)
+
+prev_default_start_month = int(_prev_start_default.month)
+prev_default_start_year  = int(_prev_start_default.year)
+prev_default_end_month   = int(_prev_end_default.month)
+prev_default_end_year    = int(_prev_end_default.year)
+
+st.sidebar.caption("Período anterior – inicial")
+col_pmi, col_pai = st.sidebar.columns(2)
+with col_pmi:
+    prev_start_month_name = st.selectbox(
+        "Mês (anterior – início)",
+        options=month_names,
+        index=month_names.index(MONTH_MAP_NUM_TO_NAME[prev_default_start_month]),
+        key="prev_start_month",
+    )
+with col_pai:
+    prev_start_year = st.selectbox(
+        "Ano (anterior – início)",
+        options=[int(a) for a in anos_disponiveis],
+        index=list(anos_disponiveis).index(prev_default_start_year) if prev_default_start_year in anos_disponiveis else 0,
+        key="prev_start_year",
+    )
+
+st.sidebar.caption("Período anterior – final")
+col_pmf, col_paf = st.sidebar.columns(2)
+with col_pmf:
+    prev_end_month_name = st.selectbox(
+        "Mês (anterior – fim)",
+        options=month_names,
+        index=month_names.index(MONTH_MAP_NUM_TO_NAME[prev_default_end_month]),
+        key="prev_end_month",
+    )
+with col_paf:
+    prev_end_year = st.selectbox(
+        "Ano (anterior – fim)",
+        options=[int(a) for a in anos_disponiveis],
+        index=list(anos_disponiveis).index(prev_default_end_year) if prev_default_end_year in anos_disponiveis else 0,
+        key="prev_end_year",
+    )
+
+prev_start_month = MONTH_MAP_NAME_TO_NUM[prev_start_month_name]
+prev_end_month   = MONTH_MAP_NAME_TO_NUM[prev_end_month_name]
+
+prev_start = pd.Timestamp(year=int(prev_start_year), month=int(prev_start_month), day=1)
+prev_end   = pd.Timestamp(year=int(prev_end_year), month=int(prev_end_month), day=1)
+
+if prev_start > prev_end:
+    st.sidebar.error("Período anterior: início não pode ser maior que o fim.")
+    st.stop()
+
 if start_comp > end_comp:
     st.sidebar.error("Período inicial não pode ser maior que o período final.")
     st.stop()
-
-months_span_for_carteira = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
-prev_end = start_comp - pd.DateOffset(months=1)
-prev_start = prev_end - pd.DateOffset(months=months_span_for_carteira - 1)
 
 current_period_label = format_period_label(start_comp, end_comp)
 previous_period_label = format_period_label(prev_start, prev_end)
@@ -572,7 +622,7 @@ mask_prev_period = (df["Competencia"] >= prev_start) & (df["Competencia"] <= pre
 df_prev_period = df.loc[mask_prev_period].copy()
 df_rep_prev = df_prev_period.copy() if rep_selected == "Todos" else df_prev_period[df_prev_period["Representante"] == rep_selected].copy()
 
-clientes_carteira = build_carteira_status(df, rep_selected, start_comp, end_comp)
+clientes_carteira = build_carteira_status_manual_prev(df, rep_selected, start_comp, end_comp, prev_start, prev_end)
 
 # ==========================
 # HEADER
