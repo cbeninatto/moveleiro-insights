@@ -21,7 +21,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Print CSS (mantém, mas sem PDF)
 st.markdown(
     """
 <style>
@@ -62,7 +61,15 @@ STATUS_WEIGHTS = {
 }
 STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
 
+# green = higher, red = lower
 MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
+
+MONTH_MAP_NUM_TO_NAME = {
+    1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR",
+    5: "MAI", 6: "JUN", 7: "JUL", 8: "AGO",
+    9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ",
+}
+MONTH_MAP_NAME_TO_NUM = {v: k for k, v in MONTH_MAP_NUM_TO_NAME.items()}
 
 # ==========================
 # HELPERS
@@ -227,16 +234,16 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
     if clientes_carteira is None or clientes_carteira.empty:
         return 50.0, "Neutra"
 
-    dfc = clientes_carteira.copy()
+    df = clientes_carteira.copy()
     for col in ["ValorAtual", "ValorAnterior"]:
-        dfc[col] = pd.to_numeric(dfc.get(col, 0.0), errors="coerce").fillna(0.0)
+        df[col] = pd.to_numeric(df.get(col, 0.0), errors="coerce").fillna(0.0)
 
-    dfc["PesoReceita"] = dfc[["ValorAtual", "ValorAnterior"]].max(axis=1).clip(lower=0)
+    df["PesoReceita"] = df[["ValorAtual", "ValorAnterior"]].max(axis=1).clip(lower=0)
 
-    if STATUS_COL not in dfc.columns:
+    if STATUS_COL not in df.columns:
         return 50.0, "Neutra"
 
-    receita_status = dfc.groupby(STATUS_COL)["PesoReceita"].sum()
+    receita_status = df.groupby(STATUS_COL)["PesoReceita"].sum()
     total = float(receita_status.sum())
     if total <= 0:
         return 50.0, "Neutra"
@@ -249,10 +256,10 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
     isc = (score_bruto + 2) / 4 * 100
     isc = max(0.0, min(100.0, isc))
 
-    base_anterior = dfc[dfc["ValorAnterior"] > 0].copy()
+    base_anterior = df[df["ValorAnterior"] > 0].copy()
     base_total = float(base_anterior["PesoReceita"].sum())
-    perdidos_mask = dfc[STATUS_COL].astype(str).str.upper().isin(["PERDIDOS", "PERDIDO"])
-    receita_perdida = float(dfc.loc[perdidos_mask, "PesoReceita"].sum())
+    perdidos_mask = df[STATUS_COL].astype(str).str.upper().isin(["PERDIDOS", "PERDIDO"])
+    receita_perdida = float(df.loc[perdidos_mask, "PesoReceita"].sum())
     churn = receita_perdida / base_total if base_total > 0 else 0.0
 
     if churn > 0.20 and isc >= 70:
@@ -269,75 +276,12 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
 
     return float(isc), label
 
-MONTH_MAP_NUM_TO_NAME = {
-    1: "JAN", 2: "FEV", 3: "MAR", 4: "ABR",
-    5: "MAI", 6: "JUN", 7: "JUL", 8: "AGO",
-    9: "SET", 10: "OUT", 11: "NOV", 12: "DEZ",
-}
-MONTH_MAP_NAME_TO_NUM = {v: k for k, v in MONTH_MAP_NUM_TO_NAME.items()}
-
 def format_period_label(start: pd.Timestamp, end: pd.Timestamp) -> str:
     def fmt(d: pd.Timestamp) -> str:
         return f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}"
     if start.year == end.year and start.month == end.month:
         return fmt(start)
     return f"{fmt(start)} - {fmt(end)}"
-
-def build_carteira_status_manual_prev(df_all: pd.DataFrame, rep: str,
-                                      start_comp: pd.Timestamp, end_comp: pd.Timestamp,
-                                      prev_start: pd.Timestamp, prev_end: pd.Timestamp) -> pd.DataFrame:
-    if rep is None or rep == "Todos":
-        df_rep_all = df_all.copy()
-    else:
-        df_rep_all = df_all[df_all["Representante"] == rep].copy()
-
-    if df_rep_all.empty:
-        return pd.DataFrame(columns=["Cliente", "Estado", "Cidade", "ValorAtual", "ValorAnterior", STATUS_COL])
-
-    mask_curr = (df_rep_all["Competencia"] >= start_comp) & (df_rep_all["Competencia"] <= end_comp)
-    mask_prev = (df_rep_all["Competencia"] >= prev_start) & (df_rep_all["Competencia"] <= prev_end)
-
-    df_curr = df_rep_all.loc[mask_curr].copy()
-    df_prev = df_rep_all.loc[mask_prev].copy()
-
-    curr_agg = (
-        df_curr.groupby("Cliente", as_index=False)
-        .agg({"Valor": "sum", "Estado": "first", "Cidade": "first"})
-        .rename(columns={"Valor": "ValorAtual", "Estado": "EstadoAtual", "Cidade": "CidadeAtual"})
-    )
-    prev_agg = (
-        df_prev.groupby("Cliente", as_index=False)
-        .agg({"Valor": "sum", "Estado": "first", "Cidade": "first"})
-        .rename(columns={"Valor": "ValorAnterior", "Estado": "EstadoAnterior", "Cidade": "CidadeAnterior"})
-    )
-
-    clientes = pd.merge(curr_agg, prev_agg, on="Cliente", how="outer")
-    clientes["ValorAtual"] = clientes["ValorAtual"].fillna(0.0)
-    clientes["ValorAnterior"] = clientes["ValorAnterior"].fillna(0.0)
-
-    clientes["Estado"] = clientes["EstadoAtual"].combine_first(clientes["EstadoAnterior"]).fillna("")
-    clientes["Cidade"] = clientes["CidadeAtual"].combine_first(clientes["CidadeAnterior"]).fillna("")
-
-    def classify(row):
-        va, vp = row["ValorAtual"], row["ValorAnterior"]
-        if va > 0 and vp == 0:
-            return "Novos"
-        if va == 0 and vp > 0:
-            return "Perdidos"
-        if va > 0 and vp > 0:
-            ratio = va / vp if vp != 0 else 0
-            if ratio >= 1.2:
-                return "Crescendo"
-            elif ratio <= 0.8:
-                return "Caindo"
-            else:
-                return "Estáveis"
-        return "Estáveis"
-
-    clientes[STATUS_COL] = clientes.apply(classify, axis=1)
-    clientes = clientes[(clientes["ValorAtual"] > 0) | (clientes["ValorAnterior"] > 0)]
-
-    return clientes[["Cliente", "Estado", "Cidade", "ValorAtual", "ValorAnterior", STATUS_COL]]
 
 def _norm_col(s: str) -> str:
     s = str(s).strip()
@@ -402,9 +346,67 @@ def load_geo() -> pd.DataFrame:
     )
     return df_geo[["key", "Estado", "Cidade", "lat", "lon"]]
 
-# ==========================
-# CHARTS
-# ==========================
+def build_carteira_status_manual_prev(
+    df_all: pd.DataFrame,
+    rep: str,
+    start_comp: pd.Timestamp,
+    end_comp: pd.Timestamp,
+    prev_start: pd.Timestamp,
+    prev_end: pd.Timestamp
+) -> pd.DataFrame:
+    if rep is None or rep == "Todos":
+        df_rep_all = df_all.copy()
+    else:
+        df_rep_all = df_all[df_all["Representante"] == rep].copy()
+
+    if df_rep_all.empty:
+        return pd.DataFrame(columns=["Cliente", "Estado", "Cidade", "ValorAtual", "ValorAnterior", STATUS_COL])
+
+    mask_curr = (df_rep_all["Competencia"] >= start_comp) & (df_rep_all["Competencia"] <= end_comp)
+    mask_prev = (df_rep_all["Competencia"] >= prev_start) & (df_rep_all["Competencia"] <= prev_end)
+
+    df_curr = df_rep_all.loc[mask_curr].copy()
+    df_prev = df_rep_all.loc[mask_prev].copy()
+
+    curr_agg = (
+        df_curr.groupby("Cliente", as_index=False)
+        .agg({"Valor": "sum", "Estado": "first", "Cidade": "first"})
+        .rename(columns={"Valor": "ValorAtual", "Estado": "EstadoAtual", "Cidade": "CidadeAtual"})
+    )
+    prev_agg = (
+        df_prev.groupby("Cliente", as_index=False)
+        .agg({"Valor": "sum", "Estado": "first", "Cidade": "first"})
+        .rename(columns={"Valor": "ValorAnterior", "Estado": "EstadoAnterior", "Cidade": "CidadeAnterior"})
+    )
+
+    clientes = pd.merge(curr_agg, prev_agg, on="Cliente", how="outer")
+    clientes["ValorAtual"] = clientes["ValorAtual"].fillna(0.0)
+    clientes["ValorAnterior"] = clientes["ValorAnterior"].fillna(0.0)
+
+    clientes["Estado"] = clientes["EstadoAtual"].combine_first(clientes["EstadoAnterior"]).fillna("")
+    clientes["Cidade"] = clientes["CidadeAtual"].combine_first(clientes["CidadeAnterior"]).fillna("")
+
+    def classify(row):
+        va, vp = float(row["ValorAtual"]), float(row["ValorAnterior"])
+        if va > 0 and vp == 0:
+            return "Novos"
+        if va == 0 and vp > 0:
+            return "Perdidos"
+        if va > 0 and vp > 0:
+            ratio = va / vp if vp != 0 else 0.0
+            if ratio >= 1.2:
+                return "Crescendo"
+            elif ratio <= 0.8:
+                return "Caindo"
+            else:
+                return "Estáveis"
+        return "Estáveis"
+
+    clientes[STATUS_COL] = clientes.apply(classify, axis=1)
+    clientes = clientes[(clientes["ValorAtual"] > 0) | (clientes["ValorAnterior"] > 0)]
+
+    return clientes[["Cliente", "Estado", "Cidade", "ValorAtual", "ValorAnterior", STATUS_COL]]
+
 def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
     if df_in is None or df_in.empty:
         return None
@@ -447,25 +449,59 @@ def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
 
     return alt.layer(bars, line).resolve_scale(y="independent").properties(height=chart_height)
 
-def html_table(df: pd.DataFrame, css_class: str, colgroup: str = "", escape_cols: bool = True):
-    if df is None or df.empty:
-        return "<div style='opacity:.8'>Sem dados.</div>"
-    cols = list(df.columns)
-    out = f"<table class='{css_class}'>"
-    if colgroup:
-        out += f"<colgroup>{colgroup}</colgroup>"
-    out += "<thead><tr>" + "".join(f"<th>{html.escape(str(c))}</th>" for c in cols) + "</tr></thead><tbody>"
-    for _, r in df.iterrows():
-        out += "<tr>"
-        for c in cols:
-            v = r[c]
-            if isinstance(v, str) and not escape_cols:
-                out += f"<td>{v}</td>"
-            else:
-                out += f"<td>{html.escape(str(v))}</td>"
-        out += "</tr>"
-    out += "</tbody></table>"
-    return out
+def render_ranking_table(df_rank: pd.DataFrame, value_col: str, value_is_money: bool):
+    # df_rank expected cols: Representante, Valor/Quantidade, Clientes, Share, Ranking
+    if df_rank.empty:
+        st.info("Sem dados para ranquear.")
+        return
+
+    view = df_rank.copy()
+    view = view.sort_values("Ranking", ascending=True)
+
+    view["%"] = view["Share"].map(lambda x: f"{x:.1%}")
+    if value_is_money:
+        view[value_col] = view[value_col].map(format_brl)
+    else:
+        view[value_col] = view[value_col].map(format_un)
+
+    view = view.rename(columns={
+        "Ranking": "Ranking",
+        "Representante": "Representante",
+        value_col: "Faturamento" if value_is_money else "Volume",
+        "Clientes": "Clientes",
+        "%": "%",
+    })
+
+    cols = ["Ranking", "Representante", ("Faturamento" if value_is_money else "Volume"), "%", "Clientes"]
+    view = view[cols]
+
+    st.markdown(
+        """
+<style>
+table.rank-table { width: 100%; border-collapse: collapse; }
+table.rank-table th, table.rank-table td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.86rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap;
+}
+table.rank-table th:nth-child(1), table.rank-table td:nth-child(1) { width: 9%; text-align: right; }
+table.rank-table th:nth-child(4), table.rank-table td:nth-child(4) { width: 12%; text-align: right; }
+table.rank-table th:nth-child(5), table.rank-table td:nth-child(5) { width: 12%; text-align: right; }
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+    cols_h = list(view.columns)
+    html_tbl = "<table class='rank-table'><thead><tr>"
+    html_tbl += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_h)
+    html_tbl += "</tr></thead><tbody>"
+    for _, r in view.iterrows():
+        html_tbl += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_h) + "</tr>"
+    html_tbl += "</tbody></table>"
+    st.markdown(html_tbl, unsafe_allow_html=True)
 
 # ==========================
 # LOAD DATA
@@ -484,7 +520,6 @@ if df.empty:
 # SIDEBAR – FILTERS
 # ==========================
 st.sidebar.title("Filtros – Insights de Vendas")
-st.sidebar.markdown("### Período")
 
 anos_disponiveis = sorted(df["Ano"].dropna().unique())
 if not anos_disponiveis:
@@ -498,6 +533,8 @@ default_start_month_num = int(meses_ano_default.min()) if len(meses_ano_default)
 default_end_month_num = int(meses_ano_default.max()) if len(meses_ano_default) else 12
 
 month_names = [MONTH_MAP_NUM_TO_NAME[m] for m in range(1, 13)]
+
+st.sidebar.markdown("### Período atual")
 
 st.sidebar.caption("Período inicial")
 col_mi, col_ai = st.sidebar.columns(2)
@@ -539,17 +576,22 @@ end_month = MONTH_MAP_NAME_TO_NUM[end_month_name]
 start_comp = pd.Timestamp(year=int(start_year), month=int(start_month), day=1)
 end_comp = pd.Timestamp(year=int(end_year), month=int(end_month), day=1)
 
+if start_comp > end_comp:
+    st.sidebar.error("Período inicial não pode ser maior que o período final.")
+    st.stop()
+
+# Manual previous period selector (always manual)
 st.sidebar.markdown("### Período anterior (manual)")
 
-# defaults = período anterior automático (mesma janela), só para sugerir
+# defaults suggested = previous window ending right before current start
 months_span_default = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
 _prev_end_default = start_comp - pd.DateOffset(months=1)
 _prev_start_default = _prev_end_default - pd.DateOffset(months=months_span_default - 1)
 
 prev_default_start_month = int(_prev_start_default.month)
-prev_default_start_year  = int(_prev_start_default.year)
-prev_default_end_month   = int(_prev_end_default.month)
-prev_default_end_year    = int(_prev_end_default.year)
+prev_default_start_year = int(_prev_start_default.year)
+prev_default_end_month = int(_prev_end_default.month)
+prev_default_end_year = int(_prev_end_default.year)
 
 st.sidebar.caption("Período anterior – inicial")
 col_pmi, col_pai = st.sidebar.columns(2)
@@ -557,7 +599,7 @@ with col_pmi:
     prev_start_month_name = st.selectbox(
         "Mês (anterior – início)",
         options=month_names,
-        index=month_names.index(MONTH_MAP_NUM_TO_NAME[prev_default_start_month]),
+        index=month_names.index(MONTH_MAP_NUM_TO_NAME.get(prev_default_start_month, 1)),
         key="prev_start_month",
     )
 with col_pai:
@@ -574,7 +616,7 @@ with col_pmf:
     prev_end_month_name = st.selectbox(
         "Mês (anterior – fim)",
         options=month_names,
-        index=month_names.index(MONTH_MAP_NUM_TO_NAME[prev_default_end_month]),
+        index=month_names.index(MONTH_MAP_NUM_TO_NAME.get(prev_default_end_month, 1)),
         key="prev_end_month",
     )
 with col_paf:
@@ -586,22 +628,19 @@ with col_paf:
     )
 
 prev_start_month = MONTH_MAP_NAME_TO_NUM[prev_start_month_name]
-prev_end_month   = MONTH_MAP_NAME_TO_NUM[prev_end_month_name]
+prev_end_month = MONTH_MAP_NAME_TO_NUM[prev_end_month_name]
 
 prev_start = pd.Timestamp(year=int(prev_start_year), month=int(prev_start_month), day=1)
-prev_end   = pd.Timestamp(year=int(prev_end_year), month=int(prev_end_month), day=1)
+prev_end = pd.Timestamp(year=int(prev_end_year), month=int(prev_end_month), day=1)
 
 if prev_start > prev_end:
     st.sidebar.error("Período anterior: início não pode ser maior que o fim.")
     st.stop()
 
-if start_comp > end_comp:
-    st.sidebar.error("Período inicial não pode ser maior que o período final.")
-    st.stop()
-
 current_period_label = format_period_label(start_comp, end_comp)
 previous_period_label = format_period_label(prev_start, prev_end)
 
+# Filter data
 mask_period = (df["Competencia"] >= start_comp) & (df["Competencia"] <= end_comp)
 df_period = df.loc[mask_period].copy()
 if df_period.empty:
@@ -614,7 +653,7 @@ if not reps_period:
     st.stop()
 
 rep_options = ["Todos"] + reps_period
-rep_selected = st.sidebar.selectbox("Representante", rep_options)
+rep_selected = st.sidebar.selectbox("Representante", rep_options, key="rep_selected")
 
 df_rep = df_period.copy() if rep_selected == "Todos" else df_period[df_period["Representante"] == rep_selected].copy()
 
@@ -630,7 +669,7 @@ clientes_carteira = build_carteira_status_manual_prev(df, rep_selected, start_co
 st.title("Insights de Vendas")
 titulo_rep = "Todos" if rep_selected == "Todos" else rep_selected
 st.subheader(f"Representante: **{titulo_rep}**")
-st.caption(f"Período selecionado: {current_period_label}")
+st.caption(f"Período atual: {current_period_label}  |  Período anterior: {previous_period_label}")
 st.markdown("---")
 
 # ==========================
@@ -726,179 +765,161 @@ else:
         st.write(f"• Melhor mês: **{best_vol['MesLabel']}** — {format_un(best_vol['Quantidade'])}")
         st.write(f"• Pior mês: **{worst_vol['MesLabel']}** — {format_un(worst_vol['Quantidade'])}")
 
+# ==========================
+# (NEW) PERFORMANCE DE REPRESENTANTES
+# ==========================
 st.markdown("---")
-
-# ==========================
-# PERFORMANCE DE REPRESENTANTES
-# ==========================
 st.subheader("Performance de Representantes")
 
-def reps_summary(df_in: pd.DataFrame) -> pd.DataFrame:
-    if df_in is None or df_in.empty:
-        return pd.DataFrame(columns=["Representante", "Valor", "Quantidade", "Clientes"])
-    rep_sum = (
-        df_in.groupby("Representante", as_index=False)
-        .agg(
-            Valor=("Valor", "sum"),
-            Quantidade=("Quantidade", "sum"),
-            Clientes=("Cliente", "nunique"),
-        )
+# Current period rep summary (always computed from df_period)
+rep_summary_curr = (
+    df_period.groupby("Representante", as_index=False)
+    .agg(
+        Faturamento=("Valor", "sum"),
+        Volume=("Quantidade", "sum"),
+        Clientes=("Cliente", "nunique"),
     )
-    rep_sum["Valor"] = pd.to_numeric(rep_sum["Valor"], errors="coerce").fillna(0.0)
-    rep_sum["Quantidade"] = pd.to_numeric(rep_sum["Quantidade"], errors="coerce").fillna(0.0)
-    rep_sum["Clientes"] = pd.to_numeric(rep_sum["Clientes"], errors="coerce").fillna(0).astype(int)
-    return rep_sum
+)
 
-def render_ranking_table(df_rank: pd.DataFrame, metric_col: str, metric_label: str, total_metric: float):
-    if df_rank is None or df_rank.empty:
-        st.info("Sem dados para montar o ranking.")
-        return
-
-    total_safe = float(total_metric) if float(total_metric) > 0 else 1.0
-    df_out = df_rank.copy()
-    df_out = df_out.sort_values(metric_col, ascending=False).reset_index(drop=True)
-    df_out["Ranking"] = df_out.index + 1
-    df_out["%"] = (df_out[metric_col] / total_safe).map(lambda x: f"{x:.1%}")
-
-    if metric_col == "Valor":
-        df_out[metric_label] = df_out[metric_col].map(format_brl)
-    else:
-        df_out[metric_label] = df_out[metric_col].map(lambda x: f"{int(round(float(x))):,}".replace(",", "."))
-
-    df_out = df_out[["Ranking", "Representante", metric_label, "%", "Clientes"]]
-
-    st.markdown(
-        """
-<style>
-table.rep-rank { width: 100%; border-collapse: collapse; }
-table.rep-rank th, table.rep-rank td {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.86rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  text-align: left;
-  white-space: nowrap;
-}
-table.rep-rank th:nth-child(1), table.rep-rank td:nth-child(1) { text-align: center; width: 60px; }
-table.rep-rank th:nth-child(4), table.rep-rank td:nth-child(4) { text-align: center; width: 90px; }
-table.rep-rank th:nth-child(5), table.rep-rank td:nth-child(5) { text-align: center; width: 90px; }
-</style>
-""",
-        unsafe_allow_html=True,
+rep_summary_prev = (
+    df_prev_period.groupby("Representante", as_index=False)
+    .agg(
+        Faturamento=("Valor", "sum"),
+        Volume=("Quantidade", "sum"),
+        Clientes=("Cliente", "nunique"),
     )
-
-    st.markdown(html_table(df_out, "rep-rank"), unsafe_allow_html=True)
-
-rep_sum_curr = reps_summary(df_period)
-rep_sum_prev = reps_summary(df_prev_period)
+) if not df_prev_period.empty else pd.DataFrame(columns=["Representante", "Faturamento", "Volume", "Clientes"])
 
 if rep_selected == "Todos":
-    cA, cB = st.columns(2)
-    with cA:
-        st.caption("Ranking por Faturamento (período atual)")
-        render_ranking_table(rep_sum_curr, metric_col="Valor", metric_label="Faturamento", total_metric=float(rep_sum_curr["Valor"].sum()))
-        with st.expander("PERÍODO ANTERIOR", expanded=False):
-            st.caption(f"Ranking por Faturamento ({previous_period_label})")
-            render_ranking_table(rep_sum_prev, metric_col="Valor", metric_label="Faturamento", total_metric=float(rep_sum_prev["Valor"].sum()))
-
-    with cB:
-        st.caption("Ranking por Volume (período atual)")
-        render_ranking_table(rep_sum_curr, metric_col="Quantidade", metric_label="Volume", total_metric=float(rep_sum_curr["Quantidade"].sum()))
-        with st.expander("PERÍODO ANTERIOR", expanded=False):
-            st.caption(f"Ranking por Volume ({previous_period_label})")
-            render_ranking_table(rep_sum_prev, metric_col="Quantidade", metric_label="Volume", total_metric=float(rep_sum_prev["Quantidade"].sum()))
-else:
-    # Comparação do rep vs líder e vs média do time
-    def rep_compare(rep_name: str, rep_sum: pd.DataFrame):
-        if rep_sum is None or rep_sum.empty:
-            return None
-        df_s = rep_sum.copy()
-        df_s = df_s[df_s["Representante"].notna()].copy()
-        if df_s.empty:
-            return None
-
-        leader_fat = df_s.sort_values("Valor", ascending=False).head(1)
-        leader_vol = df_s.sort_values("Quantidade", ascending=False).head(1)
-
-        row_rep = df_s[df_s["Representante"] == rep_name].head(1)
-        if row_rep.empty:
-            # caso raro: rep sem venda no período
-            rep_vals = {"Valor": 0.0, "Quantidade": 0.0, "Clientes": 0}
-        else:
-            rep_vals = row_rep.iloc[0].to_dict()
-
-        avg_fat = float(df_s["Valor"].mean()) if len(df_s) else 0.0
-        avg_vol = float(df_s["Quantidade"].mean()) if len(df_s) else 0.0
-        avg_cli = float(df_s["Clientes"].mean()) if len(df_s) else 0.0
-
-        out = {
-            "rep_fat": float(rep_vals.get("Valor", 0.0)),
-            "rep_vol": float(rep_vals.get("Quantidade", 0.0)),
-            "rep_cli": int(rep_vals.get("Clientes", 0) or 0),
-            "leader_fat_name": str(leader_fat["Representante"].iloc[0]),
-            "leader_fat": float(leader_fat["Valor"].iloc[0]),
-            "leader_vol_name": str(leader_vol["Representante"].iloc[0]),
-            "leader_vol": float(leader_vol["Quantidade"].iloc[0]),
-            "avg_fat": avg_fat,
-            "avg_vol": avg_vol,
-            "avg_cli": avg_cli,
-        }
-        return out
-
-    comp_curr = rep_compare(rep_selected, rep_sum_curr)
-    if comp_curr is None:
-        st.info("Sem dados suficientes para comparar.")
+    if rep_summary_curr.empty or float(rep_summary_curr["Faturamento"].sum()) <= 0:
+        st.info("Sem dados para ranquear representantes no período atual.")
     else:
-        st.caption("Período atual")
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            delta = comp_curr["rep_fat"] - comp_curr["avg_fat"]
-            st.metric("Faturamento", format_brl_compact(comp_curr["rep_fat"]), f"vs média: {format_brl_signed(delta)}")
-        with m2:
-            # delta numérico em unidades (mostra como un)
-            delta_vol = comp_curr["rep_vol"] - comp_curr["avg_vol"]
-            st.metric("Volume", format_un(comp_curr["rep_vol"]), f"vs média: {format_un(delta_vol)}")
-        with m3:
-            delta_cli = comp_curr["rep_cli"] - comp_curr["avg_cli"]
-            st.metric("Clientes", f"{comp_curr['rep_cli']}", f"vs média: {delta_cli:+.0f}")
+        total_team_fat = float(rep_summary_curr["Faturamento"].sum())
+        total_team_vol = float(rep_summary_curr["Volume"].sum())
 
-        st.markdown(
-            f"**Líder em faturamento:** {html.escape(comp_curr['leader_fat_name'])} — {format_brl_compact(comp_curr['leader_fat'])}  \n"
-            f"**Líder em volume:** {html.escape(comp_curr['leader_vol_name'])} — {format_un(comp_curr['leader_vol'])}"
-        )
+        # Ranking por Faturamento
+        fat_rank = rep_summary_curr.copy()
+        fat_rank["Share"] = fat_rank["Faturamento"] / (total_team_fat if total_team_fat > 0 else 1.0)
+        fat_rank = fat_rank.sort_values("Faturamento", ascending=False).reset_index(drop=True)
+        fat_rank["Ranking"] = fat_rank.index + 1
+        fat_rank = fat_rank.rename(columns={"Clientes": "Clientes"})
 
-        with st.expander("PERÍODO ANTERIOR", expanded=False):
-            comp_prev = rep_compare(rep_selected, rep_sum_prev)
-            if comp_prev is None:
-                st.info("Sem dados no período anterior.")
-            else:
-                st.caption(f"{previous_period_label}")
-                pm1, pm2, pm3 = st.columns(3)
-                with pm1:
-                    delta = comp_prev["rep_fat"] - comp_prev["avg_fat"]
-                    st.metric("Faturamento", format_brl_compact(comp_prev["rep_fat"]), f"vs média: {format_brl_signed(delta)}")
-                with pm2:
-                    delta_vol = comp_prev["rep_vol"] - comp_prev["avg_vol"]
-                    st.metric("Volume", format_un(comp_prev["rep_vol"]), f"vs média: {format_un(delta_vol)}")
-                with pm3:
-                    delta_cli = comp_prev["rep_cli"] - comp_prev["avg_cli"]
-                    st.metric("Clientes", f"{comp_prev['rep_cli']}", f"vs média: {delta_cli:+.0f}")
+        # Ranking por Volume
+        vol_rank = rep_summary_curr.copy()
+        vol_rank["Share"] = vol_rank["Volume"] / (total_team_vol if total_team_vol > 0 else 1.0)
+        vol_rank = vol_rank.sort_values("Volume", ascending=False).reset_index(drop=True)
+        vol_rank["Ranking"] = vol_rank.index + 1
+        vol_rank = vol_rank.rename(columns={"Clientes": "Clientes"})
 
-                st.markdown(
-                    f"**Líder em faturamento:** {html.escape(comp_prev['leader_fat_name'])} — {format_brl_compact(comp_prev['leader_fat'])}  \n"
-                    f"**Líder em volume:** {html.escape(comp_prev['leader_vol_name'])} — {format_un(comp_prev['leader_vol'])}"
-                )
+        left, right = st.columns(2)
+        with left:
+            st.caption("Ranking por Faturamento")
+            render_ranking_table(
+                fat_rank[["Ranking", "Representante", "Faturamento", "Share", "Clientes"]],
+                value_col="Faturamento",
+                value_is_money=True,
+            )
 
+            with st.expander("PERÍODO ANTERIOR", expanded=False):
+                if rep_summary_prev.empty or float(rep_summary_prev["Faturamento"].sum()) <= 0:
+                    st.info("Sem dados no período anterior.")
+                else:
+                    total_prev_fat = float(rep_summary_prev["Faturamento"].sum())
+                    fat_rank_prev = rep_summary_prev.copy()
+                    fat_rank_prev["Share"] = fat_rank_prev["Faturamento"] / (total_prev_fat if total_prev_fat > 0 else 1.0)
+                    fat_rank_prev = fat_rank_prev.sort_values("Faturamento", ascending=False).reset_index(drop=True)
+                    fat_rank_prev["Ranking"] = fat_rank_prev.index + 1
+                    st.caption(f"Período anterior: {previous_period_label}")
+                    render_ranking_table(
+                        fat_rank_prev[["Ranking", "Representante", "Faturamento", "Share", "Clientes"]],
+                        value_col="Faturamento",
+                        value_is_money=True,
+                    )
+
+        with right:
+            st.caption("Ranking por Volume")
+            render_ranking_table(
+                vol_rank[["Ranking", "Representante", "Volume", "Share", "Clientes"]],
+                value_col="Volume",
+                value_is_money=False,
+            )
+
+            with st.expander("PERÍODO ANTERIOR", expanded=False):
+                if rep_summary_prev.empty or float(rep_summary_prev["Volume"].sum()) <= 0:
+                    st.info("Sem dados no período anterior.")
+                else:
+                    total_prev_vol = float(rep_summary_prev["Volume"].sum())
+                    vol_rank_prev = rep_summary_prev.copy()
+                    vol_rank_prev["Share"] = vol_rank_prev["Volume"] / (total_prev_vol if total_prev_vol > 0 else 1.0)
+                    vol_rank_prev = vol_rank_prev.sort_values("Volume", ascending=False).reset_index(drop=True)
+                    vol_rank_prev["Ranking"] = vol_rank_prev.index + 1
+                    st.caption(f"Período anterior: {previous_period_label}")
+                    render_ranking_table(
+                        vol_rank_prev[["Ranking", "Representante", "Volume", "Share", "Clientes"]],
+                        value_col="Volume",
+                        value_is_money=False,
+                    )
+else:
+    # Specific rep selected: compare vs leader and average
+    if rep_summary_curr.empty:
+        st.info("Sem dados do time para comparar.")
+    else:
+        rep_row = rep_summary_curr[rep_summary_curr["Representante"] == rep_selected].head(1)
+        if rep_row.empty:
+            st.info("Sem dados do representante no período atual.")
+        else:
+            rep_fat = float(rep_row["Faturamento"].iloc[0])
+            rep_vol = float(rep_row["Volume"].iloc[0])
+            rep_cli = int(rep_row["Clientes"].iloc[0])
+
+            leader_fat_row = rep_summary_curr.sort_values("Faturamento", ascending=False).head(1)
+            leader_vol_row = rep_summary_curr.sort_values("Volume", ascending=False).head(1)
+
+            leader_fat = float(leader_fat_row["Faturamento"].iloc[0]) if not leader_fat_row.empty else 0.0
+            leader_vol = float(leader_vol_row["Volume"].iloc[0]) if not leader_vol_row.empty else 0.0
+            leader_fat_name = str(leader_fat_row["Representante"].iloc[0]) if not leader_fat_row.empty else "-"
+            leader_vol_name = str(leader_vol_row["Representante"].iloc[0]) if not leader_vol_row.empty else "-"
+
+            avg_fat = float(rep_summary_curr["Faturamento"].mean()) if len(rep_summary_curr) else 0.0
+            avg_vol = float(rep_summary_curr["Volume"].mean()) if len(rep_summary_curr) else 0.0
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Faturamento (rep)", format_brl_compact(rep_fat))
+            c2.metric("Líder (faturamento)", shorten_name(leader_fat_name, 22), f"{(rep_fat/leader_fat):.0%} do líder" if leader_fat > 0 else "")
+            c3.metric("Média do time (faturamento)", format_brl_compact(avg_fat), f"{(rep_fat/avg_fat):.0%} da média" if avg_fat > 0 else "")
+            c4.metric("Clientes (rep)", f"{rep_cli}")
+
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric("Volume (rep)", format_un(rep_vol))
+            c6.metric("Líder (volume)", shorten_name(leader_vol_name, 22), f"{(rep_vol/leader_vol):.0%} do líder" if leader_vol > 0 else "")
+            c7.metric("Média do time (volume)", format_un(avg_vol), f"{(rep_vol/avg_vol):.0%} da média" if avg_vol > 0 else "")
+            c8.metric("Participação no time (fat)", f"{(rep_fat/rep_summary_curr['Faturamento'].sum()):.1%}" if rep_summary_curr["Faturamento"].sum() > 0 else "0%")
+
+            with st.expander("PERÍODO ANTERIOR", expanded=False):
+                prev_row = rep_summary_prev[rep_summary_prev["Representante"] == rep_selected].head(1)
+                if prev_row.empty:
+                    st.info("Sem dados do representante no período anterior.")
+                else:
+                    prev_fat = float(prev_row["Faturamento"].iloc[0])
+                    prev_vol = float(prev_row["Volume"].iloc[0])
+                    prev_cli = int(prev_row["Clientes"].iloc[0])
+
+                    p1, p2, p3, p4 = st.columns(4)
+                    p1.metric("Faturamento (anterior)", format_brl_compact(prev_fat), format_brl_signed(rep_fat - prev_fat))
+                    p2.metric("Volume (anterior)", format_un(prev_vol))
+                    p3.metric("Clientes (anterior)", f"{prev_cli}")
+                    p4.metric("Participação (anterior)", f"{(prev_fat/rep_summary_prev['Faturamento'].sum()):.1%}" if rep_summary_prev["Faturamento"].sum() > 0 else "0%")
+
+# ==========================
+# EVOLUÇÃO – FATURAMENTO x VOLUME (moved right after Destaques)
+# ==========================
 st.markdown("---")
-
-# ==========================
-# EVOLUÇÃO – FATURAMENTO x VOLUME (AGORA após Destaques + Performance reps)
-# ==========================
 st.subheader("Evolução – Faturamento x Volume")
 
 fat_curr = float(df_rep["Valor"].sum())
 vol_curr = float(df_rep["Quantidade"].sum())
-fat_prev = float(df_rep_prev["Valor"].sum())
-vol_prev = float(df_rep_prev["Quantidade"].sum())
+fat_prev = float(df_rep_prev["Valor"].sum()) if not df_rep_prev.empty else 0.0
+vol_prev = float(df_rep_prev["Quantidade"].sum()) if not df_rep_prev.empty else 0.0
 
 st.markdown(
     f"**Período atual:** {current_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
@@ -923,20 +944,19 @@ with st.expander("PERÍODO ANTERIOR", expanded=False):
     else:
         st.altair_chart(chart_prev, width="stretch")
 
+# ==========================
+# CATEGORIAS VENDIDAS (moved right after Evolução)
+# ==========================
 st.markdown("---")
-
-# ==========================
-# CATEGORIAS VENDIDAS (AGORA após Evolução)
-# ==========================
 st.subheader("Categorias vendidas")
 
-def render_categorias(df_curr_in: pd.DataFrame, df_prev_in: pd.DataFrame, caption_prefix: str):
-    if df_curr_in is None or df_curr_in.empty:
-        st.info("Não há vendas no período selecionado.")
+def render_categorias(df_curr: pd.DataFrame, df_prev_in: pd.DataFrame, caption_prefix: str, key_suffix: str):
+    if df_curr.empty:
+        st.info("Não há vendas no período.")
         return
 
     curr_cat = (
-        df_curr_in.groupby("Categoria", as_index=False)["Valor"]
+        df_curr.groupby("Categoria", as_index=False)["Valor"]
         .sum()
         .rename(columns={"Valor": "ValorAtual"})
     )
@@ -944,7 +964,7 @@ def render_categorias(df_curr_in: pd.DataFrame, df_prev_in: pd.DataFrame, captio
         df_prev_in.groupby("Categoria", as_index=False)["Valor"]
         .sum()
         .rename(columns={"Valor": "ValorAnterior"})
-    )
+    ) if df_prev_in is not None and not df_prev_in.empty else pd.DataFrame(columns=["Categoria", "ValorAnterior"])
 
     cat = pd.merge(curr_cat, prev_cat, on="Categoria", how="outer")
     cat["ValorAtual"] = pd.to_numeric(cat["ValorAtual"], errors="coerce").fillna(0.0)
@@ -952,7 +972,7 @@ def render_categorias(df_curr_in: pd.DataFrame, df_prev_in: pd.DataFrame, captio
 
     total_cat = float(cat["ValorAtual"].sum())
     if total_cat <= 0:
-        st.info("Sem faturamento para exibir categorias nesse período.")
+        st.info("Sem faturamento para exibir categorias.")
         return
 
     cat["%"] = cat["ValorAtual"] / total_cat
@@ -964,7 +984,7 @@ def render_categorias(df_curr_in: pd.DataFrame, df_prev_in: pd.DataFrame, captio
         if prevv > 0:
             return (currv - prevv) / prevv
         if currv > 0 and prevv == 0:
-            return None  # "Novo"
+            return None
         return 0.0
 
     cat["% Crescimento"] = cat.apply(pct_growth, axis=1)
@@ -1002,8 +1022,8 @@ def render_categorias(df_curr_in: pd.DataFrame, df_prev_in: pd.DataFrame, captio
             textinfo="text",
             insidetextorientation="radial",
         )
-        fig_cat.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig_cat, width="stretch")
+        fig_cat.update_layout(showlegend=False, height=520, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_cat, width="stretch", key=f"pie_cat_{key_suffix}")
 
     with col_tbl_cat:
         st.caption(f"{caption_prefix} – Resumo (com crescimento vs. período anterior)")
@@ -1037,20 +1057,27 @@ table.cat-resumo th, table.cat-resumo td {
             unsafe_allow_html=True,
         )
 
-        st.markdown(html_table(cat_disp, "cat-resumo"), unsafe_allow_html=True)
+        cols_k = list(cat_disp.columns)
+        html_k = "<table class='cat-resumo'><thead><tr>"
+        html_k += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_k)
+        html_k += "</tr></thead><tbody>"
+        for _, r in cat_disp.iterrows():
+            html_k += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_k) + "</tr>"
+        html_k += "</tbody></table>"
+        st.markdown(html_k, unsafe_allow_html=True)
 
-render_categorias(df_rep, df_rep_prev, caption_prefix="Período atual")
+# Main (current vs manual previous)
+render_categorias(df_rep, df_rep_prev, caption_prefix="Período atual", key_suffix="curr")
 
 with st.expander("PERÍODO ANTERIOR", expanded=False):
+    # Show previous snapshot (still compares to current just to keep the same layout)
     st.caption(f"Período anterior: {previous_period_label}")
-    # Compare o período anterior manual vs período atual manual (mesmo layout)
-    render_categorias(df_rep_prev, df_rep, caption_prefix="Período anterior")
-
-st.markdown("---")
+    render_categorias(df_rep_prev, df_rep, caption_prefix="Período anterior", key_suffix="prev")
 
 # ==========================
 # MAPA DE CLIENTES
 # ==========================
+st.markdown("---")
 st.subheader("Mapa de Clientes")
 
 if "selected_city_tooltip" not in st.session_state:
@@ -1081,7 +1108,7 @@ else:
         else:
             df_map["Tooltip"] = df_map["Cidade_fat"].astype(str) + " - " + df_map["Estado_fat"].astype(str)
 
-            metric_choice = st.radio("Métrica do mapa", ["Faturamento", "Volume"], horizontal=True)
+            metric_choice = st.radio("Métrica do mapa", ["Faturamento", "Volume"], horizontal=True, key="map_metric_choice")
             metric_col = "Valor" if metric_choice == "Faturamento" else "Quantidade"
             metric_label = "Faturamento (R$)" if metric_col == "Valor" else "Volume (un)"
 
@@ -1119,7 +1146,7 @@ else:
                             tooltip=row["Tooltip"],
                         ).add_to(m)
 
-                    map_data = st_folium(m, width=None, height=800)
+                    map_data = st_folium(m, width=None, height=800, key="folium_map_main")
 
                     if legend_entries:
                         legend_html = "<div style='font-size:0.8rem; margin-top:0.5rem;'>"
@@ -1175,7 +1202,15 @@ table.principais-clientes th, table.principais-clientes td {
 """,
                         unsafe_allow_html=True,
                     )
-                    st.markdown(html_table(df_top_display, "principais-clientes"), unsafe_allow_html=True)
+
+                    cols_top = list(df_top_display.columns)
+                    html_top = "<table class='principais-clientes'><thead><tr>"
+                    html_top += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_top)
+                    html_top += "</tr></thead><tbody>"
+                    for _, r in df_top_display.iterrows():
+                        html_top += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_top) + "</tr>"
+                    html_top += "</tbody></table>"
+                    st.markdown(html_top, unsafe_allow_html=True)
 
                     if selected_label:
                         row_city = df_map[df_map["Tooltip"] == selected_label].head(1)
@@ -1216,20 +1251,26 @@ table.city-table td { text-align: left; }
                                 )
 
                                 with st.expander("Ver lista de clientes da cidade", expanded=True):
-                                    st.markdown(html_table(display_city, "city-table"), unsafe_allow_html=True)
+                                    cols_city = list(display_city.columns)
+                                    html_city = "<table class='city-table'><thead><tr>"
+                                    html_city += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_city)
+                                    html_city += "</tr></thead><tbody>"
+                                    for _, rr in display_city.iterrows():
+                                        html_city += "<tr>" + "".join(f"<td>{html.escape(str(rr[c]))}</td>" for c in cols_city) + "</tr>"
+                                    html_city += "</tbody></table>"
+                                    st.markdown(html_city, unsafe_allow_html=True)
 
     except Exception as e:
         st.info(f"Mapa de clientes ainda não disponível: {e}")
 
-st.markdown("---")
-
 # ==========================
 # DISTRIBUIÇÃO POR ESTADOS
 # ==========================
+st.markdown("---")
 st.subheader("Distribuição por estados")
 
-def render_estados(df_in: pd.DataFrame, caption_prefix: str):
-    if df_in is None or df_in.empty:
+def render_estados(df_in: pd.DataFrame, caption_prefix: str, key_suffix: str):
+    if df_in.empty:
         st.info("Não há vendas no período selecionado.")
         return
 
@@ -1264,11 +1305,11 @@ def render_estados(df_in: pd.DataFrame, caption_prefix: str):
             hole=0.35,
         )
         fig_states.update_traces(textposition="inside", textinfo="percent+label")
-        fig_states.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig_states, width="stretch")
+        fig_states.update_layout(showlegend=False, height=520, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_states, width="stretch", key=f"pie_states_{key_suffix}")
 
     with c_right:
-        st.markdown(f"**{caption_prefix} – Resumo (Top 10 estados)**")
+        st.caption(f"{caption_prefix} – Resumo")
         st.markdown(
             """
 <style>
@@ -1284,28 +1325,30 @@ table.estados-resumo th, table.estados-resumo td {
 """,
             unsafe_allow_html=True,
         )
-        st.markdown(html_table(estados_display, "estados-resumo"), unsafe_allow_html=True)
+        cols_e = list(estados_display.columns)
+        html_e = "<table class='estados-resumo'><thead><tr>"
+        html_e += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_e)
+        html_e += "</tr></thead><tbody>"
+        for _, r in estados_display.iterrows():
+            html_e += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_e) + "</tr>"
+        html_e += "</tbody></table>"
+        st.markdown(html_e, unsafe_allow_html=True)
 
-render_estados(df_rep, "Período atual")
+render_estados(df_rep, "Período atual", "curr")
 
 with st.expander("PERÍODO ANTERIOR", expanded=False):
-    render_estados(df_rep_prev, f"Período anterior ({previous_period_label})")
-
-st.markdown("---")
+    st.caption(f"Período anterior: {previous_period_label}")
+    render_estados(df_rep_prev, "Período anterior", "prev")
 
 # ==========================
 # DISTRIBUIÇÃO POR CLIENTES
 # ==========================
+st.markdown("---")
 st.subheader("Distribuição por clientes")
 
-def render_clientes(df_in: pd.DataFrame, caption_prefix: str):
-    if df_in is None or df_in.empty:
+def render_clientes_dist(df_in: pd.DataFrame, total_val: float, caption_prefix: str, key_suffix: str):
+    if df_in.empty:
         st.info("Nenhum cliente com vendas no período selecionado.")
-        return
-
-    total_val = float(df_in["Valor"].sum())
-    if total_val <= 0:
-        st.info("Nenhum cliente com faturamento no período.")
         return
 
     df_clientes_full = (
@@ -1313,36 +1356,43 @@ def render_clientes(df_in: pd.DataFrame, caption_prefix: str):
         .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
         .sort_values("Valor", ascending=False)
     )
-    df_clientes_full["Share"] = df_clientes_full["Valor"] / (total_val if total_val > 0 else 1.0)
+    total_safe = total_val if total_val > 0 else float(df_clientes_full["Valor"].sum())
+    total_safe = total_safe if total_safe > 0 else 1.0
 
-    clientes_atendidos_local = int(df_clientes_full["Cliente"].nunique())
+    df_clientes_full["Share"] = df_clientes_full["Valor"] / total_safe
 
-    # N80 / HHI
-    shares = df_clientes_full["Share"].copy()
-    cum_share = shares.cumsum()
-    n80_count_local = 0
-    for i, v in enumerate(cum_share, start=1):
-        n80_count_local = i
-        if v >= 0.8:
-            break
-    hhi_local = float((shares ** 2).sum())
-    if hhi_local < 0.10:
-        hhi_label = "Baixa"
-    elif hhi_local < 0.20:
-        hhi_label = "Moderada"
+    # KPIs of distribution
+    df_clientes_tot_local = df_clientes_full.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
+    clientes_atendidos_local = int(df_clientes_tot_local["Cliente"].nunique())
+
+    shares_local = (df_clientes_tot_local["Valor"] / float(df_clientes_tot_local["Valor"].sum())) if float(df_clientes_tot_local["Valor"].sum()) > 0 else pd.Series([])
+    if len(shares_local) > 0:
+        cum_share = shares_local.cumsum()
+        n80_local = 0
+        for i, v in enumerate(cum_share, start=1):
+            n80_local = i
+            if v >= 0.8:
+                break
+        hhi_local = float((shares_local ** 2).sum())
+        top1 = float(shares_local.iloc[:1].sum())
+        top3 = float(shares_local.iloc[:3].sum())
+        top10 = float(shares_local.iloc[:10].sum())
+        if hhi_local < 0.10:
+            hhi_lbl = "Baixa"
+        elif hhi_local < 0.20:
+            hhi_lbl = "Moderada"
+        else:
+            hhi_lbl = "Alta"
     else:
-        hhi_label = "Alta"
-
-    top1 = float(shares.iloc[:1].sum()) if len(shares) else 0.0
-    top3 = float(shares.iloc[:3].sum()) if len(shares) else 0.0
-    top10 = float(shares.iloc[:10].sum()) if len(shares) else 0.0
-
-    st.caption(caption_prefix)
+        n80_local = 0
+        hhi_local = 0.0
+        top1 = top3 = top10 = 0.0
+        hhi_lbl = "Sem dados"
 
     k1, k2, k3, k4, k5 = st.columns(5)
-    n80_ratio = (n80_count_local / clientes_atendidos_local) if clientes_atendidos_local > 0 else 0.0
-    k1.metric("N80", f"{n80_count_local}", f"{n80_ratio:.0%} da carteira")
-    k2.metric("Índice de concentração", hhi_label, f"HHI {hhi_local:.3f}")
+    n80_ratio = (n80_local / clientes_atendidos_local) if clientes_atendidos_local > 0 else 0.0
+    k1.metric("N80", f"{n80_local}", f"{n80_ratio:.0%} da carteira")
+    k2.metric("Índice de concentração", hhi_lbl, f"HHI {hhi_local:.3f}")
     k3.metric("Top 1 cliente", f"{top1:.1%}")
     k4.metric("Top 3 clientes", f"{top3:.1%}")
     k5.metric("Top 10 clientes", f"{top10:.1%}")
@@ -1350,7 +1400,7 @@ def render_clientes(df_in: pd.DataFrame, caption_prefix: str):
     col_pie, col_tbl = st.columns([1.10, 1.50])
 
     with col_pie:
-        st.caption("Participação dos clientes (Top 10 destacados)")
+        st.caption(f"{caption_prefix} – Participação dos clientes (Top 10 destacados)")
 
         df_pie = df_clientes_full[["Cliente", "Valor"]].copy()
         df_pie = df_pie.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
@@ -1358,7 +1408,7 @@ def render_clientes(df_in: pd.DataFrame, caption_prefix: str):
         df_pie["Grupo"] = df_pie.apply(lambda r: r["Cliente"] if r["Rank"] <= 10 else "Outros", axis=1)
 
         dist_df = df_pie.groupby("Grupo", as_index=False)["Valor"].sum()
-        dist_df["Share"] = dist_df["Valor"] / (total_val if total_val > 0 else 1.0)
+        dist_df["Share"] = dist_df["Valor"] / total_safe
         dist_df = dist_df.sort_values("Share", ascending=False)
         dist_df["Legenda"] = dist_df.apply(lambda r: f"{r['Grupo']} {r['Share']*100:.1f}%", axis=1)
 
@@ -1377,11 +1427,11 @@ def render_clientes(df_in: pd.DataFrame, caption_prefix: str):
             textinfo="text",
             insidetextorientation="radial",
         )
-        fig.update_layout(showlegend=False, height=560, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig, width="stretch")
+        fig.update_layout(showlegend=False, height=520, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig, width="stretch", key=f"pie_clients_{key_suffix}")
 
     with col_tbl:
-        st.caption("Resumo – clientes (Top 15)")
+        st.caption(f"{caption_prefix} – Resumo (mais detalhado)")
 
         df_tbl = df_clientes_full.copy()
         df_tbl["Faturamento"] = df_tbl["Valor"].map(format_brl)
@@ -1407,18 +1457,27 @@ table.clientes-resumo th, table.clientes-resumo td {
             unsafe_allow_html=True,
         )
 
-        st.markdown(html_table(df_tbl, "clientes-resumo"), unsafe_allow_html=True)
+        cols_c = list(df_tbl.columns)
+        html_c = "<table class='clientes-resumo'><thead><tr>"
+        html_c += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_c)
+        html_c += "</tr></thead><tbody>"
+        for _, r in df_tbl.iterrows():
+            html_c += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_c) + "</tr>"
+        html_c += "</tbody></table>"
+        st.markdown(html_c, unsafe_allow_html=True)
 
-render_clientes(df_rep, "Período atual")
+# Current
+render_clientes_dist(df_rep, total_rep, "Período atual", "curr")
 
 with st.expander("PERÍODO ANTERIOR", expanded=False):
-    render_clientes(df_rep_prev, f"Período anterior ({previous_period_label})")
-
-st.markdown("---")
+    total_prev_rep = float(df_rep_prev["Valor"].sum()) if not df_rep_prev.empty else 0.0
+    st.caption(f"Período anterior: {previous_period_label}")
+    render_clientes_dist(df_rep_prev, total_prev_rep, "Período anterior", "prev")
 
 # ==========================
 # SAÚDE DA CARTEIRA – DETALHES
 # ==========================
+st.markdown("---")
 st.subheader("Saúde da carteira – Detalhes")
 
 c_score1, c_score2 = st.columns([0.35, 0.65])
@@ -1427,21 +1486,23 @@ with c_score1:
 with c_score2:
     st.caption(
         "A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos) "
-        "no comparativo entre período atual e anterior."
+        "no comparativo entre período atual e anterior (manual)."
     )
 
-if clientes_carteira.empty:
-    st.info("Não há clientes com movimento nos períodos atual / anterior para calcular a carteira.")
-else:
+def render_carteira_detalhes(clientes_df: pd.DataFrame, curr_label: str, prev_label: str, key_suffix: str):
+    if clientes_df is None or clientes_df.empty:
+        st.info("Não há clientes com movimento nos períodos para calcular a carteira.")
+        return
+
     status_counts = (
-        clientes_carteira.groupby(STATUS_COL)["Cliente"]
+        clientes_df.groupby(STATUS_COL)["Cliente"]
         .nunique()
         .reset_index()
         .rename(columns={"Cliente": "QtdClientes", STATUS_COL: "Status"})
     )
 
     fat_status = (
-        clientes_carteira.groupby(STATUS_COL)[["ValorAtual", "ValorAnterior"]]
+        clientes_df.groupby(STATUS_COL)[["ValorAtual", "ValorAnterior"]]
         .sum()
         .reset_index()
         .rename(columns={STATUS_COL: "Status"})
@@ -1508,95 +1569,51 @@ table.status-resumo th, table.status-resumo td {
 """,
             unsafe_allow_html=True,
         )
-        st.markdown(html_table(status_disp, "status-resumo"), unsafe_allow_html=True)
+        cols_sr = list(status_disp.columns)
+        html_sr = "<table class='status-resumo'><thead><tr>"
+        html_sr += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_sr)
+        html_sr += "</tr></thead><tbody>"
+        for _, r in status_disp.iterrows():
+            html_sr += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols_sr) + "</tr>"
+        html_sr += "</tbody></table>"
+        st.markdown(html_sr, unsafe_allow_html=True)
 
         st.markdown(
             (
                 f"<span style='font-size:0.8rem;opacity:0.8;'>"
                 f"<b>Obs.:</b> A coluna <b>Faturamento</b> mostra a diferença de faturamento "
-                f"entre o período atual (<b>{current_period_label}</b>) e o período anterior "
-                f"(<b>{previous_period_label}</b>). Valores positivos indicam crescimento; "
+                f"entre o período atual (<b>{curr_label}</b>) e o período anterior "
+                f"(<b>{prev_label}</b>). Valores positivos indicam crescimento; "
                 f"valores negativos indicam queda.</span>"
             ),
             unsafe_allow_html=True,
         )
 
+render_carteira_detalhes(clientes_carteira, current_period_label, previous_period_label, "curr")
+
 with st.expander("PERÍODO ANTERIOR", expanded=False):
-    st.caption(f"Status dos clientes – referência: {previous_period_label} vs período anterior a ele")
-    # status para o rep no período anterior
-    clientes_carteira_prev = build_carteira_status(df, rep_selected, prev_start, prev_end)
-    if clientes_carteira_prev.empty:
-        st.info("Sem dados suficientes para montar o status no período anterior.")
-    else:
-        st.caption("Lista de clientes por status (período anterior)")
-        search_cliente_prev = st.text_input("Buscar cliente (período anterior)", value="", placeholder="Digite parte do nome do cliente", key="buscar_cliente_prev")
-
-        st.markdown(
-            """
-<style>
-table.status-table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; }
-table.status-table col:nth-child(1) { width: 30%; }
-table.status-table col:nth-child(2) { width: 10%; }
-table.status-table col:nth-child(3) { width: 15%; }
-table.status-table col:nth-child(4) { width: 10%; }
-table.status-table col:nth-child(5) { width: 17.5%; }
-table.status-table col:nth-child(6) { width: 17.5%; }
-table.status-table th, table.status-table td {
-    padding: 0.2rem 0.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    font-size: 0.85rem;
-    text-align: left;
-    white-space: nowrap;
-}
-table.status-table th { font-weight: 600; }
-</style>
-""",
-            unsafe_allow_html=True,
-        )
-
-        for status_name in STATUS_ORDER:
-            df_status = clientes_carteira_prev[clientes_carteira_prev[STATUS_COL] == status_name].copy()
-            if search_cliente_prev:
-                df_status = df_status[df_status["Cliente"].astype(str).str.contains(search_cliente_prev, case=False, na=False)]
-            if df_status.empty:
-                continue
-
-            df_status["FaturamentoAtualFmt"] = df_status["ValorAtual"].map(format_brl)
-            df_status["FaturamentoAnteriorFmt"] = df_status["ValorAnterior"].map(format_brl)
-            df_status = df_status.sort_values("ValorAtual", ascending=False)
-
-            display_df = df_status[
-                ["Cliente", "Estado", "Cidade", STATUS_COL, "FaturamentoAtualFmt", "FaturamentoAnteriorFmt"]
-            ].rename(
-                columns={
-                    STATUS_COL: "Status",
-                    "FaturamentoAtualFmt": f"Faturamento {previous_period_label}",
-                    "FaturamentoAnteriorFmt": "Período anterior",
-                }
-            )
-
-            cols_status = list(display_df.columns)
-
-            html_status = "<h5>" + html.escape(status_name) + "</h5>"
-            html_status += "<table class='status-table'><colgroup><col><col><col><col><col><col></colgroup><thead><tr>"
-            html_status += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_status)
-            html_status += "</tr></thead><tbody>"
-            for _, row in display_df.iterrows():
-                html_status += "<tr>" + "".join(f"<td>{html.escape(str(row[c]))}</td>" for c in cols_status) + "</tr>"
-            html_status += "</tbody></table>"
-
-            st.markdown(html_status, unsafe_allow_html=True)
+    # Show "previous as current" vs "current as reference" (labels will clarify)
+    clientes_carteira_prev_view = build_carteira_status_manual_prev(
+        df, rep_selected,
+        prev_start, prev_end,
+        start_comp, end_comp
+    )
+    st.caption(f"Período anterior: {previous_period_label} (comparado ao período atual: {current_period_label})")
+    render_carteira_detalhes(clientes_carteira_prev_view, previous_period_label, current_period_label, "prev")
 
 # ==========================
-# STATUS DOS CLIENTES (ATUAL)
+# PAGE BREAK (print)
 # ==========================
-st.markdown("---")
+st.markdown("<div class='page-break'></div>", unsafe_allow_html=True)
+
+# ==========================
+# STATUS DOS CLIENTES
+# ==========================
 st.markdown("### Status dos clientes")
 
-search_cliente = st.text_input("Buscar cliente", value="", placeholder="Digite parte do nome do cliente")
+search_cliente = st.text_input("Buscar cliente", value="", placeholder="Digite parte do nome do cliente", key="buscar_cliente_curr")
 
-st.markdown(
-    """
+table_css = """
 <style>
 table.status-table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; }
 table.status-table col:nth-child(1) { width: 30%; }
@@ -1614,13 +1631,13 @@ table.status-table th, table.status-table td {
 }
 table.status-table th { font-weight: 600; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+"""
+st.markdown(table_css, unsafe_allow_html=True)
 
+# Current period status table (computed vs manual previous)
 for status_name in STATUS_ORDER:
-    df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy()
-    if search_cliente:
+    df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy() if not clientes_carteira.empty else pd.DataFrame()
+    if search_cliente and not df_status.empty:
         df_status = df_status[df_status["Cliente"].astype(str).str.contains(search_cliente, case=False, na=False)]
     if df_status.empty:
         continue
@@ -1650,3 +1667,56 @@ for status_name in STATUS_ORDER:
     html_status += "</tbody></table>"
 
     st.markdown(html_status, unsafe_allow_html=True)
+
+with st.expander("PERÍODO ANTERIOR", expanded=False):
+    st.caption(f"Status dos clientes – referência: {previous_period_label}")
+
+    # Previous period status (previous as 'current', current as reference for classification)
+    clientes_carteira_prev = build_carteira_status_manual_prev(
+        df, rep_selected,
+        prev_start, prev_end,
+        start_comp, end_comp
+    )
+
+    if clientes_carteira_prev.empty:
+        st.info("Sem dados suficientes para montar o status no período anterior.")
+    else:
+        search_cliente_prev = st.text_input(
+            "Buscar cliente (período anterior)",
+            value="",
+            placeholder="Digite parte do nome do cliente",
+            key="buscar_cliente_prev",
+        )
+
+        for status_name in STATUS_ORDER:
+            df_status = clientes_carteira_prev[clientes_carteira_prev[STATUS_COL] == status_name].copy()
+            if search_cliente_prev:
+                df_status = df_status[df_status["Cliente"].astype(str).str.contains(search_cliente_prev, case=False, na=False)]
+            if df_status.empty:
+                continue
+
+            df_status["FatPrevFmt"] = df_status["ValorAtual"].map(format_brl)
+            df_status["FatCurrRefFmt"] = df_status["ValorAnterior"].map(format_brl)
+            df_status = df_status.sort_values("ValorAtual", ascending=False)
+
+            display_df = df_status[
+                ["Cliente", "Estado", "Cidade", STATUS_COL, "FatPrevFmt", "FatCurrRefFmt"]
+            ].rename(
+                columns={
+                    STATUS_COL: "Status",
+                    "FatPrevFmt": f"Faturamento {previous_period_label}",
+                    "FatCurrRefFmt": f"Faturamento {current_period_label}",
+                }
+            )
+
+            cols_status = list(display_df.columns)
+
+            html_status = "<h5>" + html.escape(status_name) + "</h5>"
+            html_status += "<table class='status-table'><colgroup><col><col><col><col><col><col></colgroup><thead><tr>"
+            html_status += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_status)
+            html_status += "</tr></thead><tbody>"
+            for _, row in display_df.iterrows():
+                html_status += "<tr>" + "".join(f"<td>{html.escape(str(row[c]))}</td>" for c in cols_status) + "</tr>"
+            html_status += "</tbody></table>"
+
+            st.markdown(html_status, unsafe_allow_html=True)
