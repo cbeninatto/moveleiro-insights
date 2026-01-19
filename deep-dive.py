@@ -42,7 +42,7 @@ GITHUB_CSV_URL = (
 
 CITY_GEO_CSV_URL = (
     "https://raw.githubusercontent.com/"
-    "cbeninatto/performance-moveleiro-v2/main/raw/data/cidades_br_geo.csv"
+    "cbeninatto/performance-moveleiro-v2/main/data/raw/cidades_br_geo.csv"
 )
 
 # === MAP REQUIREMENTS ===
