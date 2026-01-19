@@ -37,12 +37,12 @@ st.markdown(
 
 GITHUB_CSV_URL = (
     "https://raw.githubusercontent.com/"
-    "cbeninatto/performance-moveleiro-v2/main/data/relatorio_faturamento.csv"
+    "cbeninatto/performance-moveleiro-v2/main/data/raw/relatorio_faturamento.csv"
 )
 
 CITY_GEO_CSV_URL = (
     "https://raw.githubusercontent.com/"
-    "cbeninatto/performance-moveleiro-v2/main/data/cidades_br_geo.csv"
+    "cbeninatto/performance-moveleiro-v2/main/raw/data/cidades_br_geo.csv"
 )
 
 # === MAP REQUIREMENTS ===
