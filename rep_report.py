@@ -769,11 +769,12 @@ else:
 
 col1.metric("Total período", format_brl_compact(total_rep))
 col2.metric("Volume período", format_un(total_vol_rep))
+
 # --- KPI 3: Distribuição por clientes (badge colorido no N80)
 n80_ratio_top = (n80_count / clientes_atendidos) if clientes_atendidos > 0 else 0.0
 n80_color_top = color_for_n80_ratio(n80_ratio_top)
 
-col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
+col3.metric("Distribuição por clientes", hhi_label_short)
 with col3:
     st.markdown(
         badge_html(f"N80: {n80_count} clientes ({n80_ratio_top:.0%} da carteira)", n80_color_top),
@@ -783,7 +784,7 @@ with col3:
 # --- KPI 4: Saúde da carteira (badge colorido no label)
 carteira_color_top = color_for_carteira_score(carteira_score)
 
-col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
+col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100")
 with col4:
     st.markdown(
         badge_html(carteira_label, carteira_color_top),
