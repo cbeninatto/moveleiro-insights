@@ -11,7 +11,6 @@ import requests
 import re
 import unicodedata
 import html
-import numpy as np
 
 # ==========================
 # CONFIG (same as insights.py)
@@ -49,12 +48,6 @@ CITY_GEO_CSV_URL = (
     "cbeninatto/moveleiro-insights/main/data/raw/cidades_br_geo.csv"
 )
 
-# Optional (if you later want client-level geo):
-CLIENT_GEO_CSV_URL = (
-    "https://raw.githubusercontent.com/"
-    "cbeninatto/moveleiro-insights/main/data/raw/clientes_relatorio_faturamento.csv"
-)
-
 # ==========================
 # MAP REQUIREMENTS (same)
 # ==========================
@@ -73,6 +66,7 @@ STATUS_WEIGHTS = {
 }
 STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
 
+# green = higher, red = lower (same palette)
 MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"]
 
 MONTH_MAP_NUM_TO_NAME = {
@@ -83,7 +77,7 @@ MONTH_MAP_NUM_TO_NAME = {
 MONTH_MAP_NAME_TO_NUM = {v: k for k, v in MONTH_MAP_NUM_TO_NAME.items()}
 
 # ==========================
-# HELPERS (same style)
+# HELPERS (same look)
 # ==========================
 def format_brl(value: float) -> str:
     if pd.isna(value):
@@ -130,18 +124,21 @@ def force_leaflet_1_9_4():
     """Force Leaflet 1.9.4 globally for Folium maps."""
     try:
         import folium.folium as ff
+
         new_js = []
         for name, url in ff._default_js:
             if "leaflet" in name.lower():
                 new_js.append(("leaflet", f"https://unpkg.com/leaflet@{LEAFLET_VERSION}/dist/leaflet.js"))
             else:
                 new_js.append((name, url))
+
         new_css = []
         for name, url in ff._default_css:
             if "leaflet" in name.lower():
                 new_css.append(("leaflet_css", f"https://unpkg.com/leaflet@{LEAFLET_VERSION}/dist/leaflet.css"))
             else:
                 new_css.append((name, url))
+
         ff._default_js = new_js
         ff._default_css = new_css
     except Exception:
@@ -225,8 +222,21 @@ def _norm_col(s: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "", s)
     return s
 
+def html_table(css: str, df_show: pd.DataFrame, table_class: str):
+    if css:
+        st.markdown(css, unsafe_allow_html=True)
+
+    cols = list(df_show.columns)
+    out = f"<table class='{table_class}'><thead><tr>"
+    out += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols)
+    out += "</tr></thead><tbody>"
+    for _, r in df_show.iterrows():
+        out += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols) + "</tr>"
+    out += "</tbody></table>"
+    st.markdown(out, unsafe_allow_html=True)
+
 # ==========================
-# LOADERS (same approach)
+# LOADERS
 # ==========================
 def load_data() -> pd.DataFrame:
     cb = int(time.time())
@@ -314,7 +324,7 @@ def load_geo() -> pd.DataFrame:
     return df_geo[["key", "Estado", "Cidade", "lat", "lon"]]
 
 # ==========================
-# CARTEIRA STATUS (same logic)
+# CARTEIRA STATUS + SCORE
 # ==========================
 def build_carteira_status_manual_prev(
     df_all: pd.DataFrame,
@@ -330,7 +340,12 @@ def build_carteira_status_manual_prev(
         df_rep_all = df_all[df_all["Representante"] == rep].copy()
 
     if df_rep_all.empty:
-        return pd.DataFrame(columns=["Cliente", "Estado", "Cidade", "ValorAtual", "ValorAnterior", STATUS_COL, "QuantidadeAtual", "QuantidadeAnterior"])
+        return pd.DataFrame(columns=[
+            "Cliente", "Estado", "Cidade",
+            "ValorAtual", "ValorAnterior",
+            "QuantidadeAtual", "QuantidadeAnterior",
+            STATUS_COL
+        ])
 
     mask_curr = (df_rep_all["Competencia"] >= start_comp) & (df_rep_all["Competencia"] <= end_comp)
     mask_prev = (df_rep_all["Competencia"] >= prev_start) & (df_rep_all["Competencia"] <= prev_end)
@@ -429,63 +444,100 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
     return float(isc), label
 
 # ==========================
-# EVOLUÇÃO CHART (same look)
+# EVOLUÇÃO (split charts, compare periods)
 # ==========================
-def make_evolucao_chart(df_in: pd.DataFrame, chart_height: int = 300):
-    if df_in is None or df_in.empty:
+def make_compare_timeseries_chart(
+    df_curr: pd.DataFrame,
+    df_prev: pd.DataFrame,
+    value_col: str,
+    title_axis: str,
+    height: int = 300,
+):
+    # build monthly sums for each period, then overlay (two lines)
+    def agg(df_in: pd.DataFrame, period_name: str):
+        if df_in is None or df_in.empty:
+            return pd.DataFrame(columns=["Competencia", "Valor", "MesLabelBr", "Periodo"])
+        ts = df_in.groupby("Competencia", as_index=False)[value_col].sum().sort_values("Competencia")
+        ts = ts.rename(columns={value_col: "Valor"})
+        ts["MesLabelBr"] = ts["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
+        ts["Periodo"] = period_name
+        return ts
+
+    a = agg(df_curr, "Atual")
+    b = agg(df_prev, "Anterior")
+    base = pd.concat([a, b], ignore_index=True)
+    if base.empty:
         return None
 
-    ts = df_in.groupby("Competencia", as_index=False)[["Valor", "Quantidade"]].sum().sort_values("Competencia")
-    if ts.empty:
-        return None
-
-    ts["MesLabelBr"] = ts["Competencia"].apply(lambda d: f"{MONTH_MAP_NUM_TO_NAME[d.month]} {str(d.year)[2:]}")
-    ts["VolumeFmt"] = ts["Quantidade"].map(format_un)
-    ts["FaturamentoFmt"] = ts["Valor"].map(format_brl)
-
-    x_order = ts["MesLabelBr"].tolist()
-
-    base = alt.Chart(ts).encode(
-        x=alt.X("MesLabelBr:N", sort=x_order, axis=alt.Axis(title=None))
+    # Keep x order chronological (by Competencia)
+    order = (
+        base.sort_values("Competencia")
+        .drop_duplicates(subset=["MesLabelBr"])
+        ["MesLabelBr"].tolist()
     )
 
-    bars = base.mark_bar(color="#38bdf8").encode(
-        y=alt.Y("Valor:Q", axis=alt.Axis(title="Faturamento (R$)")),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
-            alt.Tooltip("VolumeFmt:N", title="Volume"),
-        ],
-    )
+    # Tooltip formatting
+    if title_axis.lower().startswith("fatur"):
+        base["Fmt"] = base["Valor"].map(format_brl)
+    else:
+        base["Fmt"] = base["Valor"].map(format_un)
 
-    line = base.mark_line(
-        color="#22c55e",
-        strokeWidth=3,
-        point=alt.OverlayMarkDef(color="#22c55e", filled=True, size=70),
-    ).encode(
-        y=alt.Y("Quantidade:Q", axis=alt.Axis(title="Volume (un)", orient="right")),
-        tooltip=[
-            alt.Tooltip("MesLabelBr:N", title="Mês"),
-            alt.Tooltip("FaturamentoFmt:N", title="Faturamento"),
-            alt.Tooltip("VolumeFmt:N", title="Volume"),
-        ],
+    chart = (
+        alt.Chart(base)
+        .mark_line(strokeWidth=3, point=alt.OverlayMarkDef(filled=True, size=70))
+        .encode(
+            x=alt.X("MesLabelBr:N", sort=order, axis=alt.Axis(title=None)),
+            y=alt.Y("Valor:Q", axis=alt.Axis(title=title_axis)),
+            color=alt.Color("Periodo:N", legend=alt.Legend(title=None)),
+            tooltip=[
+                alt.Tooltip("Periodo:N", title="Período"),
+                alt.Tooltip("MesLabelBr:N", title="Mês"),
+                alt.Tooltip("Fmt:N", title=title_axis),
+            ],
+        )
+        .properties(height=height)
     )
-
-    return alt.layer(bars, line).resolve_scale(y="independent").properties(height=chart_height)
+    return chart
 
 # ==========================
-# HTML TABLE CSS (same style)
+# KPI helper for colored sublabels (Distribuição por clientes)
 # ==========================
-def html_table(css: str, df_show: pd.DataFrame, table_class: str):
-    st.markdown(css, unsafe_allow_html=True)
-    cols = list(df_show.columns)
-    out = f"<table class='{table_class}'><thead><tr>"
-    out += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols)
-    out += "</tr></thead><tbody>"
-    for _, r in df_show.iterrows():
-        out += "<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols) + "</tr>"
-    out += "</tbody></table>"
-    st.markdown(out, unsafe_allow_html=True)
+st.markdown(
+    """
+<style>
+.kpi-sub {
+  font-size: 0.80rem;
+  opacity: 0.85;
+  margin-top: -0.35rem;
+}
+.kpi-sub b { font-weight: 600; }
+.badge {
+  display: inline-block;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border: 1px solid rgba(255,255,255,0.10);
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+def color_for_n80_ratio(r: float) -> str:
+    # lower is better (fewer clients needed for 80%)
+    if r <= 0.20: return MAP_BIN_COLORS[0]  # green
+    if r <= 0.35: return MAP_BIN_COLORS[1]  # yellow
+    if r <= 0.50: return MAP_BIN_COLORS[2]  # orange
+    return MAP_BIN_COLORS[3]               # red
+
+def color_for_hhi(hhi: float) -> str:
+    # lower is better (less concentration)
+    if hhi < 0.10: return MAP_BIN_COLORS[0]
+    if hhi < 0.20: return MAP_BIN_COLORS[1]
+    if hhi < 0.30: return MAP_BIN_COLORS[2]
+    return MAP_BIN_COLORS[3]
 
 # ==========================
 # LOAD DATA
@@ -501,7 +553,7 @@ if df.empty:
     st.stop()
 
 # ==========================
-# SIDEBAR – FILTERS (same)
+# SIDEBAR – FILTERS
 # ==========================
 st.sidebar.title("Filtros – Insights de Vendas")
 
@@ -519,6 +571,7 @@ default_end_month_num = int(meses_ano_default.max()) if len(meses_ano_default) e
 month_names = [MONTH_MAP_NUM_TO_NAME[m] for m in range(1, 13)]
 
 st.sidebar.markdown("### Período atual")
+
 st.sidebar.caption("Período inicial")
 col_mi, col_ai = st.sidebar.columns(2)
 with col_mi:
@@ -563,8 +616,9 @@ if start_comp > end_comp:
     st.sidebar.error("Período inicial não pode ser maior que o período final.")
     st.stop()
 
-# Manual previous period selector (same)
+# Manual previous period selector (manual)
 st.sidebar.markdown("### Período anterior (manual)")
+
 months_span_default = (end_comp.year - start_comp.year) * 12 + (end_comp.month - start_comp.month) + 1
 _prev_end_default = start_comp - pd.DateOffset(months=1)
 _prev_start_default = _prev_end_default - pd.DateOffset(months=months_span_default - 1)
@@ -621,7 +675,7 @@ if prev_start > prev_end:
 current_period_label = format_period_label(start_comp, end_comp)
 previous_period_label = format_period_label(prev_start, prev_end)
 
-# Filter current period
+# Filter data
 mask_period = (df["Competencia"] >= start_comp) & (df["Competencia"] <= end_comp)
 df_period = df.loc[mask_period].copy()
 if df_period.empty:
@@ -638,16 +692,14 @@ rep_selected = st.sidebar.selectbox("Representante", rep_options, key="rep_selec
 
 df_rep = df_period.copy() if rep_selected == "Todos" else df_period[df_period["Representante"] == rep_selected].copy()
 
-# Previous period slice
 mask_prev_period = (df["Competencia"] >= prev_start) & (df["Competencia"] <= prev_end)
 df_prev_period = df.loc[mask_prev_period].copy()
 df_rep_prev = df_prev_period.copy() if rep_selected == "Todos" else df_prev_period[df_prev_period["Representante"] == rep_selected].copy()
 
-# carteira status (manual prev)
 clientes_carteira = build_carteira_status_manual_prev(df, rep_selected, start_comp, end_comp, prev_start, prev_end)
 
 # ==========================
-# HEADER (same)
+# HEADER
 # ==========================
 st.title("Relatório do Representante – Insights")
 titulo_rep = "Todos" if rep_selected == "Todos" else rep_selected
@@ -656,22 +708,14 @@ st.caption(f"Período atual: {current_period_label}  |  Período anterior: {prev
 st.markdown("---")
 
 # ==========================
-# 1) PERFORMANCE DASHBOARD (aligned + same KPI style)
+# TOP KPIs (remove Média mensal)
 # ==========================
 col1, col2, col3, col4, col5 = st.columns(5)
 
 total_rep = float(df_rep["Valor"].sum())
 total_vol_rep = float(df_rep["Quantidade"].sum())
 
-if not df_rep.empty:
-    meses_rep = df_rep.groupby([df_rep["Ano"], df_rep["MesNum"]])["Valor"].sum().reset_index(name="ValorMes")
-    meses_com_venda = int((meses_rep["ValorMes"] > 0).sum())
-else:
-    meses_com_venda = 0
-
-media_mensal = total_rep / meses_com_venda if meses_com_venda > 0 else 0.0
-
-# Distribuição por clientes (N80 + HHI label) – same logic
+# Distribuição por clientes (N80 + HHI label)
 if not df_rep.empty and total_rep > 0:
     df_clientes_tot = df_rep.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
     num_clientes_rep = int(df_clientes_tot["Cliente"].nunique())
@@ -700,6 +744,7 @@ else:
 
 clientes_atendidos = int(num_clientes_rep)
 cidades_atendidas = int(df_rep[["Estado", "Cidade"]].dropna().drop_duplicates().shape[0]) if not df_rep.empty else 0
+estados_atendidos = int(df_rep["Estado"].dropna().nunique()) if not df_rep.empty else 0
 
 if not clientes_carteira.empty:
     carteira_score, carteira_label = compute_carteira_score(clientes_carteira)
@@ -707,7 +752,7 @@ else:
     carteira_score, carteira_label = 50.0, "Neutra"
 
 col1.metric("Total período", format_brl_compact(total_rep))
-col2.metric("Média mensal", format_brl_compact(media_mensal))
+col2.metric("Volume período", format_un(total_vol_rep))
 col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
 col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
 col5.metric("Clientes atendidos", f"{clientes_atendidos}")
@@ -715,88 +760,76 @@ col5.metric("Clientes atendidos", f"{clientes_atendidos}")
 st.markdown("---")
 
 # ==========================
-# 2) EVOLUÇÃO – FAT x VOL (same)
+# EVOLUÇÃO – split into 2 charts (each compares both periods)
 # ==========================
-st.subheader("2. Evolução – Faturamento x Volume")
+st.subheader("Evolução – Faturamento e Volume (comparativo)")
 
-fat_curr = float(df_rep["Valor"].sum())
-vol_curr = float(df_rep["Quantidade"].sum())
-fat_prev = float(df_rep_prev["Valor"].sum()) if not df_rep_prev.empty else 0.0
-vol_prev = float(df_rep_prev["Quantidade"].sum()) if not df_rep_prev.empty else 0.0
+c_a, c_b = st.columns(2)
 
-st.markdown(
-    f"**Período atual:** {current_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Faturamento:** {format_brl_compact(fat_curr)} &nbsp;&nbsp;•&nbsp;&nbsp; "
-    f"**Volume:** {format_un(vol_curr)}"
-)
-chart_curr = make_evolucao_chart(df_rep, chart_height=300)
-if chart_curr is None:
-    st.info("Sem dados para exibir no período atual.")
-else:
-    st.altair_chart(chart_curr, width="stretch")
-
-with st.expander("PERÍODO ANTERIOR", expanded=False):
-    st.markdown(
-        f"**Período anterior:** {previous_period_label} &nbsp;&nbsp;•&nbsp;&nbsp; "
-        f"**Faturamento:** {format_brl_compact(fat_prev)} &nbsp;&nbsp;•&nbsp;&nbsp; "
-        f"**Volume:** {format_un(vol_prev)}"
-    )
-    chart_prev = make_evolucao_chart(df_rep_prev, chart_height=300)
-    if chart_prev is None:
-        st.info("Sem dados para exibir no período anterior.")
+with c_a:
+    st.caption("Faturamento (Atual x Anterior)")
+    chart_fat = make_compare_timeseries_chart(df_rep, df_rep_prev, "Valor", "Faturamento (R$)", height=320)
+    if chart_fat is None:
+        st.info("Sem dados para exibir.")
     else:
-        st.altair_chart(chart_prev, width="stretch")
+        st.altair_chart(chart_fat, width="stretch")
+
+with c_b:
+    st.caption("Volume (Atual x Anterior)")
+    chart_vol = make_compare_timeseries_chart(df_rep, df_rep_prev, "Quantidade", "Volume (un)", height=320)
+    if chart_vol is None:
+        st.info("Sem dados para exibir.")
+    else:
+        st.altair_chart(chart_vol, width="stretch")
 
 # ==========================
-# 2b) CATEGORIAS VENDIDAS (same look)
+# CATEGORIAS VENDIDAS
+# - Current: table includes Valor Anterior and % Anterior
+# - Previous snapshot: show only Categoria, Valor, %
+# - No "PERÍODO ANTERIOR" tabs
 # ==========================
 st.markdown("---")
 st.subheader("Categorias vendidas")
 
-def render_categorias(df_curr: pd.DataFrame, df_prev_in: pd.DataFrame, caption_prefix: str, key_suffix: str):
-    if df_curr.empty:
+def categorias_snapshot(df_in: pd.DataFrame) -> pd.DataFrame:
+    if df_in is None or df_in.empty:
+        return pd.DataFrame(columns=["Categoria", "Valor", "%"])
+    cat = df_in.groupby("Categoria", as_index=False)["Valor"].sum()
+    total = float(cat["Valor"].sum()) if not cat.empty else 0.0
+    total = total if total > 0 else 1.0
+    cat["%"] = cat["Valor"] / total
+    cat = cat.sort_values("Valor", ascending=False)
+    cat["Valor"] = cat["Valor"].map(format_brl)
+    cat["%"] = cat["%"].map(lambda x: f"{x:.1%}")
+    return cat[["Categoria", "Valor", "%"]]
+
+def render_categorias_current_vs_prev(df_curr: pd.DataFrame, df_prev_in: pd.DataFrame, key_suffix: str):
+    if df_curr is None or df_curr.empty:
         st.info("Não há vendas no período.")
         return
 
-    curr_cat = (
-        df_curr.groupby("Categoria", as_index=False)["Valor"]
-        .sum()
-        .rename(columns={"Valor": "ValorAtual"})
-    )
-    prev_cat = (
-        df_prev_in.groupby("Categoria", as_index=False)["Valor"]
-        .sum()
-        .rename(columns={"Valor": "ValorAnterior"})
-    ) if df_prev_in is not None and not df_prev_in.empty else pd.DataFrame(columns=["Categoria", "ValorAnterior"])
+    curr_cat = df_curr.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAtual"})
+    prev_cat = df_prev_in.groupby("Categoria", as_index=False)["Valor"].sum().rename(columns={"Valor": "ValorAnterior"}) if df_prev_in is not None and not df_prev_in.empty else pd.DataFrame(columns=["Categoria", "ValorAnterior"])
 
     cat = pd.merge(curr_cat, prev_cat, on="Categoria", how="outer")
     cat["ValorAtual"] = pd.to_numeric(cat["ValorAtual"], errors="coerce").fillna(0.0)
     cat["ValorAnterior"] = pd.to_numeric(cat["ValorAnterior"], errors="coerce").fillna(0.0)
 
-    total_cat = float(cat["ValorAtual"].sum())
-    if total_cat <= 0:
-        st.info("Sem faturamento para exibir categorias.")
-        return
+    total_curr = float(cat["ValorAtual"].sum())
+    total_prev = float(cat["ValorAnterior"].sum())
 
-    cat["%"] = cat["ValorAtual"] / total_cat
-    cat["Variação (R$)"] = cat["ValorAtual"] - cat["ValorAnterior"]
+    total_curr = total_curr if total_curr > 0 else 1.0
+    total_prev_safe = total_prev if total_prev > 0 else 1.0
 
-    def pct_growth(row):
-        prevv = float(row["ValorAnterior"])
-        currv = float(row["ValorAtual"])
-        if prevv > 0:
-            return (currv - prevv) / prevv
-        if currv > 0 and prevv == 0:
-            return None
-        return 0.0
+    cat["% Atual"] = cat["ValorAtual"] / total_curr
+    cat["% Anterior"] = cat["ValorAnterior"] / total_prev_safe
 
-    cat["% Crescimento"] = cat.apply(pct_growth, axis=1)
     cat = cat.sort_values("ValorAtual", ascending=False)
 
-    col_pie_cat, col_tbl_cat = st.columns([1.0, 1.25])
+    left, right = st.columns([1.0, 1.25])
 
-    with col_pie_cat:
-        st.caption(f"{caption_prefix} – Participação por categoria")
+    with left:
+        st.caption("Período atual – Participação por categoria")
 
         df_pie = cat[["Categoria", "ValorAtual"]].copy().rename(columns={"ValorAtual": "Valor"})
         df_pie = df_pie.sort_values("Valor", ascending=False).reset_index(drop=True)
@@ -828,21 +861,16 @@ def render_categorias(df_curr: pd.DataFrame, df_prev_in: pd.DataFrame, caption_p
         fig_cat.update_layout(showlegend=False, height=520, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig_cat, width="stretch", key=f"pie_cat_{key_suffix}")
 
-    with col_tbl_cat:
-        st.caption(f"{caption_prefix} – Resumo (com crescimento vs. período anterior)")
+    with right:
+        st.caption("Período atual – Resumo (inclui comparação de participação vs. período anterior)")
 
         cat_disp = cat.copy()
-        cat_disp["Valor"] = cat_disp["ValorAtual"].map(format_brl)
-        cat_disp["%"] = cat_disp["%"].map(lambda x: f"{x:.1%}")
-        cat_disp["Variação (R$)"] = cat_disp["Variação (R$)"].map(format_brl_signed)
+        cat_disp["Valor Atual"] = cat_disp["ValorAtual"].map(format_brl)
+        cat_disp["Valor Anterior"] = cat_disp["ValorAnterior"].map(format_brl)
+        cat_disp["% Atual"] = cat_disp["% Atual"].map(lambda x: f"{x:.1%}")
+        cat_disp["% Anterior"] = cat_disp["% Anterior"].map(lambda x: f"{x:.1%}")
 
-        def fmt_growth(v):
-            if v is None or (isinstance(v, float) and pd.isna(v)):
-                return "Novo"
-            return f"{v:+.1%}"
-
-        cat_disp["Crescimento vs anterior"] = cat_disp["% Crescimento"].apply(fmt_growth)
-        cat_disp = cat_disp[["Categoria", "Valor", "%", "Variação (R$)", "Crescimento vs anterior"]]
+        cat_disp = cat_disp[["Categoria", "Valor Atual", "Valor Anterior", "% Atual", "% Anterior"]]
 
         css = """
 <style>
@@ -858,17 +886,75 @@ table.cat-resumo th, table.cat-resumo td {
 """
         html_table(css, cat_disp, "cat-resumo")
 
-render_categorias(df_rep, df_rep_prev, "Período atual", "curr")
+render_categorias_current_vs_prev(df_rep, df_rep_prev, "curr")
 
-with st.expander("PERÍODO ANTERIOR", expanded=False):
-    st.caption(f"Período anterior: {previous_period_label}")
-    render_categorias(df_rep_prev, df_rep, "Período anterior", "prev")
+st.markdown("#### Período anterior – snapshot (Categoria, Valor, %)")
+
+p_left, p_right = st.columns([1.0, 1.25])
+
+with p_left:
+    st.caption(f"Período anterior ({previous_period_label}) – Participação por categoria")
+    prev_snap = categorias_snapshot(df_rep_prev)
+
+    if prev_snap.empty:
+        st.info("Sem dados no período anterior.")
+    else:
+        # build pie from previous snapshot (need raw numeric)
+        prev_raw = df_rep_prev.groupby("Categoria", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
+        if len(prev_raw) > 10:
+            top10 = prev_raw.head(10).copy()
+            others_val = float(prev_raw.iloc[10:]["Valor"].sum())
+            prev_raw = pd.concat([top10, pd.DataFrame([{"Categoria": "Outras", "Valor": others_val}])], ignore_index=True)
+
+        prev_raw["Share"] = prev_raw["Valor"] / float(prev_raw["Valor"].sum()) if float(prev_raw["Valor"].sum()) > 0 else 0.0
+        prev_raw["Legenda"] = prev_raw.apply(lambda r: f"{r['Categoria']} {r['Share']*100:.1f}%", axis=1)
+
+        def make_text_prev(row):
+            if row["Share"] >= 0.07:
+                return f"{row['Categoria']}<br>{row['Share']*100:.1f}%"
+            return ""
+
+        prev_raw["Text"] = prev_raw.apply(make_text_prev, axis=1)
+        order_leg = prev_raw.sort_values("Share", ascending=False)["Legenda"].tolist()
+
+        fig_prev = px.pie(prev_raw, values="Valor", names="Legenda", hole=0.35, category_orders={"Legenda": order_leg})
+        fig_prev.update_traces(
+            text=prev_raw["Text"],
+            textposition="inside",
+            textinfo="text",
+            insidetextorientation="radial",
+        )
+        fig_prev.update_layout(showlegend=False, height=520, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_prev, width="stretch", key="pie_cat_prev_snapshot")
+
+with p_right:
+    st.caption(f"Período anterior ({previous_period_label}) – Tabela (Categoria, Valor, %)")
+    prev_snap = categorias_snapshot(df_rep_prev)
+    if prev_snap.empty:
+        st.info("Sem dados no período anterior.")
+    else:
+        css = """
+<style>
+table.cat-prev { width: 100%; border-collapse: collapse; }
+table.cat-prev th, table.cat-prev td {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.84rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  text-align: left;
+  white-space: nowrap;
+}
+</style>
+"""
+        html_table(css, prev_snap, "cat-prev")
 
 # ==========================
-# 3) MAPA DE CLIENTES (same as insights)
+# MAPA DE CLIENTES
+# - Default to Volume
+# - Remove option toggle
+# - In "Principais clientes" table add Volume column
 # ==========================
 st.markdown("---")
-st.subheader("3. Mapa de Clientes")
+st.subheader("Mapa de Clientes")
 
 if "selected_city_tooltip" not in st.session_state:
     st.session_state["selected_city_tooltip"] = None
@@ -898,14 +984,14 @@ else:
         else:
             df_map["Tooltip"] = df_map["Cidade_fat"].astype(str) + " - " + df_map["Estado_fat"].astype(str)
 
-            metric_choice = st.radio("Métrica do mapa", ["Faturamento", "Volume"], horizontal=True, key="map_metric_choice")
-            metric_col = "Valor" if metric_choice == "Faturamento" else "Quantidade"
-            metric_label = "Faturamento (R$)" if metric_col == "Valor" else "Volume (un)"
+            # FIXED: default metric = Volume, no toggle
+            metric_col = "Quantidade"
+            metric_label = "Volume (un)"
 
             if df_map[metric_col].max() <= 0:
                 st.info("Sem dados para exibir no mapa nesse período.")
             else:
-                bins = build_dynamic_bins(df_map[metric_col].tolist(), is_valor=(metric_col == "Valor"))
+                bins = build_dynamic_bins(df_map[metric_col].tolist(), is_valor=False)
                 df_map["bin_color"] = df_map[metric_col].apply(lambda v: get_bin_for_value(float(v), bins)["color"])
                 legend_entries = [(b["color"], b["label"]) for b in bins]
 
@@ -918,7 +1004,7 @@ else:
 
                     for _, row in df_map.iterrows():
                         color = row["bin_color"]
-                        metric_val_str = format_brl(row["Valor"]) if metric_col == "Valor" else format_un(row["Quantidade"])
+                        metric_val_str = format_un(row["Quantidade"])
                         popup_html = (
                             f"<b>{html.escape(str(row['Cidade_fat']))} - {html.escape(str(row['Estado_fat']))}</b><br>"
                             f"{metric_label}: {html.escape(metric_val_str)}<br>"
@@ -961,19 +1047,21 @@ else:
 
                 with col_stats:
                     st.markdown("**Cobertura**")
-                    cov1, cov2 = st.columns(2)
+                    cov1, cov2, cov3 = st.columns(3)
                     cov1.metric("Cidades atendidas", f"{cidades_atendidas}")
-                    cov2.metric("Clientes atendidos", f"{clientes_atendidos}")
+                    cov2.metric("Estados atendidos", f"{estados_atendidos}")
+                    cov3.metric("Clientes atendidos", f"{clientes_atendidos}")
 
                     st.markdown("**Principais clientes**")
                     df_top_clients = (
-                        df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)["Valor"]
-                        .sum()
+                        df_rep.groupby(["Cliente", "Estado", "Cidade"], as_index=False)
+                        .agg(Valor=("Valor", "sum"), Quantidade=("Quantidade", "sum"))
                         .sort_values("Valor", ascending=False)
                         .head(15)
                     )
                     df_top_clients["Faturamento"] = df_top_clients["Valor"].map(format_brl)
-                    df_top_display = df_top_clients[["Cliente", "Cidade", "Estado", "Faturamento"]]
+                    df_top_clients["Volume"] = df_top_clients["Quantidade"].map(format_un)
+                    df_top_display = df_top_clients[["Cliente", "Cidade", "Estado", "Faturamento", "Volume"]]
 
                     css = """
 <style>
@@ -1028,17 +1116,19 @@ table.city-table td { text-align: left; }
                                     unsafe_allow_html=True,
                                 )
 
-                                with st.expander("Ver lista de clientes da cidade", expanded=True):
-                                    html_table("", display_city, "city-table")
+                                # No expander: always show list (same feel as the map panel)
+                                html_table("", display_city, "city-table")
 
     except Exception as e:
         st.info(f"Mapa de clientes ainda não disponível: {e}")
 
 # ==========================
-# 4) DISTRIBUIÇÃO POR CLIENTES (same as insights section)
+# DISTRIBUIÇÃO POR CLIENTES
+# - Color the N80 and HHI sublabels based on thresholds
+# - No "PERÍODO ANTERIOR" tab
 # ==========================
 st.markdown("---")
-st.subheader("4. Distribuição por clientes")
+st.subheader("Distribuição por clientes")
 
 def render_clientes_dist(df_in: pd.DataFrame, total_val: float, caption_prefix: str, key_suffix: str):
     if df_in.empty:
@@ -1052,8 +1142,10 @@ def render_clientes_dist(df_in: pd.DataFrame, total_val: float, caption_prefix: 
     )
     total_safe = total_val if total_val > 0 else float(df_clientes_full["Valor"].sum())
     total_safe = total_safe if total_safe > 0 else 1.0
+
     df_clientes_full["Share"] = df_clientes_full["Valor"] / total_safe
 
+    # KPIs of distribution
     df_clientes_tot_local = df_clientes_full.groupby("Cliente", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
     clientes_atendidos_local = int(df_clientes_tot_local["Cliente"].nunique())
 
@@ -1081,10 +1173,26 @@ def render_clientes_dist(df_in: pd.DataFrame, total_val: float, caption_prefix: 
         top1 = top3 = top10 = 0.0
         hhi_lbl = "Sem dados"
 
-    k1, k2, k3, k4, k5 = st.columns(5)
     n80_ratio = (n80_local / clientes_atendidos_local) if clientes_atendidos_local > 0 else 0.0
-    k1.metric("N80", f"{n80_local}", f"{n80_ratio:.0%} da carteira")
-    k2.metric("Índice de concentração", hhi_lbl, f"HHI {hhi_local:.3f}")
+    n80_color = color_for_n80_ratio(n80_ratio)
+    hhi_color = color_for_hhi(hhi_local)
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+
+    with k1:
+        st.metric("N80", f"{n80_local}")
+        st.markdown(
+            f"<div class='kpi-sub'><span class='badge' style='color:{n80_color}; border-color:rgba(255,255,255,0.12);'>"
+            f"{n80_ratio:.0%} da carteira</span></div>",
+            unsafe_allow_html=True,
+        )
+    with k2:
+        st.metric("Índice de concentração", hhi_lbl, f"HHI {hhi_local:.3f}")
+        st.markdown(
+            f"<div class='kpi-sub'><span class='badge' style='color:{hhi_color}; border-color:rgba(255,255,255,0.12);'>"
+            f"Concentração: {hhi_lbl}</span></div>",
+            unsafe_allow_html=True,
+        )
     k3.metric("Top 1 cliente", f"{top1:.1%}")
     k4.metric("Top 3 clientes", f"{top3:.1%}")
     k5.metric("Top 10 clientes", f"{top10:.1%}")
@@ -1149,16 +1257,12 @@ table.clientes-resumo th, table.clientes-resumo td {
 
 render_clientes_dist(df_rep, total_rep, "Período atual", "curr")
 
-with st.expander("PERÍODO ANTERIOR", expanded=False):
-    total_prev_rep = float(df_rep_prev["Valor"].sum()) if not df_rep_prev.empty else 0.0
-    st.caption(f"Período anterior: {previous_period_label}")
-    render_clientes_dist(df_rep_prev, total_prev_rep, "Período anterior", "prev")
-
 # ==========================
-# 5) SAÚDE DA CARTEIRA – DETALHES (same)
+# SAÚDE DA CARTEIRA – DETALHES
+# (no previous-period tab)
 # ==========================
 st.markdown("---")
-st.subheader("5. Saúde da carteira – Detalhes")
+st.subheader("Saúde da carteira – Detalhes")
 
 c_score1, c_score2 = st.columns([0.35, 0.65])
 with c_score1:
@@ -1170,23 +1274,22 @@ with c_score2:
     )
 
 # ==========================
-# 6) STATUS DOS CLIENTES (same table look, but now includes volume too)
+# STATUS DOS CLIENTES
+# (no previous-period tab)
 # ==========================
 st.markdown("---")
-st.subheader("6. Status dos clientes")
+st.subheader("Status dos clientes")
 
-search_cliente = st.text_input("Buscar cliente", value="", placeholder="Digite parte do nome do cliente", key="buscar_cliente_curr")
+search_cliente = st.text_input(
+    "Buscar cliente",
+    value="",
+    placeholder="Digite parte do nome do cliente",
+    key="buscar_cliente_curr",
+)
 
 table_css = """
 <style>
 table.status-table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; }
-table.status-table col:nth-child(1) { width: 28%; }
-table.status-table col:nth-child(2) { width: 8%; }
-table.status-table col:nth-child(3) { width: 12%; }
-table.status-table col:nth-child(4) { width: 10%; }
-table.status-table col:nth-child(5) { width: 14%; }
-table.status-table col:nth-child(6) { width: 14%; }
-table.status-table col:nth-child(7) { width: 14%; }
 table.status-table th, table.status-table td {
     padding: 0.2rem 0.5rem;
     border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -1199,7 +1302,15 @@ table.status-table th { font-weight: 600; }
 """
 st.markdown(table_css, unsafe_allow_html=True)
 
-# Current period status table (computed vs manual previous)
+def safe_pct(curr, prev):
+    prev = float(prev)
+    curr = float(curr)
+    if prev > 0:
+        return f"{((curr-prev)/prev):+.1%}"
+    if curr > 0 and prev == 0:
+        return "Novo"
+    return "0.0%"
+
 for status_name in STATUS_ORDER:
     df_status = clientes_carteira[clientes_carteira[STATUS_COL] == status_name].copy() if not clientes_carteira.empty else pd.DataFrame()
     if search_cliente and not df_status.empty:
@@ -1209,24 +1320,12 @@ for status_name in STATUS_ORDER:
 
     df_status = df_status.sort_values("ValorAtual", ascending=False).copy()
 
-    # format
     df_status["FatAtualFmt"] = df_status["ValorAtual"].map(format_brl)
     df_status["FatAnteriorFmt"] = df_status["ValorAnterior"].map(format_brl)
     df_status["VolAtualFmt"] = df_status["QuantidadeAtual"].map(format_un)
     df_status["VolAnteriorFmt"] = df_status["QuantidadeAnterior"].map(format_un)
 
-    # deltas
     df_status["Δ Fat (R$)"] = (df_status["ValorAtual"] - df_status["ValorAnterior"]).map(format_brl_signed)
-
-    def safe_pct(curr, prev):
-        prev = float(prev)
-        curr = float(curr)
-        if prev > 0:
-            return f"{((curr-prev)/prev):+.1%}"
-        if curr > 0 and prev == 0:
-            return "Novo"
-        return "0.0%"
-
     df_status["Δ Fat (%)"] = df_status.apply(lambda r: safe_pct(r["ValorAtual"], r["ValorAnterior"]), axis=1)
     df_status["Δ Vol (%)"] = df_status.apply(lambda r: safe_pct(r["QuantidadeAtual"], r["QuantidadeAnterior"]), axis=1)
 
@@ -1244,6 +1343,7 @@ for status_name in STATUS_ORDER:
     )
 
     cols_status = list(display_df.columns)
+
     html_status = "<h5>" + html.escape(status_name) + "</h5>"
     html_status += "<table class='status-table'><thead><tr>"
     html_status += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_status)
@@ -1251,61 +1351,5 @@ for status_name in STATUS_ORDER:
     for _, row in display_df.iterrows():
         html_status += "<tr>" + "".join(f"<td>{html.escape(str(row[c]))}</td>" for c in cols_status) + "</tr>"
     html_status += "</tbody></table>"
+
     st.markdown(html_status, unsafe_allow_html=True)
-
-with st.expander("PERÍODO ANTERIOR", expanded=False):
-    st.caption(f"Status dos clientes – referência: {previous_period_label}")
-
-    clientes_carteira_prev = build_carteira_status_manual_prev(
-        df, rep_selected,
-        prev_start, prev_end,
-        start_comp, end_comp
-    )
-
-    if clientes_carteira_prev.empty:
-        st.info("Sem dados suficientes para montar o status no período anterior.")
-    else:
-        search_cliente_prev = st.text_input(
-            "Buscar cliente (período anterior)",
-            value="",
-            placeholder="Digite parte do nome do cliente",
-            key="buscar_cliente_prev",
-        )
-
-        for status_name in STATUS_ORDER:
-            df_status = clientes_carteira_prev[clientes_carteira_prev[STATUS_COL] == status_name].copy()
-            if search_cliente_prev:
-                df_status = df_status[df_status["Cliente"].astype(str).str.contains(search_cliente_prev, case=False, na=False)]
-            if df_status.empty:
-                continue
-
-            df_status = df_status.sort_values("ValorAtual", ascending=False).copy()
-
-            df_status["FatPrevFmt"] = df_status["ValorAtual"].map(format_brl)
-            df_status["FatCurrRefFmt"] = df_status["ValorAnterior"].map(format_brl)
-
-            df_status["VolPrevFmt"] = df_status["QuantidadeAtual"].map(format_un)
-            df_status["VolCurrRefFmt"] = df_status["QuantidadeAnterior"].map(format_un)
-
-            display_df = df_status[[
-                "Cliente", "Estado", "Cidade",
-                "FatPrevFmt", "FatCurrRefFmt",
-                "VolPrevFmt", "VolCurrRefFmt"
-            ]].rename(
-                columns={
-                    "FatPrevFmt": f"Fat {previous_period_label}",
-                    "FatCurrRefFmt": f"Fat {current_period_label}",
-                    "VolPrevFmt": f"Vol {previous_period_label}",
-                    "VolCurrRefFmt": f"Vol {current_period_label}",
-                }
-            )
-
-            cols_status = list(display_df.columns)
-            html_status = "<h5>" + html.escape(status_name) + "</h5>"
-            html_status += "<table class='status-table'><thead><tr>"
-            html_status += "".join(f"<th>{html.escape(str(c))}</th>" for c in cols_status)
-            html_status += "</tr></thead><tbody>"
-            for _, row in display_df.iterrows():
-                html_status += "<tr>" + "".join(f"<td>{html.escape(str(row[c]))}</td>" for c in cols_status) + "</tr>"
-            html_status += "</tbody></table>"
-            st.markdown(html_status, unsafe_allow_html=True)
