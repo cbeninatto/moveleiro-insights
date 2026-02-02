@@ -1,493 +1,616 @@
-import flet as ft
-import pandas as pd
-import altair as alt
-import vl_convert as vlc
-from fpdf import FPDF
-from fpdf.enums import XPos, YPos, Align
-from pathlib import Path
-from datetime import datetime
-import calendar
-import tempfile
+# rep_report.py
+from __future__ import annotations
+
 import os
+import numpy as np
+import pandas as pd
+import streamlit as st
+import altair as alt
 
-# --- CONFIG ---
-CSV_PATH = Path(r"C:\Users\Cesar\CB Database\Documents\OPENFIELD\APPS\INSIGHTS\data\raw\relatorio_faturamento.csv")
-BASE_DIR = CSV_PATH.parent.parent.parent 
+st.set_page_config(page_title="Relatório do Representante", layout="wide")
 
-# --- VISUAL CONSTANTS ---
-# Colors (R, G, B)
-C_PRIMARY   = (59, 130, 246)   # Blue
-C_SUCCESS   = (34, 197, 94)    # Green
-C_DANGER    = (239, 68, 68)    # Red
-C_DARK      = (30, 41, 59)     # Slate 900 (Main Text)
-C_MED       = (100, 116, 139)  # Slate 500 (Subtitles/Labels)
-C_LIGHT     = (241, 245, 249)  # Slate 100 (Backgrounds)
-C_BORDER    = (226, 232, 240)  # Slate 200 (Lines)
+# ============================================================
+# DATA SOURCES (repo paths)
+# ============================================================
+DATA_PATH = "data/raw/relatorio_faturamento.csv"
+GEO_CIDADES_PATH = "data/raw/cidades_br_geo.csv"
+GEO_CLIENTES_PATH = "data/raw/clientes_relatorio_faturamento.csv"
 
-# Hex for Altair
-HEX_PALETTE = ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#ef4444"] 
+# ============================================================
+# COLUMN MAPPING (matches your relatorio_faturamento.csv headers)
+# ============================================================
+# Your CSV columns (as you posted):
+# "﻿Codigo","Descricao","Quantidade","Valor","Mes","Ano","ClienteCodigo","Cliente","Estado","Cidade",
+# "RepresentanteCodigo","Representante","Categoria","SourcePDF"
+COL = {
+    "year": "Ano",
+    "month": "Mes",
+    "rep": "Representante",
+    "client": "Cliente",
+    "city": "Cidade",
+    "state": "Estado",
+    "category": "Categoria",
+    "rev": "Valor",
+    "vol": "Quantidade",
+}
 
-STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
-MONTH_NAMES = {1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai", 6: "Jun", 7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez"}
+MONTHS = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
+MONTH_TO_INT = {m: i + 1 for i, m in enumerate(MONTHS)}
+INT_TO_MONTH = {i + 1: m for i, m in enumerate(MONTHS)}
 
-# --- HELPERS ---
-def with_opacity(opacity: float, color: str) -> str: return f"{opacity},{color}"
-def format_brl(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-def format_int(v): return f"{int(v):,}".replace(",", ".")
-def format_pct(v): return f"{v:.1%}" if not pd.isna(v) else "-"
+# ============================================================
+# FORMATTERS
+# ============================================================
+def money(x: float) -> str:
+    if pd.isna(x):
+        return "—"
+    return f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-def format_brl_compact(value):
-    val = float(value)
-    if val >= 1_000_000: return f"R$ {val/1_000_000:.1f} mi".replace(".", ",")
-    if val >= 1_000: return f"R$ {val/1_000:.1f} k".replace(".", ",")
-    return f"R$ {val:,.0f}".replace(",", ".")
+def num(x: float) -> str:
+    if pd.isna(x):
+        return "—"
+    return f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- DATA LOGIC ---
-def load_data():
-    if not CSV_PATH.exists(): return pd.DataFrame()
-    df = pd.read_csv(CSV_PATH)
-    for c in ["Valor", "Quantidade"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    
-    if "MesNum" in df.columns:
-        df["Competencia"] = pd.to_datetime(dict(year=df["Ano"], month=df["MesNum"], day=1), errors="coerce")
-    elif "Mes" in df.columns:
-        df["Competencia"] = pd.to_datetime(dict(year=df["Ano"], month=df["Mes"], day=1), errors="coerce")
+def pct(x: float) -> str:
+    if pd.isna(x):
+        return "—"
+    return f"{x*100:.1f}%".replace(".", ",")
+
+def pct_change(curr: float, prev: float) -> float:
+    if prev == 0 or pd.isna(prev):
+        return np.nan
+    return (curr - prev) / prev
+
+# ============================================================
+# DATE / PERIOD HELPERS
+# ============================================================
+def normalize_month(m):
+    """Accepts 1..12, '01', 'JAN', 'JANEIRO', etc. Returns 1..12 or NaN."""
+    if pd.isna(m):
+        return np.nan
+    if isinstance(m, (int, np.integer)):
+        mi = int(m)
+        return mi if 1 <= mi <= 12 else np.nan
+    s = str(m).strip().upper()
+
+    if s.isdigit():
+        mi = int(s)
+        return mi if 1 <= mi <= 12 else np.nan
+
+    mapa = {
+        "JAN": 1, "JANEIRO": 1,
+        "FEV": 2, "FEVEREIRO": 2,
+        "MAR": 3, "MARÇO": 3, "MARCO": 3,
+        "ABR": 4, "ABRIL": 4,
+        "MAI": 5, "MAIO": 5,
+        "JUN": 6, "JUNHO": 6,
+        "JUL": 7, "JULHO": 7,
+        "AGO": 8, "AGOSTO": 8,
+        "SET": 9, "SETEMBRO": 9,
+        "OUT": 10, "OUTUBRO": 10,
+        "NOV": 11, "NOVEMBRO": 11,
+        "DEZ": 12, "DEZEMBRO": 12,
+    }
+    for k, v in mapa.items():
+        if s.startswith(k):
+            return v
+    return np.nan
+
+def month_start(year: int, month: int) -> pd.Timestamp:
+    return pd.Timestamp(year=int(year), month=int(month), day=1)
+
+def month_end(year: int, month: int) -> pd.Timestamp:
+    return (pd.Timestamp(year=int(year), month=int(month), day=1) + pd.offsets.MonthEnd(0))
+
+def filter_period_months(df: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> pd.DataFrame:
+    return df[(df["data"] >= start_ts) & (df["data"] <= end_ts)].copy()
+
+# ============================================================
+# LOADERS
+# ============================================================
+@st.cache_data(show_spinner=False)
+def load_and_normalize_base(path: str) -> pd.DataFrame:
+    if not os.path.exists(path):
+        return pd.DataFrame()
+
+    df_raw = pd.read_csv(path, sep=None, engine="python", encoding="utf-8")
+    df_raw.columns = [c.lstrip("\ufeff").strip() for c in df_raw.columns]
+
+    needed = [COL["year"], COL["month"], COL["rep"], COL["client"], COL["city"], COL["state"], COL["category"], COL["rev"], COL["vol"]]
+    missing = [c for c in needed if c not in df_raw.columns]
+    if missing:
+        return pd.DataFrame()
+
+    df = df_raw.copy()
+    df[COL["year"]] = pd.to_numeric(df[COL["year"]], errors="coerce")
+    df["_month_num"] = df[COL["month"]].apply(normalize_month)
+
+    df[COL["rev"]] = pd.to_numeric(df[COL["rev"]], errors="coerce")
+    df[COL["vol"]] = pd.to_numeric(df[COL["vol"]], errors="coerce")
+
+    df["data"] = pd.to_datetime(
+        dict(year=df[COL["year"]], month=df["_month_num"], day=1),
+        errors="coerce"
+    )
+
+    # clean strings
+    for c in [COL["rep"], COL["client"], COL["city"], COL["state"], COL["category"]]:
+        df[c] = df[c].astype(str).str.strip()
+
+    df = df.dropna(subset=["data"])
     return df
 
-def get_status_classification(row):
-    curr, prev = row["ValorAtual"], row["ValorAnterior"]
-    if curr > 0 and prev == 0: return "Novos"
-    if curr == 0 and prev > 0: return "Perdidos"
-    if curr > 0 and prev > 0:
-        ratio = curr / prev
-        if ratio >= 1.05: return "Crescendo"
-        if ratio <= 0.95: return "Caindo"
-    return "Estáveis"
+def _norm_col(s: str) -> str:
+    return str(s).strip().lower().replace(" ", "").replace("-", "").replace("_", "")
 
-def compute_wallet_health(df_comp):
-    if df_comp.empty: return 50, "Neutra"
-    df_comp["Peso"] = df_comp[["ValorAtual", "ValorAnterior"]].max(axis=1)
-    total = df_comp["Peso"].sum()
-    if total == 0: return 50, "Neutra"
-    
-    weights = {"Novos": 1, "Crescendo": 2, "Estáveis": 1, "Caindo": -1, "Perdidos": -2}
-    score_sum = 0
-    for st, w in weights.items():
-        rev = df_comp.loc[df_comp["Status"]==st, "Peso"].sum()
-        score_sum += w * (rev / total)
-        
-    final = max(0, min(100, (score_sum + 2) / 4 * 100))
-    if final < 30: lbl = "Crítica"
-    elif final < 50: lbl = "Alerta"
-    elif final < 70: lbl = "Neutra"
-    else: lbl = "Saudável"
-    return int(final), lbl
+def _pick_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    norm = {_norm_col(c): c for c in df.columns}
+    for cand in candidates:
+        key = _norm_col(cand)
+        if key in norm:
+            return norm[key]
+    return None
 
-# --- CHARTING (ALTAIR) ---
-def save_chart(chart, w=400, h=300):
-    chart = chart.configure_view(strokeWidth=0).configure_axis(
-        grid=False, domain=False, labelFontSize=10, titleFontSize=11, labelColor="#64748b"
-    ).configure_legend(
-        labelFontSize=10, titleFontSize=11, labelColor="#64748b"
-    ).properties(
-        width=w, height=h, background='white'
+@st.cache_data(show_spinner=False)
+def load_geo_tables():
+    """
+    Retorna (geo_clientes, geo_cidades) já padronizados:
+      geo_clientes: cliente_key, lat, lon
+      geo_cidades: cidade_key, estado_key, lat, lon
+    """
+    geo_clientes = pd.DataFrame()
+    geo_cidades = pd.DataFrame()
+
+    # ---- clientes geo
+    if os.path.exists(GEO_CLIENTES_PATH):
+        g = pd.read_csv(GEO_CLIENTES_PATH, sep=None, engine="python", encoding="utf-8")
+        g.columns = [c.lstrip("\ufeff").strip() for c in g.columns]
+
+        col_cliente = _pick_col(g, ["Cliente", "cliente", "Nome", "nome", "RazaoSocial", "razaosocial", "Descricao", "descricao"])
+        col_lat = _pick_col(g, ["lat", "latitude", "Latitude", "LAT"])
+        col_lon = _pick_col(g, ["lon", "lng", "longitude", "Longitude", "LON", "LONG"])
+
+        if col_cliente and col_lat and col_lon:
+            geo_clientes = g[[col_cliente, col_lat, col_lon]].copy()
+            geo_clientes.rename(columns={col_cliente: "cliente_key", col_lat: "lat", col_lon: "lon"}, inplace=True)
+            geo_clientes["cliente_key"] = geo_clientes["cliente_key"].astype(str).str.strip().str.upper()
+            geo_clientes["lat"] = pd.to_numeric(geo_clientes["lat"], errors="coerce")
+            geo_clientes["lon"] = pd.to_numeric(geo_clientes["lon"], errors="coerce")
+            geo_clientes = geo_clientes.dropna(subset=["lat", "lon"]).drop_duplicates(["cliente_key"])
+
+    # ---- cidades geo
+    if os.path.exists(GEO_CIDADES_PATH):
+        g = pd.read_csv(GEO_CIDADES_PATH, sep=None, engine="python", encoding="utf-8")
+        g.columns = [c.lstrip("\ufeff").strip() for c in g.columns]
+
+        col_cidade = _pick_col(g, ["Cidade", "cidade", "Municipio", "município", "nome_municipio", "nome"])
+        col_uf = _pick_col(g, ["UF", "uf", "Estado", "estado", "sigla_uf"])
+        col_lat = _pick_col(g, ["lat", "latitude", "Latitude", "LAT"])
+        col_lon = _pick_col(g, ["lon", "lng", "longitude", "Longitude", "LON", "LONG"])
+
+        if col_cidade and col_uf and col_lat and col_lon:
+            geo_cidades = g[[col_cidade, col_uf, col_lat, col_lon]].copy()
+            geo_cidades.rename(
+                columns={col_cidade: "cidade_key", col_uf: "estado_key", col_lat: "lat", col_lon: "lon"},
+                inplace=True,
+            )
+            geo_cidades["cidade_key"] = geo_cidades["cidade_key"].astype(str).str.strip().str.upper()
+            geo_cidades["estado_key"] = geo_cidades["estado_key"].astype(str).str.strip().str.upper()
+            geo_cidades["lat"] = pd.to_numeric(geo_cidades["lat"], errors="coerce")
+            geo_cidades["lon"] = pd.to_numeric(geo_cidades["lon"], errors="coerce")
+            geo_cidades = geo_cidades.dropna(subset=["lat", "lon"]).drop_duplicates(["cidade_key", "estado_key"])
+
+    return geo_clientes, geo_cidades
+
+# ============================================================
+# CALCS
+# ============================================================
+def client_distribution(df_period: pd.DataFrame):
+    by_client = (
+        df_period.groupby(COL["client"], as_index=False)[COL["rev"]]
+        .sum()
+        .rename(columns={COL["rev"]: "rev", COL["client"]: "cliente"})
     )
-    png = vlc.vegalite_to_png(chart.to_json(), scale=2)
-    f = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-    with open(f.name, "wb") as file: file.write(png)
-    return f.name
+    by_client["rev"] = by_client["rev"].fillna(0.0)
+    total = float(by_client["rev"].sum())
 
-def make_grouped_bar(df_curr, df_prev, metric_col, color_hex):
-    # Prepare Data for Grouped Bar
-    df1 = df_curr.groupby("Competencia")[metric_col].sum().reset_index()
-    df1["Periodo"] = "Atual"
-    df1["Month"] = df1["Competencia"].dt.month
-    
-    df2 = df_prev.groupby("Competencia")[metric_col].sum().reset_index()
-    df2["Periodo"] = "Anterior"
-    df2["Month"] = df2["Competencia"].dt.month
-    
-    combined = pd.concat([df1, df2])
-    combined["MonthName"] = combined["Month"].map(MONTH_NAMES)
-    
-    base = alt.Chart(combined).encode(
-        x=alt.X("MonthName:N", sort=list(MONTH_NAMES.values()), axis=alt.Axis(title=None, labelAngle=0)),
-        xOffset="Periodo:N"
+    if total <= 0 or by_client.empty:
+        empty = pd.DataFrame(columns=["cliente", "rev", "share", "cum_share"])
+        return empty, 0, 0.0, 0.0, np.nan, np.nan, np.nan, np.nan
+
+    by_client = by_client.sort_values("rev", ascending=False).reset_index(drop=True)
+    by_client["share"] = by_client["rev"] / total
+    by_client["cum_share"] = by_client["share"].cumsum()
+
+    n80_count = int((by_client["cum_share"] <= 0.80).sum())
+    if n80_count == 0:
+        n80_count = 1
+    n80_rev_share = float(by_client.loc[n80_count - 1, "cum_share"])
+    n80_share_clients = n80_count / len(by_client)
+
+    hhi = float((by_client["share"] ** 2).sum())
+    top1 = float(by_client["share"].head(1).sum())
+    top3 = float(by_client["share"].head(3).sum())
+    top10 = float(by_client["share"].head(10).sum())
+
+    return by_client, n80_count, n80_share_clients, n80_rev_share, hhi, top1, top3, top10
+
+def build_client_status(df_curr: pd.DataFrame, df_prev: pd.DataFrame, thr: float = 0.10) -> pd.DataFrame:
+    curr = df_curr.groupby(COL["client"], as_index=False).agg(
+        curr_rev=(COL["rev"], "sum"),
+        curr_vol=(COL["vol"], "sum"),
     )
-    
-    bar = base.mark_bar(cornerRadiusEnd=4).encode(
-        y=alt.Y(f"{metric_col}:Q", axis=alt.Axis(title=None, format="~s")),
-        color=alt.Color("Periodo:N", scale=alt.Scale(domain=["Atual", "Anterior"], range=[color_hex, "#cbd5e1"]), legend=None),
-    )
-    
-    text = base.mark_text(dy=-5, fontSize=9, color="#1e293b").encode(
-        text=alt.Text(f"{metric_col}:Q", format=".2s"),
-        y=alt.Y(f"{metric_col}:Q")
-    )
-    
-    return save_chart(bar + text, 220, 150)
-
-def make_modern_donut(df, cat_col, val_col, colors=None):
-    df = df[df[val_col] > 0].copy()
-    base = alt.Chart(df).encode(theta=alt.Theta(val_col, stack=True))
-    
-    # Smaller hole (innerRadius 40 vs 60 previously)
-    pie = base.mark_arc(innerRadius=40, outerRadius=80).encode(
-        color=alt.Color(cat_col, scale=alt.Scale(range=colors) if colors else alt.Undefined, 
-                        legend=alt.Legend(orient="right", title=None, symbolType="circle")), 
-        order=alt.Order(val_col, sort="descending")
-    )
-    
-    return save_chart(pie, 200, 160)
-
-# --- PDF ENGINE ---
-class ReportPDF(FPDF):
-    def __init__(self):
-        super().__init__(orientation='P', unit='mm', format='A4')
-        self.set_margins(10, 10, 10)
-        self.set_auto_page_break(auto=True, margin=15)
-
-    def header(self):
-        if self.page_no() > 1:
-            self.set_y(8)
-            self.set_font('Helvetica', 'I', 8)
-            self.set_text_color(*C_MED)
-            self.cell(0, 5, "Insights de Vendas - Detalhamento", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='R')
-            self.ln(2)
-
-    def footer(self):
-        self.set_y(-12)
-        self.set_font('Helvetica', '', 8)
-        self.set_text_color(*C_MED)
-        self.cell(0, 10, f'{self.page_no()}', align='R')
-
-    def draw_main_header(self, title, sub1, sub2):
-        self.set_y(10)
-        self.set_font('Helvetica', 'B', 18)
-        self.set_text_color(*C_DARK)
-        self.cell(0, 8, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        
-        self.set_font('Helvetica', '', 10)
-        self.set_text_color(*C_MED)
-        self.cell(0, 5, sub1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.cell(0, 5, sub2, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        
-        self.ln(4)
-        self.set_draw_color(*C_BORDER)
-        self.line(10, self.get_y(), 200, self.get_y())
-        self.ln(6)
-
-    def section_title(self, title):
-        self.ln(4)
-        self.set_font('Helvetica', 'B', 11)
-        self.set_text_color(*C_DARK)
-        self.set_fill_color(*C_LIGHT)
-        # Full width bar
-        self.cell(190, 8, f"  {title}", fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.ln(2)
-
-    def kpi_card(self, label, value, subtext, x, y, w):
-        self.set_xy(x, y)
-        
-        # Uppercase Label
-        self.set_font('Helvetica', 'B', 7)
-        self.set_text_color(*C_MED)
-        self.cell(w, 4, label.upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        
-        # Value
-        self.set_xy(x, y+5)
-        self.set_font('Helvetica', 'B', 14)
-        self.set_text_color(*C_DARK)
-        self.cell(w, 7, value, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        
-        # Subtext
-        if subtext:
-            self.set_xy(x, y+13)
-            self.set_font('Helvetica', 'B', 8)
-            if "Crítica" in subtext or "-" in subtext: self.set_text_color(*C_DANGER)
-            elif "Neutra" in subtext: self.set_text_color(*C_MED)
-            else: self.set_text_color(*C_SUCCESS)
-            self.cell(w, 4, subtext, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    def draw_table(self, x, y, df, col_widths, aligns=None):
-        self.set_xy(x, y)
-        if not aligns: aligns = ['L'] * len(df.columns)
-        
-        # Header
-        self.set_font('Helvetica', 'B', 7)
-        self.set_text_color(*C_MED)
-        self.set_fill_color(*C_LIGHT) # Light gray header
-        self.set_draw_color(*C_BORDER)
-        
-        for i, (col, w) in enumerate(zip(df.columns, col_widths)):
-            # Header text always left or center depending on logic, mostly left for cleanliness
-            self.cell(w, 7, str(col).upper(), border='B', fill=True, align=aligns[i])
-        self.ln()
-        
-        # Rows
-        self.set_font('Helvetica', '', 7)
-        self.set_text_color(*C_DARK)
-        
-        fill = False
-        for _, row in df.iterrows():
-            self.set_x(x)
-            # Zebra Striping
-            if fill: self.set_fill_color(250, 250, 252); self.set_fill_color(255, 255, 255) 
-            
-            for i, (val, w) in enumerate(zip(row, col_widths)):
-                self.cell(w, 6, str(val), border='B', align=aligns[i])
-            
-            self.ln()
-            if self.get_y() > 275: 
-                self.add_page()
-                self.set_y(15)
-
-# --- GENERATOR ---
-def generate_pdf(rep_name, s_date, e_date, ps_date, pe_date):
-    s_date = s_date.replace(day=1)
-    e_date = e_date.replace(day=calendar.monthrange(e_date.year, e_date.month)[1])
-    ps_date = ps_date.replace(day=1)
-    pe_date = pe_date.replace(day=calendar.monthrange(pe_date.year, pe_date.month)[1])
-
-    df = load_data()
-    if df.empty: return False, "CSV Vazio"
-    
-    mask_curr = (df["Competencia"] >= s_date) & (df["Competencia"] <= e_date)
-    df_curr = df[mask_curr].copy()
-    mask_prev = (df["Competencia"] >= ps_date) & (df["Competencia"] <= pe_date)
-    df_prev = df[mask_prev].copy()
-    
-    if rep_name != "Todos":
-        df_curr = df_curr[df_curr["Representante"] == rep_name]
-        df_prev = df_prev[df_prev["Representante"] == rep_name]
-        
-    if df_curr.empty: return False, "Sem dados no período atual."
-
-    total_fat = df_curr["Valor"].sum()
-    total_vol = df_curr["Quantidade"].sum()
-    
-    curr_grp = df_curr.groupby(["Cliente", "Cidade", "Estado"])[["Valor", "Quantidade"]].sum().rename(columns={"Valor": "ValorAtual", "Quantidade": "VolAtual"})
-    prev_grp = df_prev.groupby(["Cliente", "Cidade", "Estado"])[["Valor", "Quantidade"]].sum().rename(columns={"Valor": "ValorAnterior", "Quantidade": "VolAnterior"})
-    comp = curr_grp.join(prev_grp, how="outer").fillna(0).reset_index()
-    
-    comp["Status"] = comp.apply(get_status_classification, axis=1)
-    score, score_lbl = compute_wallet_health(comp)
-    
-    comp_sorted = comp.sort_values("ValorAtual", ascending=False)
-    comp_sorted["Share"] = comp_sorted["ValorAtual"] / total_fat
-    comp_sorted["CumShare"] = comp_sorted["Share"].cumsum()
-    n80 = comp_sorted[comp_sorted["CumShare"] <= 0.8].shape[0]
-    n80_pct = n80 / len(comp) if len(comp) > 0 else 0
-
-    # --- PDF START ---
-    pdf = ReportPDF()
-    pdf.add_page()
-    
-    d_fmt = "%b/%Y"
-    pdf.draw_main_header(
-        "Relatório de Vendas", 
-        f"Representante: {rep_name}", 
-        f"Período: {s_date.strftime(d_fmt)} a {e_date.strftime(d_fmt)} (vs {ps_date.strftime(d_fmt)} a {pe_date.strftime(d_fmt)})"
+    prev = df_prev.groupby(COL["client"], as_index=False).agg(
+        prev_rev=(COL["rev"], "sum"),
+        prev_vol=(COL["vol"], "sum"),
     )
 
-    # 1. KPIs
-    y_kpi = pdf.get_y()
-    gap, w_kpi = 2, 37
-    # Clean layout without boxes, just text blocks
-    pdf.kpi_card("Faturamento", format_brl_compact(total_fat), None, 10, y_kpi, w_kpi)
-    pdf.kpi_card("Volume", format_int(total_vol), "unidades", 10+w_kpi+gap, y_kpi, w_kpi)
-    pdf.kpi_card("Saúde Carteira", f"{score}/100", score_lbl, 10+(w_kpi+gap)*2, y_kpi, w_kpi)
-    pdf.kpi_card("N80 (Conc.)", f"{n80}", f"{n80_pct:.0%} base", 10+(w_kpi+gap)*3, y_kpi, w_kpi)
-    pdf.kpi_card("Clientes Ativos", f"{len(comp_sorted[comp_sorted['ValorAtual']>0])}", "", 10+(w_kpi+gap)*4, y_kpi, w_kpi)
-    
-    pdf.ln(22)
+    m = curr.merge(prev, on=COL["client"], how="outer").fillna(0.0)
+    m["delta_rev"] = m["curr_rev"] - m["prev_rev"]
+    m["delta_vol"] = m["curr_vol"] - m["prev_vol"]
 
-    # 2. EVOLUÇÃO
-    pdf.section_title("1. Evolução Vendas")
-    y_charts = pdf.get_y()
-    
-    img_fat = make_grouped_bar(df_curr, df_prev, "Valor", "#3b82f6")
-    img_vol = make_grouped_bar(df_curr, df_prev, "Quantidade", "#22c55e")
-    
-    pdf.image(img_fat, x=10, y=y_charts, w=90)
-    pdf.image(img_vol, x=105, y=y_charts, w=90)
-    
-    # Summary Table Below Charts
-    pdf.set_y(y_charts + 60)
-    
-    def get_monthly_sums(d, col): return d.groupby(d["Competencia"].dt.month)[col].sum()
-    fat_c, fat_p = get_monthly_sums(df_curr, "Valor"), get_monthly_sums(df_prev, "Valor")
-    vol_c, vol_p = get_monthly_sums(df_curr, "Quantidade"), get_monthly_sums(df_prev, "Quantidade")
-    
-    all_months = sorted(set(fat_c.index) | set(fat_p.index))
-    t_data = []
-    for m in all_months:
-        fc, fp = fat_c.get(m, 0), fat_p.get(m, 0)
-        vc, vp = vol_c.get(m, 0), vol_p.get(m, 0)
-        t_data.append({
-            "Mês": MONTH_NAMES.get(m, str(m)),
-            "Fat. Atual": format_brl_compact(fc), "Fat. Ant": format_brl_compact(fp), "Fat %": format_pct((fc-fp)/fp if fp else 0),
-            "Vol. Atual": format_int(vc), "Vol. Ant": format_int(vp), "Vol %": format_pct((vc-vp)/vp if vp else 0)
-        })
-    
-    # Table Widths: Total ~190
-    widths = [20, 28, 28, 15, 28, 28, 15]
-    aligns = ['L', 'R', 'R', 'R', 'R', 'R', 'R']
-    pdf.draw_table(10, pdf.get_y(), pd.DataFrame(t_data), widths, aligns)
-    pdf.ln(5)
+    def _pct(a, b):
+        return np.nan if b == 0 else (a - b) / b
 
-    # 3. CATEGORIAS (Page 2)
-    pdf.add_page()
-    pdf.section_title("2. Categorias")
-    y_cat = pdf.get_y()
-    
-    cats = df_curr.groupby("Categoria")["Valor"].sum().sort_values(ascending=False).reset_index()
-    img_cat = make_modern_donut(cats.head(8), "Categoria", "Valor")
-    pdf.image(img_cat, x=10, y=y_cat, w=80)
-    
-    # Table next to Chart
-    cat_disp = cats.head(10).copy()
-    cat_disp["Fat."] = cat_disp["Valor"].apply(format_brl)
-    cat_disp["Share"] = (cat_disp["Valor"] / total_fat).apply(format_pct)
-    # Align table right side
-    pdf.draw_table(95, y_cat+10, cat_disp[["Categoria", "Fat.", "Share"]], [50, 30, 15], ['L', 'R', 'R'])
-    
-    pdf.ln(70)
+    m["pct_rev"] = m.apply(lambda r: _pct(r["curr_rev"], r["prev_rev"]), axis=1)
+    m["pct_vol"] = m.apply(lambda r: _pct(r["curr_vol"], r["prev_vol"]), axis=1)
 
-    # 4. DETALHES CARTEIRA
-    pdf.section_title("3. Detalhes da Carteira")
-    y_st = pdf.get_y()
-    
-    st_df = comp.groupby("Status").agg({"ValorAtual": "sum", "VolAtual": "sum", "ValorAnterior": "sum", "VolAnterior": "sum"}).reset_index()
-    st_df["Order"] = st_df["Status"].apply(lambda x: STATUS_ORDER.index(x) if x in STATUS_ORDER else 99)
-    st_df = st_df.sort_values("Order")
-    
-    img_st = make_modern_donut(st_df, "Status", "ValorAtual", HEX_PALETTE)
-    pdf.image(img_st, x=10, y=y_st, w=80)
-    
-    # Expanded Status Table
-    st_table_data = []
-    for _, r in st_df.iterrows():
-        v_fat = (r["ValorAtual"] - r["ValorAnterior"])/r["ValorAnterior"] if r["ValorAnterior"] else 0
-        v_vol = (r["VolAtual"] - r["VolAnterior"])/r["VolAnterior"] if r["VolAnterior"] else 0
-        st_table_data.append({
-            "Status": r["Status"],
-            "Fat.": format_brl_compact(r["ValorAtual"]),
-            "Fat %": format_pct(v_fat),
-            "Vol.": format_int(r["VolAtual"]),
-            "Vol %": format_pct(v_vol)
-        })
-    
-    pdf.draw_table(95, y_st+10, pd.DataFrame(st_table_data), [25, 25, 15, 20, 15], ['L', 'R', 'R', 'R', 'R'])
-    pdf.ln(80)
+    prev_r = m["prev_rev"].to_numpy()
+    curr_r = m["curr_rev"].to_numpy()
 
-    # 5. LISTA DETALHADA
-    pdf.add_page()
-    pdf.section_title("4. Lista Detalhada de Clientes")
-    
-    comp["VarFat"] = comp["ValorAtual"] - comp["ValorAnterior"]
-    comp["PctFat"] = comp.apply(lambda x: x["VarFat"]/x["ValorAnterior"] if x["ValorAnterior"]>0 else 0, axis=1)
-    
-    for status in STATUS_ORDER:
-        sub_df = comp[comp["Status"] == status].sort_values("ValorAtual", ascending=False)
-        if sub_df.empty: continue
-        
-        pdf.ln(5)
-        pdf.set_font("Helvetica", "B", 10)
-        
-        # Color Header by Status
-        c_rgb = tuple(int(HEX_PALETTE[STATUS_ORDER.index(status)].lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-        pdf.set_text_color(*c_rgb)
-        pdf.cell(0, 8, f"{status} ({len(sub_df)} clientes)", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        
-        disp_rows = []
-        for _, row in sub_df.iterrows():
-            v_vol = (row["VolAtual"] - row["VolAnterior"])/row["VolAnterior"] if row["VolAnterior"] else 0
-            disp_rows.append({
-                "Cliente": str(row["Cliente"])[:35],
-                "Cidade": str(row["Cidade"])[:18],
-                "Fat Atual": format_brl_compact(row["ValorAtual"]),
-                "Fat Ant": format_brl_compact(row["ValorAnterior"]),
-                "Var %": format_pct(row["PctFat"]),
-                "Vol": format_int(row["VolAtual"]),
-                "Vol %": format_pct(v_vol)
-            })
-        
-        # Detailed Table Widths (Total ~190)
-        # Client(60), City(30), F1(25), F0(25), V%(15), Vol(20), V%(15)
-        widths = [60, 30, 25, 25, 15, 20, 15]
-        aligns = ['L', 'L', 'R', 'R', 'R', 'R', 'R']
-        pdf.draw_table(10, pdf.get_y(), pd.DataFrame(disp_rows), widths, aligns)
+    status = np.full(len(m), "Estáveis", dtype=object)
+    status[(prev_r == 0) & (curr_r > 0)] = "Novos"
+    status[(prev_r > 0) & (curr_r == 0)] = "Perdidos"
+    status[(prev_r > 0) & (curr_r > prev_r * (1 + thr))] = "Crescendo"
+    status[(prev_r > 0) & (curr_r < prev_r * (1 - thr))] = "Caindo"
 
-    # Cleanup
-    for img in [img_fat, img_vol, img_cat, img_st]:
-        try: os.remove(img)
-        except: pass
+    m["status"] = status
+    return m.rename(columns={COL["client"]: "cliente"})
 
-    filename = f"Relatorio_{rep_name}_{datetime.now().strftime('%H%M')}.pdf"
-    path = BASE_DIR / filename
-    pdf.output(path)
-    return True, str(path)
+def carteira_health_score(status_df: pd.DataFrame):
+    counts = status_df["status"].value_counts().to_dict()
+    total = max(1, len(status_df))
+    share = {k: counts.get(k, 0) / total for k in ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]}
 
-# --- UI ---
-def main(page: ft.Page):
-    page.title, page.bgcolor = "Gerador de Relatórios", "#f8f9fa"
-    page.window_width, page.window_height = 550, 800
-    page.theme_mode = ft.ThemeMode.LIGHT
+    score = (
+        50
+        + 25 * share["Crescendo"]
+        + 10 * share["Novos"]
+        + 15 * share["Estáveis"]
+        - 25 * share["Caindo"]
+        - 40 * share["Perdidos"]
+    )
+    return float(np.clip(score, 0, 100)), counts, share
 
-    df = load_data()
-    if df.empty: page.add(ft.Text("Erro: CSV vazio")); return
+# ============================================================
+# LOAD BASE DATA
+# ============================================================
+df = load_and_normalize_base(DATA_PATH)
 
-    y_opts = [ft.dropdown.Option(str(y)) for y in sorted(df["Ano"].dropna().unique().astype(int))]
-    m_opts = [ft.dropdown.Option(text=n, key=str(k)) for k,n in MONTH_NAMES.items()]
+st.title("Relatório do Representante")
 
-    def d_row(txt):
-        return ft.Row([
-            ft.Text(txt, width=40, weight="bold", color=ft.Colors.BLACK),
-            ft.Dropdown(options=m_opts, width=110, dense=True, text_size=12, border_color="grey"),
-            ft.Dropdown(options=y_opts, width=80, dense=True, text_size=12, border_color="grey")
-        ])
+if df.empty:
+    st.error("Não consegui carregar/normalizar o CSV do repo.")
+    st.write("Caminho esperado:", DATA_PATH)
+    st.write("Existe no container?:", os.path.exists(DATA_PATH))
+    st.stop()
 
-    r1, r2 = d_row("Início"), d_row("Fim")
-    r3, r4 = d_row("Início"), d_row("Fim")
-    
-    cy, py = str(datetime.now().year), str(datetime.now().year-1)
-    r1.controls[1].value, r1.controls[2].value = "1", cy
-    r2.controls[1].value, r2.controls[2].value = "12", cy
-    r3.controls[1].value, r3.controls[2].value = "1", py
-    r4.controls[1].value, r4.controls[2].value = "12", py
+# available years
+years_available = sorted(df["data"].dt.year.unique().tolist())
+max_date = df["data"].max()
+default_curr_year = int(max_date.year)
+default_curr_month = int(max_date.month)
+default_prev_year = default_curr_year - 1
+default_prev_month = default_curr_month
 
-    dd_rep = ft.Dropdown(label="Representante", options=[ft.dropdown.Option("Todos")], value="Todos", text_size=12, border_color="grey")
-    lbl = ft.Text("")
+# reps
+reps = sorted(df[COL["rep"]].dropna().unique().tolist())
+rep_options = ["Todos"] + reps
 
-    def gen(e):
-        lbl.value, lbl.color = "Gerando...", "blue"
-        page.update()
-        try:
-            d = lambda r, end=False: datetime(int(r.controls[2].value), int(r.controls[1].value), calendar.monthrange(int(r.controls[2].value), int(r.controls[1].value))[1] if end else 1)
-            ok, msg = generate_pdf(dd_rep.value, d(r1), d(r2, True), d(r3), d(r4, True))
-            lbl.value, lbl.color = (f"Sucesso: {Path(msg).name}", "green") if ok else (msg, "red")
-        except Exception as ex: lbl.value, lbl.color = str(ex), "red"
-        page.update()
+# ============================================================
+# SIDEBAR (match screenshot layout)
+# ============================================================
+with st.sidebar:
+    st.markdown("## Filtros – Insights de Vendas")
 
-    reps = sorted(df["Representante"].unique())
-    dd_rep.options = [ft.dropdown.Option("Todos")] + [ft.dropdown.Option(r) for r in reps]
+    st.markdown("### Período atual")
+    st.caption("Período inicial")
+    a1, a2 = st.columns(2)
+    with a1:
+        curr_start_month_lbl = st.selectbox("Mês", MONTHS, index=default_curr_month - 1, key="curr_start_month")
+    with a2:
+        curr_start_year = st.selectbox(
+            "Ano",
+            years_available,
+            index=years_available.index(default_curr_year),
+            key="curr_start_year",
+        )
 
-    page.add(ft.Container(
-        content=ft.Column([
-            ft.Text("Gerador de Relatórios", size=20, weight="bold", color="black"),
-            ft.Divider(),
-            ft.Text("Período Atual", size=12, weight="bold", color="black"), r1, r2,
-            ft.Divider(),
-            ft.Text("Comparativo", size=12, weight="bold", color="black"), r3, r4,
-            ft.Divider(),
-            dd_rep,
-            ft.Container(height=10),
-            ft.ElevatedButton("Gerar PDF", on_click=gen, style=ft.ButtonStyle(bgcolor="#22c55e", color="white"), height=45, width=400),
-            lbl
-        ]), padding=20, bgcolor="white", border_radius=10, shadow=ft.BoxShadow(blur_radius=10, color=with_opacity(0.1, "black"))
-    ))
+    st.caption("Período final")
+    b1, b2 = st.columns(2)
+    with b1:
+        curr_end_month_lbl = st.selectbox("Mês ", MONTHS, index=default_curr_month - 1, key="curr_end_month")
+    with b2:
+        curr_end_year = st.selectbox(
+            "Ano ",
+            years_available,
+            index=years_available.index(default_curr_year),
+            key="curr_end_year",
+        )
 
-if __name__ == "__main__":
-    ft.app(target=main)
+    st.markdown("### Período anterior (manual)")
+    st.caption("Período anterior – inicial")
+    c1, c2 = st.columns(2)
+    with c1:
+        prev_start_month_lbl = st.selectbox("Mês (anterior – início)", MONTHS, index=default_prev_month - 1, key="prev_start_month")
+    with c2:
+        prev_start_year = st.selectbox(
+            "Ano (anterior – início)",
+            years_available,
+            index=years_available.index(default_prev_year) if default_prev_year in years_available else 0,
+            key="prev_start_year",
+        )
+
+    st.caption("Período anterior – final")
+    d1, d2 = st.columns(2)
+    with d1:
+        prev_end_month_lbl = st.selectbox("Mês (anterior – fim)", MONTHS, index=default_prev_month - 1, key="prev_end_month")
+    with d2:
+        prev_end_year = st.selectbox(
+            "Ano (anterior – fim)",
+            years_available,
+            index=years_available.index(default_prev_year) if default_prev_year in years_available else 0,
+            key="prev_end_year",
+        )
+
+    st.caption("Representante")
+    rep_selected = st.selectbox("Representante", rep_options, index=0, key="rep_selected")
+
+# build timestamps
+curr_start = month_start(curr_start_year, MONTH_TO_INT[curr_start_month_lbl])
+curr_end = month_end(curr_end_year, MONTH_TO_INT[curr_end_month_lbl])
+prev_start = month_start(prev_start_year, MONTH_TO_INT[prev_start_month_lbl])
+prev_end = month_end(prev_end_year, MONTH_TO_INT[prev_end_month_lbl])
+
+# validate
+if curr_start > curr_end:
+    st.error("Período atual inválido: início maior que fim.")
+    st.stop()
+
+if prev_start > prev_end:
+    st.error("Período anterior inválido: início maior que fim.")
+    st.stop()
+
+# filter rep
+df_work = df.copy()
+if rep_selected != "Todos":
+    df_work = df_work[df_work[COL["rep"]] == rep_selected].copy()
+
+# slice periods
+df_curr = filter_period_months(df_work, curr_start, curr_end)
+df_prev = filter_period_months(df_work, prev_start, prev_end)
+
+# ============================================================
+# COMPUTE METRICS
+# ============================================================
+dist_df, n80_count, n80_share_clients, n80_rev_share, hhi, top1, top3, top10 = client_distribution(df_curr)
+status_df = build_client_status(df_curr, df_prev, thr=0.10)
+health_score, health_counts, health_share = carteira_health_score(status_df)
+
+curr_rev = float(df_curr[COL["rev"]].fillna(0).sum())
+curr_vol = float(df_curr[COL["vol"]].fillna(0).sum())
+prev_rev = float(df_prev[COL["rev"]].fillna(0).sum())
+prev_vol = float(df_prev[COL["vol"]].fillna(0).sum())
+
+clients_attended = int(df_curr[df_curr[COL["rev"]].fillna(0) > 0][COL["client"]].nunique())
+cities_attended = int(df_curr[df_curr[COL["rev"]].fillna(0) > 0][COL["city"]].nunique())
+
+# ============================================================
+# 1) PERFORMANCE DASHBOARD
+# ============================================================
+st.subheader("1. Performance Dashboard")
+
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+k1.metric("Faturamento Total", money(curr_rev), pct(pct_change(curr_rev, prev_rev)))
+k2.metric("Volume Total", num(curr_vol), pct(pct_change(curr_vol, prev_vol)))
+k3.metric("N80 (qtd clientes)", f"{n80_count}", pct(n80_share_clients))
+k4.metric("Saúde da Carteira (0-100)", f"{health_score:.0f}")
+k5.metric("Clientes Atendidos", f"{clients_attended}")
+k6.metric("Cidades Atendidas", f"{cities_attended}")
+
+# ============================================================
+# 2) EVOLUÇÃO
+# ============================================================
+st.subheader("2. Evolução (comparativo)")
+
+df_curr_m = df_curr.copy()
+df_curr_m["mes"] = df_curr_m["data"].dt.to_period("M").dt.to_timestamp()
+evo_curr = df_curr_m.groupby("mes", as_index=False).agg(faturamento=(COL["rev"], "sum"), volume=(COL["vol"], "sum"))
+evo_curr["periodo"] = "Atual"
+
+df_prev_m = df_prev.copy()
+df_prev_m["mes"] = df_prev_m["data"].dt.to_period("M").dt.to_timestamp()
+evo_prev = df_prev_m.groupby("mes", as_index=False).agg(faturamento=(COL["rev"], "sum"), volume=(COL["vol"], "sum"))
+evo_prev["periodo"] = "Anterior"
+
+evo = pd.concat([evo_curr, evo_prev], ignore_index=True)
+
+left, right = st.columns([2, 1])
+
+with left:
+    base = alt.Chart(evo).encode(x=alt.X("mes:T", title="Mês"))
+    line_rev = base.mark_line().encode(y=alt.Y("faturamento:Q", title="Faturamento"), color="periodo:N")
+    line_vol = base.mark_line(strokeDash=[4, 2]).encode(y=alt.Y("volume:Q", title="Volume"), color="periodo:N")
+    st.altair_chart((line_rev + line_vol).interactive(), use_container_width=True)
+
+with right:
+    st.markdown("**Categorias vendidas (período atual)**")
+    cat_curr = (
+        df_curr.groupby(COL["category"], as_index=False)[COL["rev"]]
+        .sum()
+        .sort_values(COL["rev"], ascending=False)
+        .head(12)
+    )
+    if cat_curr.empty:
+        st.info("Sem categorias no período.")
+    else:
+        bar = alt.Chart(cat_curr).mark_bar().encode(
+            x=alt.X(f"{COL['rev']}:Q", title="Faturamento"),
+            y=alt.Y(f"{COL['category']}:N", sort="-x", title="Categoria"),
+        )
+        st.altair_chart(bar, use_container_width=True)
+
+# ============================================================
+# 3) MAPA DE CLIENTES (offline using repo geo files)
+# ============================================================
+st.subheader("3. Mapa de Clientes")
+
+geo_clientes, geo_cidades = load_geo_tables()
+
+df_map = df_curr.copy()
+
+# normalize keys from main df
+df_map["_cliente_key"] = df_map[COL["client"]].astype(str).str.strip().str.upper()
+df_map["_cidade_key"] = df_map[COL["city"]].astype(str).str.strip().str.upper()
+df_map["_estado_key"] = df_map[COL["state"]].astype(str).str.strip().str.upper()
+
+# 1) merge by client if possible
+if not geo_clientes.empty:
+    df_map = df_map.merge(
+        geo_clientes,
+        left_on="_cliente_key",
+        right_on="cliente_key",
+        how="left",
+    )
+else:
+    df_map["lat"] = np.nan
+    df_map["lon"] = np.nan
+
+# 2) fallback: merge by city/uf for missing coords
+if not geo_cidades.empty:
+    miss = df_map["lat"].isna() | df_map["lon"].isna()
+    if miss.any():
+        fb = df_map.loc[miss, ["_cidade_key", "_estado_key"]].copy()
+        fb = fb.merge(
+            geo_cidades,
+            left_on=["_cidade_key", "_estado_key"],
+            right_on=["cidade_key", "estado_key"],
+            how="left",
+        )
+        df_map.loc[miss, "lat"] = fb["lat"].values
+        df_map.loc[miss, "lon"] = fb["lon"].values
+
+# aggregate points by city to avoid overplot
+pts = (
+    df_map.dropna(subset=["lat", "lon"])
+          .groupby(["_cidade_key", "_estado_key", "lat", "lon"], as_index=False)
+          .agg(
+              faturamento=(COL["rev"], "sum"),
+              volume=(COL["vol"], "sum"),
+              clientes=(COL["client"], "nunique"),
+          )
+)
+
+if pts.empty:
+    st.warning(
+        "Não encontrei coordenadas para plotar. "
+        "Verifique se os arquivos geo possuem colunas de latitude/longitude."
+    )
+    with st.expander("Debug", expanded=False):
+        st.write("Existe clientes geo?:", os.path.exists(GEO_CLIENTES_PATH))
+        st.write("Existe cidades geo?:", os.path.exists(GEO_CIDADES_PATH))
+        st.write("geo_clientes cols:", list(geo_clientes.columns) if not geo_clientes.empty else "geo_clientes vazio")
+        st.write("geo_cidades cols:", list(geo_cidades.columns) if not geo_cidades.empty else "geo_cidades vazio")
+else:
+    st.map(pts.rename(columns={"lat": "latitude", "lon": "longitude"}))
+
+    st.markdown("#### Cidades / Clientes no período")
+    show = pts.copy()
+    show["Cidade"] = show["_cidade_key"].str.title()
+    show["UF"] = show["_estado_key"]
+    show["Clientes"] = show["clientes"]
+    show["Faturamento"] = show["faturamento"].map(money)
+    show["Volume"] = show["volume"].map(num)
+    st.dataframe(show[["Cidade", "UF", "Clientes", "Faturamento", "Volume"]], use_container_width=True)
+
+# ============================================================
+# 4) DISTRIBUIÇÃO POR CLIENTES
+# ============================================================
+st.subheader("4. Distribuição por clientes")
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Índice de Concentração (HHI)", f"{hhi:.4f}" if not pd.isna(hhi) else "—")
+m2.metric("Top 1 cliente", pct(top1))
+m3.metric("Top 3 clientes", pct(top3))
+m4.metric("Top 10 clientes", pct(top10))
+
+if dist_df.empty:
+    st.info("Sem vendas no período.")
+else:
+    dshow = dist_df.copy()
+    dshow["Faturamento"] = dshow["rev"].map(money)
+    dshow["Share"] = dshow["share"].map(pct)
+    dshow["Share acumulado"] = dshow["cum_share"].map(pct)
+    st.dataframe(dshow[["cliente", "Faturamento", "Share", "Share acumulado"]], use_container_width=True)
+
+# ============================================================
+# 5) SAÚDE DA CARTEIRA – DETALHES
+# ============================================================
+st.subheader("5. Saúde da carteira – Detalhes")
+
+s1, s2, s3, s4, s5 = st.columns(5)
+s1.metric("Novos", str(health_counts.get("Novos", 0)), pct(health_share.get("Novos", np.nan)))
+s2.metric("Crescendo", str(health_counts.get("Crescendo", 0)), pct(health_share.get("Crescendo", np.nan)))
+s3.metric("Estáveis", str(health_counts.get("Estáveis", 0)), pct(health_share.get("Estáveis", np.nan)))
+s4.metric("Caindo", str(health_counts.get("Caindo", 0)), pct(health_share.get("Caindo", np.nan)))
+s5.metric("Perdidos", str(health_counts.get("Perdidos", 0)), pct(health_share.get("Perdidos", np.nan)))
+
+# ============================================================
+# 6) STATUS DOS CLIENTES
+# ============================================================
+st.subheader("6. Status dos clientes")
+
+t = status_df.copy()
+t["Fat (Atual)"] = t["curr_rev"]
+t["Fat (Anterior)"] = t["prev_rev"]
+t["Δ Fat (R$)"] = t["delta_rev"]
+t["Δ Fat (%)"] = t["pct_rev"]
+t["Vol (Atual)"] = t["curr_vol"]
+t["Vol (Anterior)"] = t["prev_vol"]
+t["Δ Vol"] = t["delta_vol"]
+t["Δ Vol (%)"] = t["pct_vol"]
+
+order = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]
+t["status"] = pd.Categorical(t["status"], categories=order, ordered=True)
+t = t.sort_values(["status", "curr_rev"], ascending=[True, False]).reset_index(drop=True)
+
+for s in order:
+    sub = t[t["status"] == s].copy()
+    st.markdown(f"### {s} ({len(sub)})")
+    if sub.empty:
+        st.caption("—")
+        continue
+
+    sub_disp = sub[[
+        "cliente",
+        "Fat (Atual)", "Fat (Anterior)", "Δ Fat (R$)", "Δ Fat (%)",
+        "Vol (Atual)", "Vol (Anterior)", "Δ Vol", "Δ Vol (%)",
+    ]].copy()
+
+    for c in ["Fat (Atual)", "Fat (Anterior)", "Δ Fat (R$)"]:
+        sub_disp[c] = sub_disp[c].map(money)
+    for c in ["Vol (Atual)", "Vol (Anterior)", "Δ Vol"]:
+        sub_disp[c] = sub_disp[c].map(num)
+    for c in ["Δ Fat (%)", "Δ Vol (%)"]:
+        sub_disp[c] = sub_disp[c].map(pct)
+
+    st.dataframe(sub_disp, use_container_width=True)
+
+# ============================================================
+# FOOTER
+# ============================================================
+st.caption(
+    f"Período atual: {curr_start.strftime('%d/%m/%Y')} a {curr_end.strftime('%d/%m/%Y')} | "
+    f"Período anterior: {prev_start.strftime('%d/%m/%Y')} a {prev_end.strftime('%d/%m/%Y')} | "
+    f"Representante: {rep_selected}"
+)
