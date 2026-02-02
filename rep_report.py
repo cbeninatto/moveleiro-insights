@@ -446,14 +446,13 @@ def compute_carteira_score(clientes_carteira: pd.DataFrame):
 # ==========================
 # EVOLUÇÃO (split charts, compare periods)
 # ==========================
-def make_compare_timeseries_chart(
+def make_compare_bars_chart(
     df_curr: pd.DataFrame,
     df_prev: pd.DataFrame,
     value_col: str,
-    title_axis: str,
-    height: int = 300,
+    y_title: str,
+    height: int = 320,
 ):
-    # build monthly sums for each period, then overlay (two lines)
     def agg(df_in: pd.DataFrame, period_name: str):
         if df_in is None or df_in.empty:
             return pd.DataFrame(columns=["Competencia", "Valor", "MesLabelBr", "Periodo"])
@@ -469,30 +468,32 @@ def make_compare_timeseries_chart(
     if base.empty:
         return None
 
-    # Keep x order chronological (by Competencia)
+    # order by time
     order = (
         base.sort_values("Competencia")
-        .drop_duplicates(subset=["MesLabelBr"])
-        ["MesLabelBr"].tolist()
+        .drop_duplicates(subset=["MesLabelBr"])["MesLabelBr"]
+        .tolist()
     )
 
-    # Tooltip formatting
-    if title_axis.lower().startswith("fatur"):
+    # tooltips formatted
+    if y_title.lower().startswith("fatur"):
         base["Fmt"] = base["Valor"].map(format_brl)
     else:
         base["Fmt"] = base["Valor"].map(format_un)
 
+    # grouped bars: x=month, xOffset=period
     chart = (
         alt.Chart(base)
-        .mark_line(strokeWidth=3, point=alt.OverlayMarkDef(filled=True, size=70))
+        .mark_bar()
         .encode(
             x=alt.X("MesLabelBr:N", sort=order, axis=alt.Axis(title=None)),
-            y=alt.Y("Valor:Q", axis=alt.Axis(title=title_axis)),
+            xOffset=alt.XOffset("Periodo:N"),
+            y=alt.Y("Valor:Q", axis=alt.Axis(title=y_title)),
             color=alt.Color("Periodo:N", legend=alt.Legend(title=None)),
             tooltip=[
                 alt.Tooltip("Periodo:N", title="Período"),
                 alt.Tooltip("MesLabelBr:N", title="Mês"),
-                alt.Tooltip("Fmt:N", title=title_axis),
+                alt.Tooltip("Fmt:N", title=y_title),
             ],
         )
         .properties(height=height)
@@ -524,6 +525,21 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+def color_for_carteira_score(score: float) -> str:
+    # higher is better
+    if score >= 70: return MAP_BIN_COLORS[0]  # green
+    if score >= 50: return MAP_BIN_COLORS[1]  # yellow
+    if score >= 30: return MAP_BIN_COLORS[2]  # orange
+    return MAP_BIN_COLORS[3]                  # red
+
+def badge_html(text: str, color: str) -> str:
+    return (
+        "<div class='kpi-sub'>"
+        f"<span class='badge' style='color:{color}; border-color:rgba(255,255,255,0.12);'>"
+        f"{html.escape(str(text))}"
+        "</span></div>"
+    )
 
 def color_for_n80_ratio(r: float) -> str:
     # lower is better (fewer clients needed for 80%)
@@ -753,8 +769,27 @@ else:
 
 col1.metric("Total período", format_brl_compact(total_rep))
 col2.metric("Volume período", format_un(total_vol_rep))
+# --- KPI 3: Distribuição por clientes (badge colorido no N80)
+n80_ratio_top = (n80_count / clientes_atendidos) if clientes_atendidos > 0 else 0.0
+n80_color_top = color_for_n80_ratio(n80_ratio_top)
+
 col3.metric("Distribuição por clientes", hhi_label_short, f"N80: {n80_count} clientes")
+with col3:
+    st.markdown(
+        badge_html(f"N80: {n80_count} clientes ({n80_ratio_top:.0%} da carteira)", n80_color_top),
+        unsafe_allow_html=True,
+    )
+
+# --- KPI 4: Saúde da carteira (badge colorido no label)
+carteira_color_top = color_for_carteira_score(carteira_score)
+
 col4.metric("Saúde da carteira", f"{carteira_score:.0f} / 100", carteira_label)
+with col4:
+    st.markdown(
+        badge_html(carteira_label, carteira_color_top),
+        unsafe_allow_html=True,
+    )
+
 col5.metric("Clientes atendidos", f"{clientes_atendidos}")
 
 st.markdown("---")
@@ -768,7 +803,7 @@ c_a, c_b = st.columns(2)
 
 with c_a:
     st.caption("Faturamento (Atual x Anterior)")
-    chart_fat = make_compare_timeseries_chart(df_rep, df_rep_prev, "Valor", "Faturamento (R$)", height=320)
+    chart_fat = make_compare_bars_chart(df_rep, df_rep_prev, "Valor", "Faturamento (R$)", height=320)
     if chart_fat is None:
         st.info("Sem dados para exibir.")
     else:
@@ -776,7 +811,7 @@ with c_a:
 
 with c_b:
     st.caption("Volume (Atual x Anterior)")
-    chart_vol = make_compare_timeseries_chart(df_rep, df_rep_prev, "Quantidade", "Volume (un)", height=320)
+    chart_vol = make_compare_bars_chart(df_rep, df_rep_prev, "Quantidade", "Volume (un)", height=320)
     if chart_vol is None:
         st.info("Sem dados para exibir.")
     else:
