@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 import altair as alt
 
-# pydeck optional
+# Optional map
 try:
     import pydeck as pdk
     HAS_PYDECK = True
@@ -17,41 +17,30 @@ except Exception:
 st.set_page_config(page_title="Relatório do Representante", layout="wide")
 
 # ============================================================
-# CONFIG
+# 0) DATA SOURCE (repo path)
 # ============================================================
-DEFAULT_PATH = "data/raw/relatorio_faturamento.csv"  # <-- repo relative path
+DEFAULT_PATH = "data/raw/relatorio_faturamento.csv"
 
+# ============================================================
+# 1) COLUMN MAPPING (matches your CSV headers)
+# ============================================================
+# Your CSV columns:
+# "Mes","Ano","Cliente","Cidade","Estado","Representante","Categoria","Valor","Quantidade"
 COL = {
-    "date": "data",
-    "rep": "representante",
-    "client": "cliente",
-    "city": "cidade",
-    "state": "estado",
-    "category": "categoria",
-    "rev": "faturamento",
-    "vol": "volume",
-    # optional map
-    "lat": "lat",
-    "lon": "lon",
+    "year": "Ano",
+    "month": "Mes",
+    "rep": "Representante",
+    "client": "Cliente",
+    "city": "Cidade",
+    "state": "Estado",
+    "category": "Categoria",
+    "rev": "Valor",
+    "vol": "Quantidade",
 }
 
 # ============================================================
-# HELPERS
+# 2) HELPERS
 # ============================================================
-def ensure_datetime(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    df = df.copy()
-    df[col] = pd.to_datetime(df[col], errors="coerce")
-    return df
-
-def previous_period(start: pd.Timestamp, end: pd.Timestamp):
-    days = (end - start).days + 1
-    prev_end = start - pd.Timedelta(days=1)
-    prev_start = prev_end - pd.Timedelta(days=days - 1)
-    return prev_start, prev_end
-
-def filter_period(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    return df[(df[COL["date"]] >= start) & (df[COL["date"]] <= end)].copy()
-
 def pct_change(curr, prev):
     if prev == 0 or pd.isna(prev):
         return np.nan
@@ -72,38 +61,100 @@ def pct(x):
         return "—"
     return f"{x*100:.1f}%".replace(".", ",")
 
-def validate_required_columns(df: pd.DataFrame) -> list[str]:
-    required = [
-        COL["date"], COL["rep"], COL["client"], COL["city"], COL["state"],
-        COL["category"], COL["rev"], COL["vol"]
-    ]
-    return [c for c in required if c not in df.columns]
+def previous_period(start: pd.Timestamp, end: pd.Timestamp):
+    days = (end - start).days + 1
+    prev_end = start - pd.Timedelta(days=1)
+    prev_start = prev_end - pd.Timedelta(days=days - 1)
+    return prev_start, prev_end
+
+def filter_period(df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    return df[(df["data"] >= start) & (df["data"] <= end)].copy()
 
 @st.cache_data(show_spinner=False)
-def load_data(path: str, csv_encoding: str = "utf-8", csv_sep: str | None = None) -> pd.DataFrame:
-    if not path:
-        return pd.DataFrame()
-
-    # running inside repo (Streamlit Cloud): path must be relative and exist
+def load_csv_repo(path: str, encoding: str = "utf-8", sep: str | None = None) -> pd.DataFrame:
     if not os.path.exists(path):
         return pd.DataFrame()
-
-    ext = os.path.splitext(path.lower())[1]
     try:
-        if ext == ".csv":
-            # sep=None -> autodetect ; vs ,
-            return pd.read_csv(path, sep=(csv_sep or None), encoding=csv_encoding, engine="python")
-        elif ext == ".parquet":
-            return pd.read_parquet(path)
-        elif ext in (".xlsx", ".xls"):
-            return pd.read_excel(path)
-        else:
-            return pd.DataFrame()
+        # sep=None -> autodetect ; vs ,
+        df = pd.read_csv(path, sep=(sep or None), encoding=encoding, engine="python")
+        return df
     except Exception:
         return pd.DataFrame()
 
+def normalize_month(m):
+    """
+    Accepts:
+      - int-like 1..12
+      - strings '1','01','JAN','JANEIRO','Fev', etc.
+    Returns int month 1..12 or NaN
+    """
+    if pd.isna(m):
+        return np.nan
+    if isinstance(m, (int, np.integer)):
+        return int(m)
+    s = str(m).strip().upper()
+
+    # digits
+    if s.isdigit():
+        mi = int(s)
+        return mi if 1 <= mi <= 12 else np.nan
+
+    # portuguese abbreviations / names
+    mapa = {
+        "JAN": 1, "JANEIRO": 1,
+        "FEV": 2, "FEVEREIRO": 2,
+        "MAR": 3, "MARÇO": 3, "MARCO": 3,
+        "ABR": 4, "ABRIL": 4,
+        "MAI": 5, "MAIO": 5,
+        "JUN": 6, "JUNHO": 6,
+        "JUL": 7, "JULHO": 7,
+        "AGO": 8, "AGOSTO": 8,
+        "SET": 9, "SETEMBRO": 9,
+        "OUT": 10, "OUTUBRO": 10,
+        "NOV": 11, "NOVEMBRO": 11,
+        "DEZ": 12, "DEZEMBRO": 12,
+    }
+    # sometimes comes like "JAN/24" etc.
+    for k, v in mapa.items():
+        if s.startswith(k):
+            return v
+    return np.nan
+
+def build_data_column(df_raw: pd.DataFrame) -> pd.DataFrame:
+    df = df_raw.copy()
+
+    # Handle BOM in first column name sometimes ("﻿Codigo")
+    df.columns = [c.lstrip("\ufeff").strip() for c in df.columns]
+
+    # Validate necessary cols exist
+    needed = [COL["year"], COL["month"], COL["rep"], COL["client"], COL["city"], COL["state"], COL["category"], COL["rev"], COL["vol"]]
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        return pd.DataFrame()
+
+    # numeric coercions
+    df[COL["year"]] = pd.to_numeric(df[COL["year"]], errors="coerce")
+    df["_month_num"] = df[COL["month"]].apply(normalize_month)
+    df[COL["rev"]] = pd.to_numeric(df[COL["rev"]], errors="coerce")
+    df[COL["vol"]] = pd.to_numeric(df[COL["vol"]], errors="coerce")
+
+    # Build date as first day of month
+    df["data"] = pd.to_datetime(
+        dict(year=df[COL["year"]], month=df["_month_num"], day=1),
+        errors="coerce"
+    )
+
+    # Clean strings
+    for c in [COL["rep"], COL["client"], COL["city"], COL["state"], COL["category"]]:
+        df[c] = df[c].astype(str).str.strip()
+
+    # Keep only rows with valid date
+    df = df.dropna(subset=["data"])
+
+    return df
+
 # ============================================================
-# CORE CALCS
+# 3) CORE CALCS
 # ============================================================
 def client_distribution(df_period: pd.DataFrame):
     by_client = (
@@ -148,8 +199,14 @@ def build_client_status(df_curr: pd.DataFrame, df_prev: pd.DataFrame, thr: float
     m = curr.merge(prev, on=COL["client"], how="outer").fillna(0.0)
     m["delta_rev"] = m["curr_rev"] - m["prev_rev"]
     m["delta_vol"] = m["curr_vol"] - m["prev_vol"]
-    m["pct_rev"] = m.apply(lambda r: pct_change(r["curr_rev"], r["prev_rev"]), axis=1)
-    m["pct_vol"] = m.apply(lambda r: pct_change(r["curr_vol"], r["prev_vol"]), axis=1)
+
+    def _pct(a, b):
+        if b == 0:
+            return np.nan
+        return (a - b) / b
+
+    m["pct_rev"] = m.apply(lambda r: _pct(r["curr_rev"], r["prev_rev"]), axis=1)
+    m["pct_vol"] = m.apply(lambda r: _pct(r["curr_vol"], r["prev_vol"]), axis=1)
 
     prev_r = m["prev_rev"].to_numpy()
     curr_r = m["curr_rev"].to_numpy()
@@ -167,6 +224,7 @@ def carteira_health_score(status_df: pd.DataFrame):
     counts = status_df["status"].value_counts().to_dict()
     total = max(1, len(status_df))
     share = {k: counts.get(k, 0) / total for k in ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"]}
+
     score = (
         50
         + 25 * share["Crescendo"]
@@ -178,61 +236,53 @@ def carteira_health_score(status_df: pd.DataFrame):
     return float(np.clip(score, 0, 100)), counts, share
 
 # ============================================================
-# APP
+# 4) UI
 # ============================================================
 st.title("Relatório do Representante")
 
+# --- Sidebar (match Insights structure: Data source + Rep + Period + Compare)
 with st.sidebar:
-    st.header("Fonte de dados (repo)")
-    st.caption("No Streamlit Cloud, use caminho relativo dentro do repo.")
-    data_path = st.text_input("Caminho do arquivo", value=DEFAULT_PATH)
+    st.header("Filtros")
+
+    # Keep this minimal and aligned with Insights conceptually.
+    # If you paste your exact insights.py sidebar block, I’ll mirror it 1:1.
+    data_path = DEFAULT_PATH
     csv_sep = st.text_input("CSV sep (vazio = auto)", value="")
     csv_encoding = st.text_input("CSV encoding", value="utf-8")
 
-    compare_prev = st.checkbox("Comparar com período anterior (mesma duração)", value=True)
+    compare_prev = st.checkbox("Comparar com período anterior", value=True)
+    thr = st.slider("Sensibilidade Cresce/Cai (±%)", min_value=5, max_value=25, value=10, step=1)
 
-df = load_data(
-    data_path,
-    csv_encoding=(csv_encoding.strip() or "utf-8"),
-    csv_sep=(csv_sep.strip() or None),
-)
+# Load and normalize
+df_raw = load_csv_repo(data_path, encoding=(csv_encoding.strip() or "utf-8"), sep=(csv_sep.strip() or None))
+df = build_data_column(df_raw)
 
 if df.empty:
-    st.error("Não consegui carregar o arquivo do repo.")
-    st.write("Caminho informado:", data_path)
+    st.error("Falha ao carregar/normalizar o CSV do repo.")
+    st.write("Caminho:", data_path)
     st.write("Existe no container?:", os.path.exists(data_path))
-    st.info("Confirme que o arquivo está no repo nesse caminho: data/raw/relatorio_faturamento.csv")
+    st.write("Colunas encontradas no CSV:", list(df_raw.columns) if not df_raw.empty else "— (arquivo não carregou)")
     st.stop()
 
-missing = validate_required_columns(df)
-if missing:
-    st.error("Colunas mínimas não encontradas (ou COL mapping está diferente).")
-    st.write("Faltando:", missing)
-    st.write("Encontradas:", list(df.columns))
-    st.stop()
-
-df = ensure_datetime(df, COL["date"])
-if df[COL["date"]].isna().all():
-    st.error(f"A coluna '{COL['date']}' não está parseando como data.")
-    st.stop()
-
-with st.expander("Preview", expanded=False):
-    st.dataframe(df.head(30), use_container_width=True)
-
+# Build rep list
 reps = sorted(df[COL["rep"]].dropna().unique().tolist())
 if not reps:
-    st.error(f"Sem representantes na coluna '{COL['rep']}'.")
+    st.error("Sem representantes após normalização.")
     st.stop()
 
+# Date bounds
+min_d = df["data"].min()
+max_d = df["data"].max()
+
 with st.sidebar:
-    st.header("Filtros")
     rep = st.selectbox("Representante", reps)
 
-    min_d = df[COL["date"]].min()
-    max_d = df[COL["date"]].max()
+    # period inputs (similar to insights)
+    default_end = max_d
+    default_start = max(min_d, max_d - pd.Timedelta(days=365))
 
-    start = st.date_input("Início", value=(max_d - pd.Timedelta(days=365)).date(), min_value=min_d.date(), max_value=max_d.date())
-    end = st.date_input("Fim", value=max_d.date(), min_value=min_d.date(), max_value=max_d.date())
+    start = st.date_input("Início", value=default_start.date(), min_value=min_d.date(), max_value=max_d.date())
+    end = st.date_input("Fim", value=default_end.date(), min_value=min_d.date(), max_value=max_d.date())
 
 start = pd.to_datetime(start)
 end = pd.to_datetime(end)
@@ -242,12 +292,14 @@ if start > end:
 
 prev_start, prev_end = previous_period(start, end)
 
+# Slice
 df_rep = df[df[COL["rep"]] == rep].copy()
 df_curr = filter_period(df_rep, start, end)
 df_prev = filter_period(df_rep, prev_start, prev_end) if compare_prev else df_rep.iloc[0:0].copy()
 
+# Metrics
 dist_df, n80_count, n80_share_clients, n80_rev_share, hhi, top1, top3, top10 = client_distribution(df_curr)
-status_df = build_client_status(df_curr, df_prev, thr=0.10)
+status_df = build_client_status(df_curr, df_prev, thr=float(thr) / 100.0)
 health_score, health_counts, health_share = carteira_health_score(status_df)
 
 curr_rev = float(df_curr[COL["rev"]].fillna(0).sum())
@@ -258,8 +310,14 @@ prev_vol = float(df_prev[COL["vol"]].fillna(0).sum()) if compare_prev else np.na
 clients_attended = int(df_curr[df_curr[COL["rev"]].fillna(0) > 0][COL["client"]].nunique())
 cities_attended = int(df_curr[df_curr[COL["rev"]].fillna(0) > 0][COL["city"]].nunique())
 
+with st.expander("Preview (normalizado)", expanded=False):
+    st.dataframe(df.head(30), use_container_width=True)
+
+# ============================================================
 # 1) Performance Dashboard
+# ============================================================
 st.subheader("1. Performance Dashboard")
+
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Faturamento Total", money(curr_rev), pct(pct_change(curr_rev, prev_rev)) if compare_prev else None)
 c2.metric("Volume Total", num(curr_vol), pct(pct_change(curr_vol, prev_vol)) if compare_prev else None)
@@ -268,16 +326,19 @@ c4.metric("Saúde da Carteira (0-100)", f"{health_score:.0f}")
 c5.metric("Clientes Atendidos", f"{clients_attended}")
 c6.metric("Cidades Atendidas", f"{cities_attended}")
 
+# ============================================================
 # 2) Evolução
+# ============================================================
 st.subheader("2. Evolução (comparativo)")
+
 df_curr_m = df_curr.copy()
-df_curr_m["mes"] = df_curr_m[COL["date"]].dt.to_period("M").dt.to_timestamp()
+df_curr_m["mes"] = df_curr_m["data"].dt.to_period("M").dt.to_timestamp()
 evo_curr = df_curr_m.groupby("mes", as_index=False).agg(faturamento=(COL["rev"], "sum"), volume=(COL["vol"], "sum"))
 evo_curr["periodo"] = "Selecionado"
 
 if compare_prev:
     df_prev_m = df_prev.copy()
-    df_prev_m["mes"] = df_prev_m[COL["date"]].dt.to_period("M").dt.to_timestamp()
+    df_prev_m["mes"] = df_prev_m["data"].dt.to_period("M").dt.to_timestamp()
     evo_prev = df_prev_m.groupby("mes", as_index=False).agg(faturamento=(COL["rev"], "sum"), volume=(COL["vol"], "sum"))
     evo_prev["periodo"] = "Anterior"
     evo = pd.concat([evo_curr, evo_prev], ignore_index=True)
@@ -285,16 +346,13 @@ else:
     evo = evo_curr
 
 colA, colB = st.columns([2, 1])
-
 with colA:
-    st.markdown("**Faturamento x Volume (mensal)**")
     base = alt.Chart(evo).encode(x=alt.X("mes:T", title="Mês"))
     line_rev = base.mark_line().encode(y=alt.Y("faturamento:Q", title="Faturamento"), color="periodo:N")
     line_vol = base.mark_line(strokeDash=[4, 2]).encode(y=alt.Y("volume:Q", title="Volume"), color="periodo:N")
     st.altair_chart((line_rev + line_vol).interactive(), use_container_width=True)
 
 with colB:
-    st.markdown("**Categorias vendidas (período selecionado)**")
     cat_curr = (
         df_curr.groupby(COL["category"], as_index=False)[COL["rev"]]
         .sum()
@@ -310,41 +368,17 @@ with colB:
         )
         st.altair_chart(bar, use_container_width=True)
 
-# 3) Mapa (safe)
+# ============================================================
+# 3) Mapa (desativado por padrão neste CSV)
+# ============================================================
 st.subheader("3. Mapa de Clientes")
-has_geo = (COL["lat"] in df_curr.columns) and (COL["lon"] in df_curr.columns)
-if not has_geo:
-    st.info("Sem colunas lat/lon no arquivo. (Mapa desativado)")
-elif not HAS_PYDECK:
-    st.info("pydeck não disponível neste ambiente.")
-else:
-    map_df = (
-        df_curr.groupby([COL["client"], COL["city"], COL["state"], COL["lat"], COL["lon"]], as_index=False)
-        .agg(faturamento=(COL["rev"], "sum"), volume=(COL["vol"], "sum"))
-        .rename(columns={COL["client"]: "cliente", COL["city"]: "cidade", COL["state"]: "estado"})
-        .dropna(subset=[COL["lat"], COL["lon"]])
-    )
-    if map_df.empty:
-        st.info("Sem pontos válidos (lat/lon) no período.")
-    else:
-        view_state = pdk.ViewState(
-            latitude=float(map_df[COL["lat"]].mean()),
-            longitude=float(map_df[COL["lon"]].mean()),
-            zoom=5,
-            pitch=0,
-        )
-        layer = pdk.Layer(
-            "ScatterplotLayer",
-            data=map_df,
-            get_position=[COL["lon"], COL["lat"]],
-            get_radius=2000,
-            pickable=True,
-            auto_highlight=True,
-        )
-        st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state))
+st.info("Este CSV não tem lat/lon. Para mapa, precisamos de uma tabela de geolocalização (cliente->lat/lon) para dar merge.")
 
+# ============================================================
 # 4) Distribuição
+# ============================================================
 st.subheader("4. Distribuição por clientes")
+
 c7, c8, c9, c10 = st.columns(4)
 c7.metric("Índice de Concentração (HHI)", f"{hhi:.4f}" if not pd.isna(hhi) else "—")
 c8.metric("Top 1 cliente", pct(top1))
@@ -352,7 +386,7 @@ c9.metric("Top 3 clientes", pct(top3))
 c10.metric("Top 10 clientes", pct(top10))
 
 if dist_df.empty:
-    st.info("Sem vendas no período para calcular distribuição.")
+    st.info("Sem vendas no período.")
 else:
     dshow = dist_df.copy()
     dshow["Faturamento"] = dshow["rev"].map(money)
@@ -360,7 +394,9 @@ else:
     dshow["Share acumulado"] = dshow["cum_share"].map(pct)
     st.dataframe(dshow[["cliente", "Faturamento", "Share", "Share acumulado"]], use_container_width=True)
 
-# 5) Saúde
+# ============================================================
+# 5) Saúde da carteira – Detalhes
+# ============================================================
 st.subheader("5. Saúde da carteira – Detalhes")
 d1, d2, d3, d4, d5 = st.columns(5)
 d1.metric("Novos", str(health_counts.get("Novos", 0)), pct(health_share.get("Novos", np.nan)))
@@ -369,8 +405,11 @@ d3.metric("Estáveis", str(health_counts.get("Estáveis", 0)), pct(health_share.
 d4.metric("Caindo", str(health_counts.get("Caindo", 0)), pct(health_share.get("Caindo", np.nan)))
 d5.metric("Perdidos", str(health_counts.get("Perdidos", 0)), pct(health_share.get("Perdidos", np.nan)))
 
-# 6) Status
+# ============================================================
+# 6) Status dos clientes
+# ============================================================
 st.subheader("6. Status dos clientes")
+
 t = status_df.copy()
 t["Fat (Período)"] = t["curr_rev"]
 t["Fat (Anterior)"] = t["prev_rev"]
@@ -408,6 +447,9 @@ for s in order:
     st.dataframe(sub_disp, use_container_width=True)
 
 if compare_prev:
-    st.caption(f"Período selecionado: {start.date()} a {end.date()} | Período anterior: {prev_start.date()} a {prev_end.date()}")
+    st.caption(
+        f"Período selecionado: {start.date()} a {end.date()} | "
+        f"Período anterior: {prev_start.date()} a {prev_end.date()}"
+    )
 else:
     st.caption(f"Período selecionado: {start.date()} a {end.date()}")
