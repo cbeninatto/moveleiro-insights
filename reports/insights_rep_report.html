@@ -81,7 +81,7 @@
 
     .divider{height:1px;background:var(--line);margin:12px 0 16px}
 
-    /* Streamlit-like sections */
+    /* Streamlit-like "sections" */
     .section{
       background:linear-gradient(180deg, rgba(15,27,49,0.92), rgba(13,24,44,0.92));
       border:1px solid var(--line);
@@ -215,6 +215,14 @@
           <label for="repSel">Representante</label><br/>
           <select id="repSel"></select>
         </div>
+        <div>
+          <label for="currLabel">Período atual</label><br/>
+          <select id="currLabel"></select>
+        </div>
+        <div>
+          <label for="prevLabel">Período anterior</label><br/>
+          <select id="prevLabel"></select>
+        </div>
         <div style="display:flex;flex-direction:column;gap:6px; padding-top:18px">
           <button id="btnPrint">Imprimir</button>
         </div>
@@ -278,7 +286,7 @@
           <h3>Cobertura</h3>
           <div id="mapCoverage" class="sub">—</div>
           <div style="height:10px"></div>
-          <h3>Principais clientes (Top 15)</h3>
+          <h3>Principais clientes</h3>
           <div class="table-wrap" id="tblTopClientes"></div>
           <div style="height:12px"></div>
           <h3>Clientes da cidade selecionada</h3>
@@ -342,26 +350,27 @@
   <script>
     /**********************************************************************
      * DATA LOADING
-     * This HTML lives at /reports/insights_rep_report.html
-     * It fetches JSON at: /reports/data/rep_reports.json
+     * Put your JSON here (recommended):
+     *   /reports/data/rep_reports.json
+     * so this HTML at /reports/insights_rep_report.html can fetch:
+     *   ./data/rep_reports.json
      **********************************************************************/
     const DATA_URLS = [
       "./data/rep_reports.json",
-      "../reports/data/rep_reports.json",
       "../data/rep_reports.json",
       "./rep_reports.json"
     ];
 
-    let DATA = null;          // full json
-    let REPORTS = null;       // rep -> report obj
-    let CURRENT_REP = "Todos";
+    let DATA = null;
 
     // Leaflet state
     let leafletMap = null;
     let leafletLayerGroup = null;
     let lastCityKey = null;
 
+    // Colors / bins (same spirit as your Streamlit)
     const MAP_BIN_COLORS = ["#22c55e","#eab308","#f97316","#ef4444"];
+
     const STATUS_ORDER = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
 
     // ---------- helpers ----------
@@ -388,13 +397,22 @@
     const pct = (x, digits=1) => (Number(x||0)*100).toFixed(digits).replace(".",",") + "%";
     const pct1 = (x) => (Number(x||0)*100).toFixed(1).replace(".",",") + "%";
 
-    const badgeHtml = (text, colorCss) =>
-      `<span class="badge dot" style="color:${colorCss}; border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.06)">
+    const toNum = (x) => {
+      if (x === null || x === undefined) return NaN;
+      if (typeof x === "number") return x;
+      // supports "-23,55" and "-23.55"
+      const s = String(x).trim().replace(",", ".");
+      const n = Number(s);
+      return Number.isFinite(n) ? n : NaN;
+    };
+
+    const badgeHtml = (text, color) =>
+      `<span class="badge dot" style="color:${color}; border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.06)">
         ${escapeHtml(text)}
       </span>`;
 
-    // ---------- scoring colors ----------
-    // N80 ratio: smaller ratio => more concentrated => worse
+    // ---------- scoring colors (match your “color code” idea) ----------
+    // N80 ratio: smaller ratio (needs fewer clients to reach 80%) => more concentrated => worse
     const colorForN80Ratio = (ratio) => {
       const r = Number(ratio || 0);
       if (r <= 0.10) return "var(--red)";
@@ -402,7 +420,7 @@
       if (r <= 0.28) return "var(--yellow)";
       return "var(--green)";
     };
-    // HHI: higher => worse
+    // HHI value: higher => more concentrated => worse
     const colorForHHI = (hhi) => {
       const v = Number(hhi || 0);
       if (v >= 0.20) return "var(--red)";
@@ -419,7 +437,7 @@
       return "var(--green)";
     };
 
-    // ---------- dynamic bins ----------
+    // ---------- dynamic bins (same concept as Streamlit) ----------
     const buildDynamicBins = (values, isValor) => {
       const cleaned = (values || [])
         .map(v => Number(v))
@@ -500,7 +518,7 @@
       return h;
     };
 
-    // ---------- Plotly base layout ----------
+    // ---------- Plotly default theme ----------
     const PLOT_LAYOUT_BASE = {
       paper_bgcolor: "rgba(0,0,0,0)",
       plot_bgcolor: "rgba(0,0,0,0)",
@@ -512,96 +530,79 @@
       legend: {orientation:"h", y:1.10, x:0, font:{size:12}},
     };
 
-    // ---------- selectors ----------
-    function fillSelectors(){
-      const repSel = document.getElementById("repSel");
-      const reps = Object.keys(REPORTS || {}).sort((a,b)=>a.localeCompare(b,"pt-BR"));
-
-      // keep "Todos" first if exists
-      const ordered = reps.includes("Todos") ? ["Todos", ...reps.filter(r=>r!=="Todos")] : reps;
-
-      repSel.innerHTML = ordered.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
-      repSel.value = (REPORTS["Todos"] ? "Todos" : ordered[0] || "Todos");
-
-      repSel.addEventListener("change", () => {
-        CURRENT_REP = repSel.value;
-        render(CURRENT_REP);
-      });
-
-      document.getElementById("btnPrint").addEventListener("click", () => window.print());
-      document.getElementById("searchCliente").addEventListener("input", () => renderStatusClientes(REPORTS[CURRENT_REP]));
-
-      CURRENT_REP = repSel.value;
-      render(CURRENT_REP);
-    }
-
-    // ---------- header ----------
-    function renderHeader(repObj){
-      const repName = repObj?.rep ?? CURRENT_REP;
-      const per = repObj?.period || {};
-      const currLabel = per.curr_label || "—";
-      const prevLabel = per.prev_label || "—";
-
+    // ---------- Renderers ----------
+    function renderHeader(rep, currLabel, prevLabel){
+      const repName = rep === "Todos" ? "Todos" : rep;
       document.getElementById("headerSub").innerHTML =
-        `Representante: <b>${escapeHtml(repName === "Todos" ? "Todos" : repName)}</b> &nbsp;|&nbsp; ` +
+        `Representante: <b>${escapeHtml(repName)}</b> &nbsp;|&nbsp; ` +
         `Período atual: <b>${escapeHtml(currLabel)}</b> &nbsp;|&nbsp; ` +
         `Período anterior: <b>${escapeHtml(prevLabel)}</b>`;
     }
 
-    // ---------- KPIs ----------
     function renderKpis(repObj){
       const k = repObj?.kpis || {};
-      const totalValor = Number(k.total_valor || 0);
-      const totalVol = Number(k.total_volume || 0);
-
       const clientesAtendidos = Number(k.clientes_atendidos || 0);
-      const n80 = Number(k.n80 || 0);
-      const n80Ratio = Number(k.n80_ratio || (clientesAtendidos>0 ? (n80/clientesAtendidos) : 0));
+      const n80 = Number(k.n80_count || 0);
+      const n80Ratio = clientesAtendidos > 0 ? (n80 / clientesAtendidos) : 0;
 
-      const hhi = Number(k.hhi || 0);
-      const hhiLabel = k.hhi_label || "—";
+      const hhi = Number(k.hhi_value || 0);
+      const hhiLabel = k.hhi_label_short || "—";
 
       const carteiraScore = Number(k.carteira_score || 50);
       const carteiraLabel = k.carteira_label || "Neutra";
 
+      // remove the “green text”: we DO NOT print deltas as plain green; use badge only
       const grid = document.getElementById("kpiGrid");
       grid.innerHTML = [
-        kpiCard("Total período", fmtBRLCompact(totalValor)),
-        kpiCard("Volume período", fmtUN(totalVol)),
+        kpiCard("Total período", fmtBRLCompact(k.total_faturamento || 0)),
+        kpiCard("Volume período", fmtUN(k.total_volume || 0)),
         kpiCard(
           "Distribuição por clientes",
           hhiLabel,
-          badgeHtml(`N80: ${n80} clientes (${pct(n80Ratio,0)} da carteira)`, colorForN80Ratio(n80Ratio)) +
+          badgeHtml(`N80: ${n80} clientes (${pct(n80Ratio,0)} da carteira)`, `rgb(${getCssColor(colorForN80Ratio(n80Ratio))})`) +
           "&nbsp;&nbsp;" +
-          badgeHtml(`HHI: ${hhi.toFixed(3)}`, colorForHHI(hhi))
+          badgeHtml(`HHI: ${hhi.toFixed(3)}`, `rgb(${getCssColor(colorForHHI(hhi))})`)
         ),
         kpiCard(
           "Saúde da carteira",
           `${Math.round(carteiraScore)} / 100`,
-          badgeHtml(carteiraLabel, colorForCarteiraScore(carteiraScore))
+          badgeHtml(carteiraLabel, `rgb(${getCssColor(colorForCarteiraScore(carteiraScore))})`)
         ),
         kpiCard("Clientes atendidos", String(clientesAtendidos)),
       ].join("");
     }
 
-    // ---------- Evolução (bar overlay: prev vs curr) ----------
+    // Convert CSS var colors to rgb string for consistent badge/dot usage
+    function getCssColor(cssVarOrColor){
+      // returns "r,g,b" (no alpha)
+      const dummy = document.createElement("div");
+      dummy.style.color = cssVarOrColor;
+      document.body.appendChild(dummy);
+      const c = getComputedStyle(dummy).color; // "rgb(r,g,b)" or "rgba(...)"
+      dummy.remove();
+      const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+      if (!m) return "255,255,255";
+      return `${m[1]},${m[2]},${m[3]}`;
+    }
+
     function renderEvolucao(repObj){
       const evo = repObj?.evolucao || {};
       const curr = Array.isArray(evo.curr) ? evo.curr : [];
       const prev = Array.isArray(evo.prev) ? evo.prev : [];
 
-      // from JSON generator: {label, valor, qtd}
+      // expects items like: {label:"JAN 25", faturamento:123, volume:456}
       const xCurr = curr.map(d => d.label);
-      const yFatCurr = curr.map(d => Number(d.valor || 0));
-      const yVolCurr = curr.map(d => Number(d.qtd || 0));
+      const yFatCurr = curr.map(d => Number(d.faturamento || 0));
+      const yVolCurr = curr.map(d => Number(d.volume || 0));
 
       const xPrev = prev.map(d => d.label);
-      const yFatPrev = prev.map(d => Number(d.valor || 0));
-      const yVolPrev = prev.map(d => Number(d.qtd || 0));
+      const yFatPrev = prev.map(d => Number(d.faturamento || 0));
+      const yVolPrev = prev.map(d => Number(d.volume || 0));
 
+      // bar comparative: overlay bars with slight opacity
       Plotly.newPlot("chartFat", [
-        {type:"bar", x:xPrev, y:yFatPrev, name:"Período anterior", marker:{color:"rgba(231,238,252,0.28)"}},
-        {type:"bar", x:xCurr, y:yFatCurr, name:"Período atual", marker:{color:"rgba(56,189,248,0.85)"}},
+        {type:"bar", x:xPrev, y:yFatPrev, name:"Período anterior", marker:{color:"rgba(231,238,252,0.28)"}, hovertemplate:"%{x}<br>Anterior: %{y:,}<extra></extra>"},
+        {type:"bar", x:xCurr, y:yFatCurr, name:"Período atual", marker:{color:"rgba(56,189,248,0.85)"}, hovertemplate:"%{x}<br>Atual: %{y:,}<extra></extra>"},
       ], {
         ...PLOT_LAYOUT_BASE,
         barmode:"overlay",
@@ -610,8 +611,8 @@
       }, {displayModeBar:false, responsive:true});
 
       Plotly.newPlot("chartVol", [
-        {type:"bar", x:xPrev, y:yVolPrev, name:"Período anterior", marker:{color:"rgba(231,238,252,0.28)"}},
-        {type:"bar", x:xCurr, y:yVolCurr, name:"Período atual", marker:{color:"rgba(34,197,94,0.85)"}},
+        {type:"bar", x:xPrev, y:yVolPrev, name:"Período anterior", marker:{color:"rgba(231,238,252,0.28)"}, hovertemplate:"%{x}<br>Anterior: %{y:,}<extra></extra>"},
+        {type:"bar", x:xCurr, y:yVolCurr, name:"Período atual", marker:{color:"rgba(34,197,94,0.85)"}, hovertemplate:"%{x}<br>Atual: %{y:,}<extra></extra>"},
       ], {
         ...PLOT_LAYOUT_BASE,
         barmode:"overlay",
@@ -620,32 +621,45 @@
       }, {displayModeBar:false, responsive:true});
     }
 
-    // ---------- Categorias ----------
-    function renderCategorias(repObj){
+    function renderCategorias(repObj, currLabel, prevLabel){
       const cats = repObj?.categorias || {};
-      const curr = Array.isArray(cats.curr) ? cats.curr : []; // {categoria, valor, share}
-      const prev = Array.isArray(cats.prev) ? cats.prev : [];
+      const curr = Array.isArray(cats.curr) ? cats.curr : []; // [{categoria, valor, pct}]
+      const prev = Array.isArray(cats.prev) ? cats.prev : []; // same
 
-      const per = repObj?.period || {};
-      const currLabel = per.curr_label || "—";
-      const prevLabel = per.prev_label || "—";
-
-      // Pies
-      const currNames = curr.map(d => `${d.categoria} ${(Number(d.share||0)*100).toFixed(1)}%`);
+      // Pie for current
+      const currNames = curr.map(d => `${d.categoria} ${(Number(d.pct||0)*100).toFixed(1)}%`);
       const currVals = curr.map(d => Number(d.valor||0));
       Plotly.newPlot("pieCategoriasCurr", [{
-        type:"pie", values: currVals, labels: currNames, hole:0.35, textinfo:"none"
-      }], {...PLOT_LAYOUT_BASE, showlegend:false, margin:{l:10,r:10,t:10,b:10}}, {displayModeBar:false, responsive:true});
+        type:"pie",
+        values: currVals,
+        labels: currNames,
+        hole: 0.35,
+        textinfo:"none"
+      }], {
+        ...PLOT_LAYOUT_BASE,
+        showlegend:false,
+        margin:{l:10,r:10,t:10,b:10}
+      }, {displayModeBar:false, responsive:true});
       document.getElementById("catCurrHint").innerHTML = `Período atual: <b>${escapeHtml(currLabel)}</b>`;
 
-      const prevNames = prev.map(d => `${d.categoria} ${(Number(d.share||0)*100).toFixed(1)}%`);
+      // Pie for prev
+      const prevNames = prev.map(d => `${d.categoria} ${(Number(d.pct||0)*100).toFixed(1)}%`);
       const prevVals = prev.map(d => Number(d.valor||0));
       Plotly.newPlot("pieCategoriasPrev", [{
-        type:"pie", values: prevVals, labels: prevNames, hole:0.35, textinfo:"none"
-      }], {...PLOT_LAYOUT_BASE, showlegend:false, margin:{l:10,r:10,t:10,b:10}}, {displayModeBar:false, responsive:true});
+        type:"pie",
+        values: prevVals,
+        labels: prevNames,
+        hole: 0.35,
+        textinfo:"none"
+      }], {
+        ...PLOT_LAYOUT_BASE,
+        showlegend:false,
+        margin:{l:10,r:10,t:10,b:10}
+      }, {displayModeBar:false, responsive:true});
       document.getElementById("catPrevHint").innerHTML = `Período anterior: <b>${escapeHtml(prevLabel)}</b>`;
 
-      // Table: current + previous (Valor Anterior e % anterior)
+      // Table: current with Valor Anterior and % anterior
+      // We'll merge by categoria name
       const prevMap = new Map(prev.map(p => [String(p.categoria||""), p]));
       const totalCurr = currVals.reduce((a,b)=>a+b,0) || 1;
 
@@ -653,13 +667,13 @@
         .slice()
         .sort((a,b)=>Number(b.valor||0)-Number(a.valor||0))
         .map(c => {
-          const p = prevMap.get(String(c.categoria||"")) || {valor:0,share:0};
+          const p = prevMap.get(String(c.categoria||"")) || {valor:0,pct:0};
           return {
             "Categoria": escapeHtml(c.categoria),
             "Valor": escapeHtml(fmtBRL(c.valor||0)),
             "%": escapeHtml(pct1((c.valor||0)/totalCurr)),
             "Valor Anterior": escapeHtml(fmtBRL(p.valor||0)),
-            "% Anterior": escapeHtml(pct1(Number(p.share||0))),
+            "% Anterior": escapeHtml(pct1(Number(p.pct||0))),
           };
         });
 
@@ -667,9 +681,20 @@
         tableHtml(["Categoria","Valor","%","Valor Anterior","% Anterior"], rows);
     }
 
-    // ---------- MAPA (usa repObj.mapa_cidades) ----------
     function renderMapa(repObj){
-      const citiesRaw = Array.isArray(repObj?.mapa_cidades) ? repObj.mapa_cidades : [];
+      const mapObj = repObj?.mapa || {};
+      const rawCities = Array.isArray(mapObj.cities) ? mapObj.cities : [];
+
+      // Normalize + parse coords
+      const cities = rawCities.map(c => ({
+        cidade: c.cidade ?? c.Cidade ?? c.CIDADE ?? "",
+        uf: c.uf ?? c.UF ?? c.estado ?? c.Estado ?? "",
+        lat: toNum(c.lat ?? c.latitude ?? c.Lat ?? c.LAT),
+        lon: toNum(c.lon ?? c.lng ?? c.longitude ?? c.Lon ?? c.LON),
+        vol: Number(c.vol ?? c.volume ?? c.Volume ?? c.Quantidade ?? 0),
+        fat: Number(c.fat ?? c.faturamento ?? c.Valor ?? c.valor ?? 0),
+        clientes: Number(c.clientes ?? c.Clientes ?? 0),
+      })).filter(c => Number.isFinite(c.lat) && Number.isFinite(c.lon));
 
       // rebuild map cleanly on rep change
       const container = document.getElementById("map");
@@ -681,6 +706,7 @@
       }
 
       leafletMap = L.map(container, { zoomControl: true });
+
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
         maxZoom: 18
@@ -688,22 +714,10 @@
 
       leafletLayerGroup = L.layerGroup().addTo(leafletMap);
 
-      const cities = citiesRaw
-        .map(c => ({
-          cidade: String(c.cidade || ""),
-          uf: String(c.estado || ""),
-          lat: Number(c.lat),
-          lon: Number(c.lon),
-          vol: Number(c.qtd || 0),
-          fat: Number(c.valor || 0),
-          clientes: Number(c.clientes || 0),
-        }))
-        .filter(c => Number.isFinite(c.lat) && Number.isFinite(c.lon));
-
       if (!cities.length){
         leafletMap.setView([-14.2, -51.9], 4);
         document.getElementById("mapLegend").innerHTML =
-          `<div class="sub">Sem coordenadas para exibir no mapa (merge Cidade/UF vs cidades_br_geo.csv).</div>`;
+          `<div class="sub">Sem coordenadas para exibir no mapa (verifique o merge com cidades_br_geo.csv).</div>`;
         document.getElementById("mapCoverage").innerHTML = "—";
         document.getElementById("tblTopClientes").innerHTML = "";
         document.getElementById("tblCityClientes").innerHTML = "";
@@ -712,9 +726,14 @@
         return;
       }
 
-      // Default metric = Volume
+      // Default metric = Volume (requested)
       const values = cities.map(c => Number(c.vol || 0));
       const bins = buildDynamicBins(values, false);
+
+      // center
+      const latAvg = cities.reduce((s, c) => s + c.lat, 0) / cities.length;
+      const lonAvg = cities.reduce((s, c) => s + c.lon, 0) / cities.length;
+      leafletMap.setView([latAvg, lonAvg], 5);
 
       // legend
       document.getElementById("mapLegend").innerHTML =
@@ -725,18 +744,12 @@
           </div>
         `).join("");
 
-      // center
-      const latAvg = cities.reduce((s, c) => s + c.lat, 0) / cities.length;
-      const lonAvg = cities.reduce((s, c) => s + c.lon, 0) / cities.length;
-      leafletMap.setView([latAvg, lonAvg], 5);
-
       // coverage
-      const k = repObj?.kpis || {};
-      const estadosAtendidos = Number(repObj?.kpis?.estados_atendidos || 0); // may be absent in generator
+      const cov = repObj?.kpis || {};
       document.getElementById("mapCoverage").innerHTML =
-        `Cidades atendidas: <b>${escapeHtml(String(k.cidades_atendidas ?? "—"))}</b><br>` +
-        `Estados atendidos: <b>${escapeHtml(String(estadosAtendidos || "—"))}</b><br>` +
-        `Clientes atendidos: <b>${escapeHtml(String(k.clientes_atendidos ?? "—"))}</b>`;
+        `Cidades atendidas: <b>${escapeHtml(String(cov.cidades_atendidas ?? "—"))}</b><br>` +
+        `Estados atendidos: <b>${escapeHtml(String(cov.estados_atendidos ?? "—"))}</b><br>` +
+        `Clientes atendidos: <b>${escapeHtml(String(cov.clientes_atendidos ?? "—"))}</b>`;
 
       // markers
       for (const c of cities){
@@ -763,20 +776,20 @@
         marker.bindPopup(popup).addTo(leafletLayerGroup);
       }
 
-      // Principais clientes = distribuicao_clientes.top15 (inclui Volume e Faturamento)
-      const top = Array.isArray(repObj?.distribuicao_clientes?.top15) ? repObj.distribuicao_clientes.top15 : [];
-      const topRows = top.slice(0,15).map(t => ({
+      // top clients table (add Volume next to Faturamento)
+      const tops = Array.isArray(mapObj.top_clients) ? mapObj.top_clients : [];
+      const topRows = tops.slice(0,15).map(t => ({
         "Cliente": escapeHtml(t.cliente || ""),
         "Cidade": escapeHtml(t.cidade || ""),
-        "UF": escapeHtml(t.estado || ""),
-        "Volume": escapeHtml(fmtUN(t.qtd || 0)),
-        "Faturamento": escapeHtml(fmtBRL(t.valor || 0)),
+        "UF": escapeHtml(t.uf || ""),
+        "Volume": escapeHtml(fmtUN(t.volume || 0)),
+        "Faturamento": escapeHtml(fmtBRL(t.faturamento || 0)),
       }));
       document.getElementById("tblTopClientes").innerHTML =
         topRows.length ? tableHtml(["Cliente","Cidade","UF","Volume","Faturamento"], topRows)
                        : `<div class="sub">Sem dados.</div>`;
 
-      // keep selected city if still present
+      // if last city exists, keep it selected across rep change IF present
       if (lastCityKey){
         const [lc, lu] = lastCityKey.split("|||");
         const exists = cities.some(x => (x.cidade===lc && x.uf===lu));
@@ -790,58 +803,40 @@
         document.getElementById("tblCityClientes").innerHTML = "";
       }
 
-      // critical for GitHub Pages sizing
+      // critical for GitHub Pages: ensure correct size after layout paint
       setTimeout(() => leafletMap.invalidateSize(true), 60);
     }
 
-    // City clients derived from status_clientes (aggregate by cliente inside cidade/uf)
     function renderClientesCidade(repObj, cidade, uf){
-      const st = repObj?.status_clientes || {};
-      const all = [];
-
-      for (const statusName of STATUS_ORDER){
-        const arr = Array.isArray(st[statusName]) ? st[statusName] : [];
-        for (const r of arr){
-          if (String(r.cidade||"") === String(cidade||"") && String(r.estado||"") === String(uf||"")){
-            all.push(r);
-          }
-        }
-      }
-
-      // aggregate
-      const agg = new Map();
-      for (const r of all){
-        const key = String(r.cliente||"");
-        const cur = agg.get(key) || {cliente:key, valor:0, qtd:0};
-        cur.valor += Number(r.valor_atual || 0);
-        cur.qtd += Number(r.qtd_atual || 0);
-        agg.set(key, cur);
-      }
-
-      const rows = Array.from(agg.values())
-        .sort((a,b)=>b.valor-a.valor)
-        .map(x => ({
-          "Cliente": escapeHtml(x.cliente),
-          "Volume": escapeHtml(fmtUN(x.qtd)),
-          "Faturamento": escapeHtml(fmtBRL(x.valor)),
-        }));
+      const mapObj = repObj?.mapa || {};
+      const cityList = Array.isArray(mapObj.city_clients) ? mapObj.city_clients : [];
+      const filtered = cityList.filter(x =>
+        String(x.cidade||"") === String(cidade||"") && String(x.uf||"") === String(uf||"")
+      );
 
       document.getElementById("cityHint").innerHTML =
         `Cidade selecionada: <b>${escapeHtml(cidade)} - ${escapeHtml(uf)}</b>`;
+
+      const rows = filtered
+        .slice()
+        .sort((a,b)=>Number(b.faturamento||0)-Number(a.faturamento||0))
+        .map(x => ({
+          "Cliente": escapeHtml(x.cliente || ""),
+          "Volume": escapeHtml(fmtUN(x.volume || 0)),
+          "Faturamento": escapeHtml(fmtBRL(x.faturamento || 0)),
+        }));
 
       document.getElementById("tblCityClientes").innerHTML =
         rows.length ? tableHtml(["Cliente","Volume","Faturamento"], rows)
                     : `<div class="sub">Sem clientes cadastrados para esta cidade no recorte.</div>`;
     }
 
-    // ---------- Distribuição por clientes (usa distribuicao_clientes) ----------
     function renderClientesDist(repObj){
-      const dist = repObj?.distribuicao_clientes || {};
+      const dist = repObj?.clientes_dist || {};
       const k = dist.kpis || {};
-
       const n80 = Number(k.n80 || 0);
       const clientes = Number(k.clientes || 0);
-      const n80Ratio = Number(k.n80_ratio || (clientes>0 ? (n80/clientes) : 0));
+      const n80Ratio = clientes > 0 ? (n80 / clientes) : 0;
 
       const hhi = Number(k.hhi || 0);
       const top1 = Number(k.top1 || 0);
@@ -850,55 +845,50 @@
 
       const grid = document.getElementById("kpiDistGrid");
       grid.innerHTML = [
-        kpiCard("N80", String(n80), badgeHtml(`${pct(n80Ratio,0)} da carteira`, colorForN80Ratio(n80Ratio))),
-        kpiCard("Índice de concentração", "HHI", badgeHtml(`${hhi.toFixed(3)}`, colorForHHI(hhi))),
+        kpiCard("N80", String(n80), badgeHtml(`${pct(n80Ratio,0)} da carteira`, `rgb(${getCssColor(colorForN80Ratio(n80Ratio))})`)),
+        kpiCard("Índice de concentração", (k.hhi_label || "—"), badgeHtml(`HHI ${hhi.toFixed(3)}`, `rgb(${getCssColor(colorForHHI(hhi))})`)),
         kpiCard("Top 1 cliente", pct1(top1)),
         kpiCard("Top 3 clientes", pct1(top3)),
         kpiCard("Top 10 clientes", pct1(top10)),
       ].join("");
 
-      // pie: Top 10 + Outros
-      const top15 = Array.isArray(dist.top15) ? dist.top15 : [];
-      const total = top15.reduce((s,x)=>s+Number(x.valor||0),0) || 1;
-
-      // build top10 + others from top15 is not perfect; ok for visual quick.
-      const top10 = top15.slice(0,10);
-      const othersVal = Math.max(0, total - top10.reduce((s,x)=>s+Number(x.valor||0),0));
-
-      const labels = [
-        ...top10.map(x => `${x.cliente} ${((Number(x.valor||0)/total)*100).toFixed(1)}%`),
-        ...(othersVal>0 ? [`Outros ${(othersVal/total*100).toFixed(1)}%`] : [])
-      ];
-      const vals = [
-        ...top10.map(x => Number(x.valor||0)),
-        ...(othersVal>0 ? [othersVal] : [])
-      ];
-
+      // pie
+      const pie = Array.isArray(dist.pie) ? dist.pie : [];
+      const labels = pie.map(d => `${d.label} ${(Number(d.share||0)*100).toFixed(1)}%`);
+      const vals = pie.map(d => Number(d.valor || 0));
       Plotly.newPlot("pieClientes", [{
-        type:"pie", values: vals, labels: labels, hole: 0.00, textinfo:"none"
-      }], {...PLOT_LAYOUT_BASE, showlegend:false, margin:{l:10,r:10,t:10,b:10}}, {displayModeBar:false, responsive:true});
+        type:"pie",
+        values: vals,
+        labels: labels,
+        hole: 0.00,
+        textinfo:"none"
+      }], {
+        ...PLOT_LAYOUT_BASE,
+        showlegend:false,
+        margin:{l:10,r:10,t:10,b:10}
+      }, {displayModeBar:false, responsive:true});
 
       // table top 15
-      const rows = top15.slice(0,15).map(r => ({
+      const tbl = Array.isArray(dist.table) ? dist.table : [];
+      const rows = tbl.slice(0,15).map(r => ({
         "Cliente": escapeHtml(r.cliente||""),
         "Cidade": escapeHtml(r.cidade||""),
-        "UF": escapeHtml(r.estado||""),
-        "Faturamento": escapeHtml(fmtBRL(r.valor||0)),
+        "UF": escapeHtml(r.uf||""),
+        "Faturamento": escapeHtml(fmtBRL(r.faturamento||0)),
         "% Faturamento": escapeHtml(pct1(r.share||0)),
-        "Volume": escapeHtml(fmtUN(r.qtd||0))
+        "Volume": escapeHtml(fmtUN(r.volume||0))
       }));
       document.getElementById("tblClientes").innerHTML =
         rows.length ? tableHtml(["Cliente","Cidade","UF","Faturamento","% Faturamento","Volume"], rows)
                     : `<div class="sub">Sem dados.</div>`;
     }
 
-    // ---------- Carteira ----------
     function renderCarteira(repObj){
-      const k = repObj?.kpis || {};
-      const score = Number(k.carteira_score || 50);
-      const label = k.carteira_label || "Neutra";
+      const car = repObj?.carteira || {};
+      const score = Number(car.score || 50);
+      const label = car.label || "Neutra";
+      const color = `rgb(${getCssColor(colorForCarteiraScore(score))})`;
 
-      const color = colorForCarteiraScore(score);
       document.getElementById("carteiraScoreBox").innerHTML =
         `<h3>Pontuação – Saúde da carteira</h3>
          <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
@@ -910,29 +900,34 @@
            no comparativo entre período atual e anterior.
          </div>`;
 
-      const resumo = repObj?.carteira_detalhes || {};
-      const rowsSrc = Array.isArray(resumo.resumo) ? resumo.resumo : [];
-
       // pie status
-      const labelsPie = rowsSrc.map(d => d.status);
-      const valsPie = rowsSrc.map(d => Number(d.clientes || 0));
+      const by = Array.isArray(car.status_counts) ? car.status_counts : [];
+      const labelsPie = by.map(d => d.status);
+      const valsPie = by.map(d => Number(d.clientes || 0));
       Plotly.newPlot("pieStatus", [{
-        type:"pie", values: valsPie, labels: labelsPie, hole: 0.30, textinfo:"none"
-      }], {...PLOT_LAYOUT_BASE, showlegend:true, margin:{l:10,r:10,t:10,b:10}}, {displayModeBar:false, responsive:true});
+        type:"pie",
+        values: valsPie,
+        labels: labelsPie,
+        hole: 0.30,
+        textinfo:"none"
+      }], {
+        ...PLOT_LAYOUT_BASE,
+        showlegend:true,
+        margin:{l:10,r:10,t:10,b:10}
+      }, {displayModeBar:false, responsive:true});
 
       // table resumo
-      const rows = rowsSrc.map(d => ({
+      const rows = by.map(d => ({
         "Status": escapeHtml(d.status || ""),
         "QtdClientes": escapeHtml(String(d.clientes || 0)),
         "%Clientes": escapeHtml(pct1(d.pct_clientes || 0)),
-        "Faturamento (Δ)": escapeHtml(fmtBRL(Number(d.delta_valor || 0))),
+        "Faturamento (Δ)": escapeHtml(fmtBRL(Number(d.delta_fat || 0))),
       }));
       document.getElementById("tblCarteiraResumo").innerHTML =
         rows.length ? tableHtml(["Status","QtdClientes","%Clientes","Faturamento (Δ)"], rows)
                     : `<div class="sub">Sem dados.</div>`;
     }
 
-    // ---------- Status dos clientes ----------
     function renderStatusClientes(repObj){
       const block = document.getElementById("statusTables");
       const search = (document.getElementById("searchCliente").value || "").toLowerCase();
@@ -950,12 +945,12 @@
 
         const rows = filtered
           .slice()
-          .sort((a,b)=>Number(b.valor_atual||0)-Number(a.valor_atual||0))
+          .sort((a,b)=>Number(b.fat_atual||0)-Number(a.fat_atual||0))
           .map(r => {
-            const fatA = Number(r.valor_atual||0);
-            const fatP = Number(r.valor_anterior||0);
-            const volA = Number(r.qtd_atual||0);
-            const volP = Number(r.qtd_anterior||0);
+            const fatA = Number(r.fat_atual||0);
+            const fatP = Number(r.fat_prev||0);
+            const volA = Number(r.vol_atual||0);
+            const volP = Number(r.vol_prev||0);
 
             const dFat = fatA - fatP;
             const dVol = volA - volP;
@@ -972,7 +967,7 @@
 
             return {
               "Cliente": escapeHtml(r.cliente||""),
-              "UF": escapeHtml(r.estado||""),
+              "UF": escapeHtml(r.uf||""),
               "Cidade": escapeHtml(r.cidade||""),
               "Fat Atual": escapeHtml(fmtBRL(fatA)),
               "Fat Anterior": escapeHtml(fmtBRL(fatP)),
@@ -997,24 +992,90 @@
     }
 
     // ---------- main render ----------
-    function render(repName){
-      const repObj = REPORTS?.[repName];
+    function render(repName, currKey, prevKey){
+      const repObj = DATA?.reports?.[repName]?.[currKey]?.[prevKey];
       if (!repObj){
-        document.getElementById("headerSub").textContent = "Representante não encontrado no JSON.";
+        document.getElementById("headerSub").textContent = "Recorte não encontrado no JSON.";
         return;
       }
 
-      renderHeader(repObj);
+      const currLabel = repObj.meta?.curr_label || currKey;
+      const prevLabel = repObj.meta?.prev_label || prevKey;
+
+      renderHeader(repName, currLabel, prevLabel);
       renderKpis(repObj);
       renderEvolucao(repObj);
-      renderCategorias(repObj);
+      renderCategorias(repObj, currLabel, prevLabel);
       renderMapa(repObj);
       renderClientesDist(repObj);
       renderCarteira(repObj);
       renderStatusClientes(repObj);
     }
 
-    // ---------- load ----------
+    // ---------- selectors ----------
+    function fillSelectors(){
+      const repSel = document.getElementById("repSel");
+      const currSel = document.getElementById("currLabel");
+      const prevSel = document.getElementById("prevLabel");
+
+      // reps
+      const reps = DATA?.reps || Object.keys(DATA?.reports || {});
+      repSel.innerHTML = reps.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
+
+      // periods available per rep
+      const setPeriodOptions = () => {
+        const rep = repSel.value;
+        const repNode = DATA?.reports?.[rep] || {};
+        const currKeys = Object.keys(repNode);
+        currSel.innerHTML = currKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+
+        const currKey = currSel.value || currKeys[0];
+        const prevNode = repNode[currKey] || {};
+        const prevKeys = Object.keys(prevNode);
+        prevSel.innerHTML = prevKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+      };
+
+      repSel.addEventListener("change", () => {
+        setPeriodOptions();
+        render(repSel.value, currSel.value, prevSel.value);
+      });
+
+      currSel.addEventListener("change", () => {
+        // update prev list when curr changes
+        const rep = repSel.value;
+        const repNode = DATA?.reports?.[rep] || {};
+        const prevNode = repNode[currSel.value] || {};
+        const prevKeys = Object.keys(prevNode);
+        prevSel.innerHTML = prevKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+        render(repSel.value, currSel.value, prevSel.value);
+      });
+
+      prevSel.addEventListener("change", () => {
+        render(repSel.value, currSel.value, prevSel.value);
+      });
+
+      document.getElementById("btnPrint").addEventListener("click", () => window.print());
+      document.getElementById("searchCliente").addEventListener("input", () => {
+        renderStatusClientes(DATA?.reports?.[repSel.value]?.[currSel.value]?.[prevSel.value]);
+      });
+
+      setPeriodOptions();
+
+      // default selections if provided
+      if (DATA?.defaults?.rep && reps.includes(DATA.defaults.rep)) repSel.value = DATA.defaults.rep;
+      setPeriodOptions();
+      if (DATA?.defaults?.curr && currSel.querySelector(`option[value="${CSS.escape(DATA.defaults.curr)}"]`)) currSel.value = DATA.defaults.curr;
+      // rebuild prev list based on curr
+      const rep = repSel.value;
+      const repNode = DATA?.reports?.[rep] || {};
+      const prevNode = repNode[currSel.value] || {};
+      const prevKeys = Object.keys(prevNode);
+      prevSel.innerHTML = prevKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+      if (DATA?.defaults?.prev && prevSel.querySelector(`option[value="${CSS.escape(DATA.defaults.prev)}"]`)) prevSel.value = DATA.defaults.prev;
+
+      render(repSel.value, currSel.value, prevSel.value);
+    }
+
     async function loadJson(){
       let lastErr = null;
       for (const url of DATA_URLS){
@@ -1035,15 +1096,7 @@
       try{
         const {json, url} = await loadJson();
         DATA = json;
-
-        // normalize reports: array -> map by rep
-        const arr = Array.isArray(DATA?.reports) ? DATA.reports : [];
-        REPORTS = {};
-        for (const r of arr){
-          if (r && r.rep) REPORTS[r.rep] = r;
-        }
-
-        console.log("[DATA] loaded from", url, "reps:", Object.keys(REPORTS).length);
+        console.log("[DATA] loaded from", url);
         fillSelectors();
       }catch(e){
         console.error(e);
