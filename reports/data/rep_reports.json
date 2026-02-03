@@ -1,1 +1,32 @@
+{
+  "reps": ["Todos"],
+  "defaults": { "rep": "Todos", "curr": "curr", "prev": "prev" },
+  "reports": {
+    "Todos": {
+      "curr": {
+        "prev": {
+          "meta": { "curr_label": "Período atual", "prev_label": "Período anterior" },
+          "kpis": {
+            "total_faturamento": 0,
+            "total_volume": 0,
+            "clientes_atendidos": 0,
+            "n80_count": 0,
+            "hhi_value": 0,
+            "hhi_label_short": "HHI",
+            "carteira_score": 50,
+            "carteira_label": "Neutra",
+            "cidades_atendidas": 0,
+            "estados_atendidos": 0
+          },
+          "evolucao": { "curr": [], "prev": [] },
+          "categorias": { "curr": [], "prev": [] },
+          "mapa": { "cities": [], "top_clients": [], "city_clients": [] },
+          "clientes_dist": { "kpis": { "n80": 0, "clientes": 0, "hhi": 0, "hhi_label": "HHI", "top1": 0, "top3": 0, "top10": 0 }, "pie": [], "table": [] },
+          "carteira": { "score": 50, "label": "Neutra", "status_counts": [] },
+          "status_clientes": { "Novos": [], "Crescendo": [], "Estáveis": [], "Caindo": [], "Perdidos": [] }
+        }
+      }
+    }
+  }
+}
 
