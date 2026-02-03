@@ -3,201 +3,246 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Insights de Vendas – Relatório por Representante</title>
+  <title>Insights de Vendas — Relatório do Representante</title>
 
-  <!-- Plotly + Leaflet (GitHub Pages friendly) -->
-  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Inter (bem próximo do Streamlit) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Chart.js (para barras/pies com visual consistente) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- Leaflet 1.9.4 (mesma versão que você força no Streamlit) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <style>
     :root{
-      --bg:#0b1220;
-      --panel:#0f1b31;
-      --panel2:#0d182c;
-      --text:#e7eefc;
-      --muted:rgba(231,238,252,0.72);
-      --line:rgba(255,255,255,0.08);
+      --bg:#f8fafc;          /* fundo claro (Streamlit-like) */
+      --card:#ffffff;
+      --text:#0f172a;
+      --muted: rgba(15,23,42,.62);
+      --border: rgba(15,23,42,.12);
 
-      --blue:#38bdf8;
-      --green:#22c55e;
+      --blue:#38bdf8;   /* Altair bar */
+      --green:#22c55e;  /* Altair line / good */
       --yellow:#eab308;
       --orange:#f97316;
       --red:#ef4444;
+      --slate:#94a3b8;
 
-      --radius:14px;
-      --shadow: 0 10px 30px rgba(0,0,0,0.35);
-      --pad:14px;
-      --gap:14px;
-
-      /* typographic scale (tuned to feel like Streamlit) */
-      --h1:26px;
-      --h2:18px;
-      --label:12px;
-      --kpi:22px;
-      --kpiSmall:12px;
-      --body:14px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      --shadow: 0 1px 2px rgba(15,23,42,.06);
+      --radius: 12px;
     }
 
-    *{box-sizing:border-box}
+    *{ box-sizing:border-box; }
     body{
       margin:0;
-      font-family:var(--font);
-      background:radial-gradient(1200px 900px at 20% 0%, rgba(56,189,248,0.12), transparent 50%),
-                 radial-gradient(1200px 900px at 80% 10%, rgba(34,197,94,0.10), transparent 55%),
-                 var(--bg);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans";
       color:var(--text);
+      background:var(--bg);
+      font-size:14px;
+      line-height:1.45;
     }
 
-    .wrap{max-width:1320px;margin:0 auto;padding:18px 18px 40px}
+    /* Layout container (bem similar ao "wide") */
+    .wrap{
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 18px 18px 50px;
+    }
+
+    /* Top bar */
     .topbar{
-      display:flex; align-items:flex-start; justify-content:space-between;
-      gap:12px; margin-bottom:10px;
-    }
-    .titleblock h1{margin:0;font-size:var(--h1);letter-spacing:0.2px}
-    .titleblock .sub{margin-top:6px;color:var(--muted);font-size:var(--body)}
-    .controls{
-      display:flex; flex-wrap:wrap; gap:10px; align-items:center;
-      background:rgba(15,27,49,0.65);
-      border:1px solid var(--line);
-      box-shadow:var(--shadow);
-      border-radius:var(--radius);
-      padding:10px 12px;
-    }
-    .controls label{font-size:var(--label);color:var(--muted)}
-    select, button{
-      background:rgba(13,24,44,0.85);
-      color:var(--text);
-      border:1px solid var(--line);
-      border-radius:12px;
-      padding:8px 10px;
-      font-size:13px;
-      outline:none;
-    }
-    button{cursor:pointer}
-    button:hover{border-color:rgba(56,189,248,0.35)}
-
-    .divider{height:1px;background:var(--line);margin:12px 0 16px}
-
-    /* Streamlit-like "sections" */
-    .section{
-      background:linear-gradient(180deg, rgba(15,27,49,0.92), rgba(13,24,44,0.92));
-      border:1px solid var(--line);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      padding:var(--pad);
-      margin-bottom:14px;
-    }
-    .section h2{
-      margin:0 0 10px;
-      font-size:var(--h2);
-      letter-spacing:0.2px;
-    }
-    .section .hint{margin-top:-2px;color:var(--muted);font-size:var(--body)}
-    .grid5{
-      display:grid;
-      grid-template-columns:repeat(5, minmax(0,1fr));
-      gap:var(--gap);
-    }
-    @media (max-width: 1100px){
-      .grid5{grid-template-columns:repeat(2, minmax(0,1fr))}
-    }
-    @media (max-width: 560px){
-      .grid5{grid-template-columns:1fr}
-    }
-
-    .kpi{
-      background:rgba(13,24,44,0.88);
-      border:1px solid var(--line);
-      border-radius:var(--radius);
-      padding:12px 12px 10px;
-      min-height:88px;
       display:flex;
-      flex-direction:column;
+      align-items:flex-start;
       justify-content:space-between;
+      gap:16px;
+      margin-bottom: 10px;
     }
-    .kpi .label{font-size:var(--label);color:var(--muted);letter-spacing:0.2px}
-    .kpi .value{font-size:var(--kpi);font-weight:800;letter-spacing:0.2px;margin-top:6px}
-    .kpi .delta{font-size:var(--kpiSmall);color:var(--muted);margin-top:6px}
 
+    h1{ margin:0 0 4px; font-size:28px; font-weight:800; letter-spacing:-0.02em; }
+    .sub{ color:var(--muted); font-size:12.5px; margin-top:6px; }
+
+    .controls{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    select, button{
+      font-family: inherit;
+      font-size: 13px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      outline: none;
+      box-shadow: var(--shadow);
+    }
+    button{ cursor:pointer; font-weight:700; }
+    button:active{ transform: translateY(1px); }
+
+    .divider{ height:1px; background: var(--border); margin: 14px 0 18px; }
+
+    .card{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px 14px 12px;
+    }
+
+    /* KPI grid 5 cols (como st.columns(5)) */
+    .kpis{
+      display:grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap:16px;
+    }
+
+    .metric-title{
+      font-size:13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .metric-value{
+      font-size:34px;
+      font-weight:800;
+      letter-spacing:-0.02em;
+      line-height:1.05;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .metric-sub{
+      margin-top: 8px;
+      font-size:12.5px;
+      color: var(--muted);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    /* Section titles */
+    .section{
+      margin-top: 18px;
+    }
+    .section-title{
+      font-size:18px;
+      font-weight:800;
+      margin: 0 0 10px;
+    }
+    .section-caption{
+      font-size:13px;
+      color: var(--muted);
+      margin:2px 0 12px;
+    }
+
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:16px;
+    }
+
+    .grid3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap:16px;
+    }
+
+    .row{
+      display:flex;
+      gap:16px;
+      align-items:stretch;
+    }
+
+    /* Chart containers */
+    .chartBox{
+      width:100%;
+      height: 320px;
+    }
+    canvas{ width:100% !important; height:100% !important; }
+
+    /* Tables */
+    table{
+      width:100%;
+      border-collapse: collapse;
+    }
+    th, td{
+      text-align:left;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(15,23,42,.08);
+      font-size: 12.8px;
+      white-space: nowrap;
+    }
+    th{ font-weight:800; color: rgba(15,23,42,.75); }
+    td{ color: rgba(15,23,42,.90); }
+    .td-right{ text-align:right; }
+
+    /* Badges (apenas onde faz sentido — NÃO no topo) */
     .badge{
       display:inline-flex;
       align-items:center;
       gap:6px;
-      border-radius:999px;
-      padding:4px 10px;
-      font-size:12px;
-      font-weight:700;
-      border:1px solid rgba(255,255,255,0.12);
-      background:rgba(255,255,255,0.06);
-      color:var(--text);
-      white-space:nowrap;
-    }
-    .badge.dot::before{
-      content:"";
-      width:8px;height:8px;border-radius:999px;
-      background:currentColor;
-      opacity:0.9;
-      display:inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 800;
+      border: 1px solid rgba(15,23,42,.10);
+      background: rgba(148,163,184,.12);
+      color: rgba(15,23,42,.85);
     }
 
-    .row2{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:var(--gap);
-      align-items:stretch;
-    }
-    @media (max-width: 1000px){ .row2{grid-template-columns:1fr} }
-
-    .panel{
-      background:rgba(13,24,44,0.88);
-      border:1px solid var(--line);
-      border-radius:var(--radius);
-      padding:12px;
+    /* Map */
+    #map{
+      width:100%;
+      height: 620px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
       overflow:hidden;
     }
-    .panel h3{
-      margin:0 0 8px;
-      font-size:14px;
-      color:var(--muted);
-      font-weight:700;
-      letter-spacing:0.2px;
+    .legend{
+      margin-top:10px;
+      font-size:12.5px;
+      color: rgba(15,23,42,.80);
+    }
+    .legend-item{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      margin: 4px 0;
+    }
+    .swatch{
+      width:12px;
+      height:12px;
+      border-radius: 2px;
+      border: 1px solid rgba(15,23,42,.15);
     }
 
-    /* tables */
-    table{
-      width:100%;
-      border-collapse:collapse;
-      font-size:13px;
-    }
-    th, td{
-      text-align:left;
-      padding:7px 8px;
-      border-bottom:1px solid var(--line);
-      white-space:nowrap;
-      vertical-align:top;
-    }
-    th{color:rgba(231,238,252,0.85);font-weight:700}
-    td{color:rgba(231,238,252,0.92)}
-    .table-wrap{overflow:auto; border-radius:12px}
-
-    /* map */
-    #map{height:680px;width:100%; border-radius:12px; overflow:hidden}
-    .legend-item{display:flex; align-items:center; gap:8px; margin:6px 0; font-size:12px; color:rgba(231,238,252,0.86)}
-    .swatch{width:12px;height:12px;border-radius:3px;display:inline-block}
-    .sub{color:var(--muted);font-size:13px}
-
-    /* print */
+    /* Print */
     @page { size: A4 portrait; margin: 1.5cm; }
     @media print{
-      body{background:#fff}
-      .wrap{max-width:none;padding:0}
-      .controls{display:none!important}
-      .section{box-shadow:none}
-      .no-print{display:none!important}
-      a[href]::after{content:""}
+      .controls, .no-print{ display:none !important; }
+      body{ background:#fff; }
+      .card{ box-shadow:none; }
+      .page-break{ break-before: page; page-break-before: always; }
+      .wrap{ max-width: none; padding:0; }
+      #map{ height: 520px; }
+    }
+
+    /* Responsivo */
+    @media (max-width: 1180px){
+      .kpis{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid2{ grid-template-columns: 1fr; }
+      .grid3{ grid-template-columns: 1fr; }
+      .topbar{ flex-direction:column; align-items:stretch; }
+      .controls{ justify-content:flex-start; }
+      #map{ height: 520px; }
     }
   </style>
 </head>
@@ -205,279 +250,328 @@
 <body>
   <div class="wrap">
     <div class="topbar">
-      <div class="titleblock">
+      <div>
         <h1>Insights de Vendas</h1>
-        <div class="sub" id="headerSub">Carregando…</div>
+        <div class="sub" id="subtitleLine"></div>
       </div>
 
       <div class="controls no-print">
-        <div>
-          <label for="repSel">Representante</label><br/>
-          <select id="repSel"></select>
+        <select id="repSelect" aria-label="Representante"></select>
+        <button id="btnPrint" type="button">Imprimir</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- KPIs -->
+    <div class="kpis" id="kpiGrid"></div>
+
+    <!-- 1) Destaques do período -->
+    <div class="section">
+      <div class="section-title">Destaques do período</div>
+      <div class="grid2">
+        <div class="card" id="highlightsFat"></div>
+        <div class="card" id="highlightsVol"></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 2) Evolução – Faturamento e Volume (comparativo) -->
+    <div class="section">
+      <div class="section-title">Evolução – Faturamento e Volume (comparativo)</div>
+      <div class="section-caption">
+        Dois gráficos em barras para comparar o período atual vs. período anterior.
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Faturamento (R$)</div>
+          <div class="chartBox"><canvas id="chartFat"></canvas></div>
         </div>
-        <div>
-          <label for="currLabel">Período atual</label><br/>
-          <select id="currLabel"></select>
-        </div>
-        <div>
-          <label for="prevLabel">Período anterior</label><br/>
-          <select id="prevLabel"></select>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px; padding-top:18px">
-          <button id="btnPrint">Imprimir</button>
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Volume (un)</div>
+          <div class="chartBox"><canvas id="chartVol"></canvas></div>
         </div>
       </div>
     </div>
 
     <div class="divider"></div>
 
-    <!-- 1. Performance Dashboard -->
-    <div class="section" id="secKpis">
-      <h2>Performance Dashboard</h2>
-      <div class="grid5" id="kpiGrid"></div>
-    </div>
+    <!-- 3) Categorias vendidas -->
+    <div class="section">
+      <div class="section-title">Categorias vendidas</div>
+      <div class="section-caption">
+        Período atual (detalhado) + Período anterior (snapshot: Categoria, Valor, %).
+      </div>
 
-    <!-- 2. Evolução – Faturamento e Volume (comparativo) -->
-    <div class="section" id="secEvolucao">
-      <h2>Evolução – Faturamento e Volume (comparativo)</h2>
-      <div class="row2">
-        <div class="panel">
-          <h3>Faturamento</h3>
-          <div id="chartFat" style="height:340px"></div>
+      <div class="grid2">
+        <!-- Atual -->
+        <div class="card">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div style="font-weight:800;">Período atual</div>
+            <div class="sub" id="catCaptionCurr"></div>
+          </div>
+          <div class="grid2" style="margin-top:10px;">
+            <div>
+              <div class="chartBox" style="height:360px;"><canvas id="pieCatCurr"></canvas></div>
+            </div>
+            <div>
+              <div style="font-weight:800; margin-bottom:6px;">Resumo (com Valor Anterior)</div>
+              <div style="overflow:auto; max-height: 360px;">
+                <table id="tblCatCurr"></table>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="panel">
-          <h3>Volume</h3>
-          <div id="chartVol" style="height:340px"></div>
+
+        <!-- Anterior snapshot -->
+        <div class="card">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div style="font-weight:800;">Período anterior</div>
+            <div class="sub" id="catCaptionPrev"></div>
+          </div>
+          <div class="grid2" style="margin-top:10px;">
+            <div>
+              <div class="chartBox" style="height:360px;"><canvas id="pieCatPrev"></canvas></div>
+            </div>
+            <div>
+              <div style="font-weight:800; margin-bottom:6px;">Resumo (snapshot)</div>
+              <div style="overflow:auto; max-height: 360px;">
+                <table id="tblCatPrev"></table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 3. Categorias vendidas -->
-    <div class="section" id="secCategorias">
-      <h2>Categorias vendidas</h2>
-      <div class="row2">
-        <div class="panel">
-          <h3>Período atual</h3>
-          <div id="pieCategoriasCurr" style="height:520px"></div>
-          <div class="sub" id="catCurrHint"></div>
-        </div>
-        <div class="panel">
-          <h3>Período anterior</h3>
-          <div id="pieCategoriasPrev" style="height:520px"></div>
-          <div class="sub" id="catPrevHint"></div>
-        </div>
-      </div>
-      <div style="height:10px"></div>
-      <div class="panel">
-        <h3>Tabela – Período atual (com Valor Anterior e % anterior)</h3>
-        <div class="table-wrap" id="tblCategorias"></div>
-      </div>
-    </div>
+    <div class="divider"></div>
 
-    <!-- 4. Mapa de Clientes -->
-    <div class="section" id="secMapa">
-      <h2>Mapa de Clientes</h2>
-      <div class="row2" style="grid-template-columns: 1.25fr 0.75fr;">
-        <div class="panel">
+    <!-- 4) Mapa de Clientes -->
+    <div class="section">
+      <div class="section-title">Mapa de Clientes</div>
+      <div class="section-caption">
+        Mapa por <b>Volume</b> (padrão). Sem alternância para faturamento.
+      </div>
+
+      <div class="grid2">
+        <div class="card">
           <div id="map"></div>
-          <div style="margin-top:10px" id="mapLegend"></div>
+          <div class="legend" id="mapLegend"></div>
         </div>
-        <div class="panel">
-          <h3>Cobertura</h3>
-          <div id="mapCoverage" class="sub">—</div>
-          <div style="height:10px"></div>
-          <h3>Principais clientes</h3>
-          <div class="table-wrap" id="tblTopClientes"></div>
-          <div style="height:12px"></div>
-          <h3>Clientes da cidade selecionada</h3>
-          <div class="sub" id="cityHint">Clique em um ponto no mapa.</div>
-          <div class="table-wrap" id="tblCityClientes"></div>
+
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:10px;">Cobertura</div>
+          <div class="grid3">
+            <div class="card" style="padding:12px;">
+              <div class="metric-title">Cidades atendidas</div>
+              <div class="metric-value" style="font-size:24px;" id="covCities">0</div>
+            </div>
+            <div class="card" style="padding:12px;">
+              <div class="metric-title">Estados atendidos</div>
+              <div class="metric-value" style="font-size:24px;" id="covStates">0</div>
+            </div>
+            <div class="card" style="padding:12px;">
+              <div class="metric-title">Clientes atendidos</div>
+              <div class="metric-value" style="font-size:24px;" id="covClients">0</div>
+            </div>
+          </div>
+
+          <div style="font-weight:800; margin:14px 0 8px;">Principais clientes</div>
+          <div style="overflow:auto; max-height: 520px;">
+            <table id="tblTopClients"></table>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 5. Distribuição por clientes -->
-    <div class="section" id="secClientesDist">
-      <h2>Distribuição por clientes</h2>
-      <div class="panel">
-        <div class="grid5" id="kpiDistGrid"></div>
-      </div>
-      <div style="height:12px"></div>
-      <div class="row2">
-        <div class="panel">
-          <h3>Participação (Top 10 destacados)</h3>
-          <div id="pieClientes" style="height:520px"></div>
+    <div class="divider"></div>
+
+    <!-- 5) Distribuição por clientes -->
+    <div class="section">
+      <div class="section-title">Distribuição por clientes</div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="grid3">
+          <div>
+            <div style="font-weight:800; margin-bottom:6px;">N80</div>
+            <div id="badgeN80"></div>
+            <div class="sub" style="margin-top:8px;">
+              Quantos clientes são necessários para atingir 80% do faturamento.
+            </div>
+          </div>
+          <div>
+            <div style="font-weight:800; margin-bottom:6px;">Índice de concentração (HHI)</div>
+            <div id="badgeHHI"></div>
+            <div class="sub" style="margin-top:8px;">
+              Baixa / Moderada / Alta concentração.
+            </div>
+          </div>
+          <div>
+            <div style="font-weight:800; margin-bottom:6px;">Top clientes</div>
+            <div class="sub" id="topSharesLine"></div>
+          </div>
         </div>
-        <div class="panel">
-          <h3>Resumo (Top 15)</h3>
-          <div class="table-wrap" id="tblClientes"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Participação dos clientes (Top 10 destacados)</div>
+          <div class="chartBox" style="height:420px;"><canvas id="pieClients"></canvas></div>
+        </div>
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Resumo (Top 15)</div>
+          <div style="overflow:auto; max-height: 420px;">
+            <table id="tblClientsTop"></table>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 6. Saúde da carteira – Detalhes -->
-    <div class="section" id="secCarteira">
-      <h2>Saúde da carteira – Detalhes</h2>
-      <div class="row2">
-        <div class="panel" id="carteiraScoreBox"></div>
-        <div class="panel">
-          <h3>Resumo por status</h3>
-          <div class="table-wrap" id="tblCarteiraResumo"></div>
+    <div class="divider"></div>
+
+    <!-- 6) Saúde da carteira – Detalhes -->
+    <div class="section">
+      <div class="section-title">Saúde da carteira – Detalhes</div>
+      <div class="grid2">
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:6px;">Pontuação</div>
+          <div id="badgeCarteira"></div>
+          <div class="sub" style="margin-top:10px;">
+            A pontuação reflete o comparativo entre período atual e anterior (manual) por status.
+          </div>
         </div>
-      </div>
-      <div style="height:12px"></div>
-      <div class="panel">
-        <h3>Distribuição de clientes por status</h3>
-        <div id="pieStatus" style="height:360px"></div>
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Resumo por status</div>
+          <div style="overflow:auto; max-height: 320px;">
+            <table id="tblStatusResumo"></table>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 7. Status dos clientes -->
-    <div class="section" id="secStatusClientes">
-      <h2>Status dos clientes</h2>
-      <div class="panel">
-        <div class="sub" style="margin-bottom:10px">
-          Buscar cliente:
-          <input id="searchCliente" placeholder="Digite parte do nome do cliente"
-                 style="margin-left:10px; width:380px; max-width:100%; padding:8px 10px; border-radius:12px; border:1px solid var(--line); background:rgba(13,24,44,0.85); color:var(--text);" />
+    <div class="page-break"></div>
+
+    <!-- 7) Status dos clientes -->
+    <div class="section">
+      <div class="section-title">Status dos clientes</div>
+      <div class="section-caption">Ordenado por Novos, Crescendo, Estáveis, Caindo, Perdidos.</div>
+
+      <div class="card no-print" style="margin-bottom: 12px;">
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <div style="font-weight:800;">Buscar cliente</div>
+          <input id="clientSearch" type="text" placeholder="Digite parte do nome do cliente"
+                 style="flex:1; min-width: 260px; padding:10px; border-radius:10px; border:1px solid var(--border); outline:none;">
         </div>
-        <div id="statusTables"></div>
       </div>
+
+      <div id="statusTables"></div>
     </div>
 
   </div>
 
   <script>
-    /**********************************************************************
-     * DATA LOADING
-     * Put your JSON here (recommended):
-     *   /reports/data/rep_reports.json
-     * so this HTML at /reports/insights_rep_report.html can fetch:
-     *   ./data/rep_reports.json
-     **********************************************************************/
-    const DATA_URLS = [
-      "./data/rep_reports.json",
-      "../data/rep_reports.json",
-      "./rep_reports.json"
-    ];
+    // ===== Defaults =====
+    Chart.defaults.font.family = "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    Chart.defaults.color = "rgba(15,23,42,.85)";
 
-    let DATA = null;
+    const STATUS_ORDER = ["Novos", "Crescendo", "Estáveis", "Caindo", "Perdidos"];
 
-    // Leaflet state
-    let leafletMap = null;
-    let leafletLayerGroup = null;
-    let lastCityKey = null;
-
-    // Colors / bins (same spirit as your Streamlit)
-    const MAP_BIN_COLORS = ["#22c55e","#eab308","#f97316","#ef4444"];
-
-    const STATUS_ORDER = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
-
-    // ---------- helpers ----------
-    const escapeHtml = (s) => String(s ?? "")
-      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;").replaceAll("'","&#039;");
-
+    // ===== Helpers =====
     const fmtBRL = (v) => {
-      const n = Number(v || 0);
-      return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+      v = Number(v || 0);
+      return "R$ " + v.toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2});
     };
     const fmtBRLCompact = (v) => {
-      const n = Number(v || 0);
-      const a = Math.abs(n);
-      if (a >= 1e9) return "R$ " + (n/1e9).toFixed(1).replace(".",",") + " bi";
-      if (a >= 1e6) return "R$ " + (n/1e6).toFixed(1).replace(".",",") + " mi";
-      if (a >= 1e3) return "R$ " + (n/1e3).toFixed(1).replace(".",",") + " mil";
-      return fmtBRL(n);
+      v = Number(v || 0);
+      const av = Math.abs(v);
+      if (av >= 1e9) return "R$ " + (v/1e9).toLocaleString("pt-BR",{maximumFractionDigits:1}) + " bi";
+      if (av >= 1e6) return "R$ " + (v/1e6).toLocaleString("pt-BR",{maximumFractionDigits:1}) + " mi";
+      if (av >= 1e3) return "R$ " + (v/1e3).toLocaleString("pt-BR",{maximumFractionDigits:1}) + " mil";
+      return fmtBRL(v);
     };
     const fmtUN = (v) => {
-      const n = Math.round(Number(v || 0));
-      return n.toLocaleString("pt-BR") + " un";
+      v = Math.round(Number(v || 0));
+      return v.toLocaleString("pt-BR") + " un";
     };
-    const pct = (x, digits=1) => (Number(x||0)*100).toFixed(digits).replace(".",",") + "%";
-    const pct1 = (x) => (Number(x||0)*100).toFixed(1).replace(".",",") + "%";
-
-    const toNum = (x) => {
-      if (x === null || x === undefined) return NaN;
-      if (typeof x === "number") return x;
-      // supports "-23,55" and "-23.55"
-      const s = String(x).trim().replace(",", ".");
-      const n = Number(s);
-      return Number.isFinite(n) ? n : NaN;
+    const fmtPct = (v) => {
+      v = Number(v || 0);
+      return (v*100).toLocaleString("pt-BR", {maximumFractionDigits:1}) + "%";
     };
 
-    const badgeHtml = (text, color) =>
-      `<span class="badge dot" style="color:${color}; border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.06)">
-        ${escapeHtml(text)}
-      </span>`;
+    const badgeHTML = (text, colorHex) => {
+      const bg = hexToRgba(colorHex, 0.12);
+      return `<span class="badge" style="background:${bg}; border-color:${hexToRgba(colorHex,0.28)}; color:${hexToRgba(colorHex,0.95)}">${escapeHtml(text)}</span>`;
+    };
 
-    // ---------- scoring colors (match your “color code” idea) ----------
-    // N80 ratio: smaller ratio (needs fewer clients to reach 80%) => more concentrated => worse
+    const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    }[m]));
+
+    const hexToRgba = (hex, a) => {
+      const h = hex.replace("#","").trim();
+      const r = parseInt(h.substring(0,2),16);
+      const g = parseInt(h.substring(2,4),16);
+      const b = parseInt(h.substring(4,6),16);
+      return `rgba(${r},${g},${b},${a})`;
+    };
+
+    // Color rules (igual ao que você pediu: “não ficar sempre verde”)
     const colorForN80Ratio = (ratio) => {
-      const r = Number(ratio || 0);
-      if (r <= 0.10) return "var(--red)";
-      if (r <= 0.18) return "var(--orange)";
-      if (r <= 0.28) return "var(--yellow)";
-      return "var(--green)";
+      // ratio = N80 / clientes_atendidos (quanto menor, mais concentrado -> pior)
+      // Exemplo de thresholds: ajuste se quiser.
+      if (ratio <= 0.10) return "#ef4444"; // muito concentrado
+      if (ratio <= 0.18) return "#f97316";
+      if (ratio <= 0.26) return "#eab308";
+      return "#22c55e"; // mais distribuído
     };
-    // HHI value: higher => more concentrated => worse
+
     const colorForHHI = (hhi) => {
-      const v = Number(hhi || 0);
-      if (v >= 0.20) return "var(--red)";
-      if (v >= 0.10) return "var(--orange)";
-      if (v >= 0.07) return "var(--yellow)";
-      return "var(--green)";
+      // hhi: baixa <0.10, moderada <0.20, alta >=0.20
+      if (hhi >= 0.20) return "#ef4444";
+      if (hhi >= 0.10) return "#eab308";
+      return "#22c55e";
     };
-    // carteira score 0..100
+
     const colorForCarteiraScore = (score) => {
-      const s = Number(score || 0);
-      if (s < 30) return "var(--red)";
-      if (s < 50) return "var(--orange)";
-      if (s < 70) return "var(--yellow)";
-      return "var(--green)";
+      // score 0-100
+      if (score < 30) return "#ef4444";
+      if (score < 50) return "#f97316";
+      if (score < 70) return "#eab308";
+      return "#22c55e";
     };
 
-    // ---------- dynamic bins (same concept as Streamlit) ----------
-    const buildDynamicBins = (values, isValor) => {
-      const cleaned = (values || [])
-        .map(v => Number(v))
-        .filter(v => Number.isFinite(v) && v >= 0)
-        .sort((a,b)=>a-b);
+    // Map bins (mesmas cores do Streamlit)
+    const MAP_BIN_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444"];
 
-      const fmt = (v) => isValor ? ("R$ " + Math.round(v).toLocaleString("pt-BR")) : (Math.round(v).toLocaleString("pt-BR") + " un");
-
+    const buildDynamicBins = (values, isMoney) => {
+      const cleaned = values.map(v => Number(v)).filter(v => Number.isFinite(v) && v >= 0).sort((a,b)=>a-b);
+      const fmt = (v) => isMoney ? ("R$ " + Math.round(v).toLocaleString("pt-BR")) : (Math.round(v).toLocaleString("pt-BR") + " un");
       if (!cleaned.length){
-        if (isValor){
-          return [
-            {min:1_000_000,color:MAP_BIN_COLORS[0],label:"R$ 1.000.000+"},
-            {min:500_000,color:MAP_BIN_COLORS[1],label:"R$ 500.000 - 999.999"},
-            {min:250_000,color:MAP_BIN_COLORS[2],label:"R$ 250.000 - 499.999"},
-            {min:0,color:MAP_BIN_COLORS[3],label:"R$ 0 - 249.999"},
-          ];
-        }
-        return [
+        return isMoney ? [
+          {min:1_000_000,color:MAP_BIN_COLORS[0],label:"R$ 1.000.000+"},
+          {min:500_000,color:MAP_BIN_COLORS[1],label:"R$ 500.000 - 999.999"},
+          {min:250_000,color:MAP_BIN_COLORS[2],label:"R$ 250.000 - 499.999"},
+          {min:0,color:MAP_BIN_COLORS[3],label:"R$ 0 - 249.999"},
+        ] : [
           {min:10_000,color:MAP_BIN_COLORS[0],label:"10.000 un+"},
           {min:5_000,color:MAP_BIN_COLORS[1],label:"5.000 - 9.999 un"},
           {min:2_500,color:MAP_BIN_COLORS[2],label:"2.500 - 4.999 un"},
           {min:0,color:MAP_BIN_COLORS[3],label:"0 - 2.499 un"},
         ];
       }
-
       const n = cleaned.length;
-      const minVal = cleaned[0];
-      const maxVal = cleaned[n-1];
+      const minVal = cleaned[0], maxVal = cleaned[n-1];
       if (minVal === maxVal){
-        const labelSingle = fmt(minVal);
-        const color = MAP_BIN_COLORS[0];
+        const label = fmt(minVal);
         return [
-          {min:minVal,color,label:labelSingle},
-          {min:minVal,color,label:labelSingle},
-          {min:minVal,color,label:labelSingle},
-          {min:0,color,label:labelSingle},
+          {min:minVal,color:MAP_BIN_COLORS[0],label:label},
+          {min:minVal,color:MAP_BIN_COLORS[0],label:label},
+          {min:minVal,color:MAP_BIN_COLORS[0],label:label},
+          {min:0,color:MAP_BIN_COLORS[0],label:label},
         ];
       }
-
-      const idx = (p) => Math.floor(p*(n-1));
+      const idx = (p)=> Math.floor(p*(n-1));
       const q1 = cleaned[idx(0.25)];
       const q2 = cleaned[idx(0.50)];
       const q3 = cleaned[idx(0.75)];
@@ -496,617 +590,601 @@
     };
 
     const getBin = (v, bins) => {
-      for (const b of bins) if (Number(v) >= b.min) return b;
+      for (const b of bins){
+        if (Number(v) >= b.min) return b;
+      }
       return bins[bins.length-1];
     };
 
-    // ---------- HTML builders ----------
-    const kpiCard = (label, value, deltaHtml="") => `
-      <div class="kpi">
-        <div class="label">${escapeHtml(label)}</div>
-        <div class="value">${escapeHtml(value)}</div>
-        <div class="delta">${deltaHtml || ""}</div>
-      </div>
-    `;
+    // ===== Charts holders =====
+    let chartFat, chartVol, pieCatCurr, pieCatPrev, pieClients;
+    let leafletMap, leafletLayerGroup;
 
-    const tableHtml = (cols, rows) => {
-      let h = `<table><thead><tr>${cols.map(c=>`<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>`;
-      for (const r of rows){
-        h += "<tr>" + cols.map(c => `<td>${r[c] ?? ""}</td>`).join("") + "</tr>";
+    // ===== Data loading =====
+    // Opção 1: embutir dados no próprio HTML (window.REPORTS = {...})
+    // Opção 2: colocar um JSON ao lado do HTML (./rep_reports.json) e carregar via fetch.
+    //
+    // Estrutura esperada do JSON:
+    // {
+    //   "meta": { "currentLabel":"JAN 25 - DEZ 25", "previousLabel":"JAN 24 - DEZ 24" },
+    //   "reps": [
+    //     {
+    //       "rep":"NOME DO REP",
+    //       "kpis": { "fat":123, "vol":456, "clientes":100, "cidades":50, "estados":10,
+    //                 "n80":35, "n80Ratio":0.18, "hhi":0.145, "hhiLabel":"Moderada",
+    //                 "top1":0.12, "top3":0.29, "top10":0.55,
+    //                 "carteiraScore":62, "carteiraLabel":"Neutra"
+    //       },
+    //       "highlights": {
+    //         "fat": { "bestMonth":"AGO 25", "bestValue": 123, "worstMonth":"JAN 25", "worstValue": 50 },
+    //         "vol": { "bestMonth":"SET 25", "bestValue": 10000, "worstMonth":"JAN 25", "worstValue": 2000 }
+    //       },
+    //       "evolucao": {
+    //          "months": ["JAN 25","FEV 25",...],
+    //          "fatCurr": [..], "fatPrev":[..],
+    //          "volCurr": [..], "volPrev":[..]
+    //       },
+    //       "categorias": {
+    //          "curr":[{"categoria":"X","valor":100,"pct":0.2,"valorAnterior":90,"pctAnterior":0.18}, ...],
+    //          "prev":[{"categoria":"X","valor":90,"pct":0.18}, ...]
+    //       },
+    //       "map": {
+    //          "cities":[{"cidade":"São Paulo","uf":"SP","lat":-23.5,"lon":-46.6,"clientes":10,"fat":100,"vol":2000}, ...]
+    //       },
+    //       "clientsDist": {
+    //          "pie":[{"grupo":"Cliente A","valor":100,"pct":0.15}, {"grupo":"Outros","valor":400,"pct":0.60}],
+    //          "top":[{"cliente":"Cliente A","cidade":"X","uf":"SP","fat":100,"vol":2000,"pct":0.15}, ...]
+    //       },
+    //       "carteiraStatusResumo":[
+    //          {"status":"Novos","qtdClientes":10,"pctClientes":0.1,"fatDelta":123},
+    //          ...
+    //       ],
+    //       "statusClientes":{
+    //          "Novos":[{"cliente":"A","uf":"SP","cidade":"X","fatAtual":100,"fatAnterior":0,"volAtual":10,"volAnterior":0}, ...],
+    //          ...
+    //       }
+    //     }
+    //   ]
+    // }
+    //
+    const loadReports = async () => {
+      if (window.REPORTS && window.REPORTS.reps) return window.REPORTS;
+      try{
+        const r = await fetch("./rep_reports.json", {cache:"no-store"});
+        if (!r.ok) throw new Error("Não encontrei ./rep_reports.json (coloque o JSON na mesma pasta do HTML).");
+        return await r.json();
+      }catch(e){
+        // Fallback: tenta um caminho comum no seu repo
+        try{
+          const r2 = await fetch("../data/rep_reports.json", {cache:"no-store"});
+          if (!r2.ok) throw e;
+          return await r2.json();
+        }catch(e2){
+          throw e2;
+        }
       }
-      h += "</tbody></table>";
-      return h;
     };
 
-    // ---------- Plotly default theme ----------
-    const PLOT_LAYOUT_BASE = {
-      paper_bgcolor: "rgba(0,0,0,0)",
-      plot_bgcolor: "rgba(0,0,0,0)",
-      font: {family: getComputedStyle(document.documentElement).getPropertyValue("--font").trim(), color: "rgba(231,238,252,0.92)"},
-      margin: {l: 50, r: 18, t: 12, b: 42},
-      xaxis: {gridcolor:"rgba(255,255,255,0.06)", zerolinecolor:"rgba(255,255,255,0.06)"},
-      yaxis: {gridcolor:"rgba(255,255,255,0.06)", zerolinecolor:"rgba(255,255,255,0.06)"},
-      showlegend: true,
-      legend: {orientation:"h", y:1.10, x:0, font:{size:12}},
+    // ===== Render functions =====
+    const setSubtitle = (repName, meta) => {
+      const cur = meta?.currentLabel ?? "-";
+      const prev = meta?.previousLabel ?? "-";
+      document.getElementById("subtitleLine").innerHTML =
+        `Representante: <b>${escapeHtml(repName)}</b><br>` +
+        `Período atual: ${escapeHtml(cur)} &nbsp;&nbsp;|&nbsp;&nbsp; Período anterior: ${escapeHtml(prev)}`;
     };
 
-    // ---------- Renderers ----------
-    function renderHeader(rep, currLabel, prevLabel){
-      const repName = rep === "Todos" ? "Todos" : rep;
-      document.getElementById("headerSub").innerHTML =
-        `Representante: <b>${escapeHtml(repName)}</b> &nbsp;|&nbsp; ` +
-        `Período atual: <b>${escapeHtml(currLabel)}</b> &nbsp;|&nbsp; ` +
-        `Período anterior: <b>${escapeHtml(prevLabel)}</b>`;
-    }
-
-    function renderKpis(repObj){
-      const k = repObj?.kpis || {};
-      const clientesAtendidos = Number(k.clientes_atendidos || 0);
-      const n80 = Number(k.n80_count || 0);
-      const n80Ratio = clientesAtendidos > 0 ? (n80 / clientesAtendidos) : 0;
-
-      const hhi = Number(k.hhi_value || 0);
-      const hhiLabel = k.hhi_label_short || "—";
-
-      const carteiraScore = Number(k.carteira_score || 50);
-      const carteiraLabel = k.carteira_label || "Neutra";
-
-      // remove the “green text”: we DO NOT print deltas as plain green; use badge only
+    const renderKPIs = (k) => {
       const grid = document.getElementById("kpiGrid");
-      grid.innerHTML = [
-        kpiCard("Total período", fmtBRLCompact(k.total_faturamento || 0)),
-        kpiCard("Volume período", fmtUN(k.total_volume || 0)),
-        kpiCard(
-          "Distribuição por clientes",
-          hhiLabel,
-          badgeHtml(`N80: ${n80} clientes (${pct(n80Ratio,0)} da carteira)`, `rgb(${getCssColor(colorForN80Ratio(n80Ratio))})`) +
-          "&nbsp;&nbsp;" +
-          badgeHtml(`HHI: ${hhi.toFixed(3)}`, `rgb(${getCssColor(colorForHHI(hhi))})`)
-        ),
-        kpiCard(
-          "Saúde da carteira",
-          `${Math.round(carteiraScore)} / 100`,
-          badgeHtml(carteiraLabel, `rgb(${getCssColor(colorForCarteiraScore(carteiraScore))})`)
-        ),
-        kpiCard("Clientes atendidos", String(clientesAtendidos)),
-      ].join("");
-    }
+      grid.innerHTML = "";
 
-    // Convert CSS var colors to rgb string for consistent badge/dot usage
-    function getCssColor(cssVarOrColor){
-      // returns "r,g,b" (no alpha)
-      const dummy = document.createElement("div");
-      dummy.style.color = cssVarOrColor;
-      document.body.appendChild(dummy);
-      const c = getComputedStyle(dummy).color; // "rgb(r,g,b)" or "rgba(...)"
-      dummy.remove();
-      const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-      if (!m) return "255,255,255";
-      return `${m[1]},${m[2]},${m[3]}`;
-    }
+      const cards = [
+        { title:"Total período", value: fmtBRLCompact(k.fat), sub:"" },
+        { title:"Volume período", value: fmtUN(k.vol), sub:"" },
+        { title:"Distribuição por clientes", value: k.hhiLabel ?? "-", sub:`N80: ${k.n80 ?? 0} clientes` },
+        { title:"Saúde da carteira", value: `${Math.round(k.carteiraScore ?? 50)} / 100`, sub: (k.carteiraLabel ?? "-") },
+        { title:"Clientes atendidos", value: (k.clientes ?? 0).toLocaleString("pt-BR"), sub:"" },
+      ];
 
-    function renderEvolucao(repObj){
-      const evo = repObj?.evolucao || {};
-      const curr = Array.isArray(evo.curr) ? evo.curr : [];
-      const prev = Array.isArray(evo.prev) ? evo.prev : [];
+      for (const c of cards){
+        const el = document.createElement("div");
+        el.className = "card";
+        el.innerHTML =
+          `<div class="metric-title">${escapeHtml(c.title)}</div>`+
+          `<div class="metric-value">${escapeHtml(c.value)}</div>`+
+          `<div class="metric-sub">${escapeHtml(c.sub)}</div>`;
+        grid.appendChild(el);
+      }
+    };
 
-      // expects items like: {label:"JAN 25", faturamento:123, volume:456}
-      const xCurr = curr.map(d => d.label);
-      const yFatCurr = curr.map(d => Number(d.faturamento || 0));
-      const yVolCurr = curr.map(d => Number(d.volume || 0));
+    const renderHighlights = (h) => {
+      const fat = h?.fat || {};
+      const vol = h?.vol || {};
 
-      const xPrev = prev.map(d => d.label);
-      const yFatPrev = prev.map(d => Number(d.faturamento || 0));
-      const yVolPrev = prev.map(d => Number(d.volume || 0));
+      const fatEl = document.getElementById("highlightsFat");
+      fatEl.innerHTML =
+        `<div style="font-weight:800; margin-bottom:8px;">Faturamento</div>`+
+        `• Melhor mês: <b>${escapeHtml(fat.bestMonth ?? "-")}</b> — ${fmtBRL(fat.bestValue ?? 0)}<br>`+
+        `• Pior mês: <b>${escapeHtml(fat.worstMonth ?? "-")}</b> — ${fmtBRL(fat.worstValue ?? 0)}`;
 
-      // bar comparative: overlay bars with slight opacity
-      Plotly.newPlot("chartFat", [
-        {type:"bar", x:xPrev, y:yFatPrev, name:"Período anterior", marker:{color:"rgba(231,238,252,0.28)"}, hovertemplate:"%{x}<br>Anterior: %{y:,}<extra></extra>"},
-        {type:"bar", x:xCurr, y:yFatCurr, name:"Período atual", marker:{color:"rgba(56,189,248,0.85)"}, hovertemplate:"%{x}<br>Atual: %{y:,}<extra></extra>"},
-      ], {
-        ...PLOT_LAYOUT_BASE,
-        barmode:"overlay",
-        yaxis:{...PLOT_LAYOUT_BASE.yaxis, title:"Faturamento (R$)"},
-        xaxis:{...PLOT_LAYOUT_BASE.xaxis, title:null},
-      }, {displayModeBar:false, responsive:true});
+      const volEl = document.getElementById("highlightsVol");
+      volEl.innerHTML =
+        `<div style="font-weight:800; margin-bottom:8px;">Volume</div>`+
+        `• Melhor mês: <b>${escapeHtml(vol.bestMonth ?? "-")}</b> — ${fmtUN(vol.bestValue ?? 0)}<br>`+
+        `• Pior mês: <b>${escapeHtml(vol.worstMonth ?? "-")}</b> — ${fmtUN(vol.worstValue ?? 0)}`;
+    };
 
-      Plotly.newPlot("chartVol", [
-        {type:"bar", x:xPrev, y:yVolPrev, name:"Período anterior", marker:{color:"rgba(231,238,252,0.28)"}, hovertemplate:"%{x}<br>Anterior: %{y:,}<extra></extra>"},
-        {type:"bar", x:xCurr, y:yVolCurr, name:"Período atual", marker:{color:"rgba(34,197,94,0.85)"}, hovertemplate:"%{x}<br>Atual: %{y:,}<extra></extra>"},
-      ], {
-        ...PLOT_LAYOUT_BASE,
-        barmode:"overlay",
-        yaxis:{...PLOT_LAYOUT_BASE.yaxis, title:"Volume (un)"},
-        xaxis:{...PLOT_LAYOUT_BASE.xaxis, title:null},
-      }, {displayModeBar:false, responsive:true});
-    }
+    const renderBarCompare = (canvasId, labels, curr, prev) => {
+      const ctx = document.getElementById(canvasId);
+      const data = {
+        labels,
+        datasets: [
+          { label:"Atual", data: curr, backgroundColor:"#38bdf8", borderRadius:8 },
+          { label:"Anterior", data: prev, backgroundColor:"#22c55e", borderRadius:8 },
+        ]
+      };
+      const opt = {
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{
+          legend:{ position:"top", labels:{ boxWidth: 10, boxHeight: 10 } },
+          tooltip:{
+            callbacks:{
+              label: (c)=>{
+                const v = Number(c.raw||0);
+                if (canvasId === "chartVol") return `${c.dataset.label}: ${fmtUN(v)}`;
+                return `${c.dataset.label}: ${fmtBRL(v)}`;
+              }
+            }
+          }
+        },
+        scales:{
+          x:{ grid:{ display:false } },
+          y:{ ticks:{
+            callback:(v)=> (canvasId === "chartVol") ? v.toLocaleString("pt-BR") : ("R$ " + Number(v).toLocaleString("pt-BR"))
+          }}
+        }
+      };
 
-    function renderCategorias(repObj, currLabel, prevLabel){
-      const cats = repObj?.categorias || {};
-      const curr = Array.isArray(cats.curr) ? cats.curr : []; // [{categoria, valor, pct}]
-      const prev = Array.isArray(cats.prev) ? cats.prev : []; // same
+      return new Chart(ctx, {type:"bar", data, options: opt});
+    };
 
-      // Pie for current
-      const currNames = curr.map(d => `${d.categoria} ${(Number(d.pct||0)*100).toFixed(1)}%`);
-      const currVals = curr.map(d => Number(d.valor||0));
-      Plotly.newPlot("pieCategoriasCurr", [{
-        type:"pie",
-        values: currVals,
-        labels: currNames,
-        hole: 0.35,
-        textinfo:"none"
-      }], {
-        ...PLOT_LAYOUT_BASE,
-        showlegend:false,
-        margin:{l:10,r:10,t:10,b:10}
-      }, {displayModeBar:false, responsive:true});
-      document.getElementById("catCurrHint").innerHTML = `Período atual: <b>${escapeHtml(currLabel)}</b>`;
+    const palettePie = ["#38bdf8","#22c55e","#eab308","#f97316","#ef4444","#94a3b8","#a855f7","#14b8a6"];
 
-      // Pie for prev
-      const prevNames = prev.map(d => `${d.categoria} ${(Number(d.pct||0)*100).toFixed(1)}%`);
-      const prevVals = prev.map(d => Number(d.valor||0));
-      Plotly.newPlot("pieCategoriasPrev", [{
-        type:"pie",
-        values: prevVals,
-        labels: prevNames,
-        hole: 0.35,
-        textinfo:"none"
-      }], {
-        ...PLOT_LAYOUT_BASE,
-        showlegend:false,
-        margin:{l:10,r:10,t:10,b:10}
-      }, {displayModeBar:false, responsive:true});
-      document.getElementById("catPrevHint").innerHTML = `Período anterior: <b>${escapeHtml(prevLabel)}</b>`;
+    const renderPie = (canvasId, rows, valueKey, labelKey) => {
+      const ctx = document.getElementById(canvasId);
+      const labels = rows.map(r => r[labelKey]);
+      const values = rows.map(r => Number(r[valueKey] || 0));
 
-      // Table: current with Valor Anterior and % anterior
-      // We'll merge by categoria name
-      const prevMap = new Map(prev.map(p => [String(p.categoria||""), p]));
-      const totalCurr = currVals.reduce((a,b)=>a+b,0) || 1;
+      return new Chart(ctx, {
+        type:"doughnut",
+        data:{
+          labels,
+          datasets:[{
+            data: values,
+            backgroundColor: labels.map((_,i)=> palettePie[i % palettePie.length]),
+            borderWidth:0
+          }]
+        },
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          cutout:"55%",
+          plugins:{
+            legend:{ display:false },
+            tooltip:{
+              callbacks:{
+                label:(c)=>{
+                  const v = Number(c.raw||0);
+                  const total = c.dataset.data.reduce((a,b)=>a+Number(b||0),0) || 1;
+                  const pct = v/total;
+                  return `${c.label}: ${fmtBRL(v)} (${fmtPct(pct)})`;
+                }
+              }
+            }
+          }
+        }
+      });
+    };
 
-      const rows = curr
-        .slice()
-        .sort((a,b)=>Number(b.valor||0)-Number(a.valor||0))
-        .map(c => {
-          const p = prevMap.get(String(c.categoria||"")) || {valor:0,pct:0};
-          return {
-            "Categoria": escapeHtml(c.categoria),
-            "Valor": escapeHtml(fmtBRL(c.valor||0)),
-            "%": escapeHtml(pct1((c.valor||0)/totalCurr)),
-            "Valor Anterior": escapeHtml(fmtBRL(p.valor||0)),
-            "% Anterior": escapeHtml(pct1(Number(p.pct||0))),
-          };
-        });
+    const buildTable = (tableId, cols, rows) => {
+      const tbl = document.getElementById(tableId);
+      const thead = `<thead><tr>${cols.map(c=>`<th>${escapeHtml(c.title)}</th>`).join("")}</tr></thead>`;
+      const tbody = `<tbody>${
+        rows.map(r=>`<tr>${
+          cols.map(c=>{
+            const raw = r[c.key];
+            const val = c.fmt ? c.fmt(raw, r) : (raw ?? "");
+            const cls = c.align === "right" ? "td-right" : "";
+            return `<td class="${cls}">${escapeHtml(val)}</td>`;
+          }).join("")
+        }</tr>`).join("")
+      }</tbody>`;
+      tbl.innerHTML = thead + tbody;
+    };
 
-      document.getElementById("tblCategorias").innerHTML =
-        tableHtml(["Categoria","Valor","%","Valor Anterior","% Anterior"], rows);
-    }
+    const renderCategorias = (cat, meta) => {
+      const curr = (cat?.curr || []).slice();
+      const prev = (cat?.prev || []).slice();
 
-    function renderMapa(repObj){
-      const mapObj = repObj?.mapa || {};
-      const rawCities = Array.isArray(mapObj.cities) ? mapObj.cities : [];
+      document.getElementById("catCaptionCurr").textContent = meta?.currentLabel ?? "";
+      document.getElementById("catCaptionPrev").textContent = meta?.previousLabel ?? "";
 
-      // Normalize + parse coords
-      const cities = rawCities.map(c => ({
-        cidade: c.cidade ?? c.Cidade ?? c.CIDADE ?? "",
-        uf: c.uf ?? c.UF ?? c.estado ?? c.Estado ?? "",
-        lat: toNum(c.lat ?? c.latitude ?? c.Lat ?? c.LAT),
-        lon: toNum(c.lon ?? c.lng ?? c.longitude ?? c.Lon ?? c.LON),
-        vol: Number(c.vol ?? c.volume ?? c.Volume ?? c.Quantidade ?? 0),
-        fat: Number(c.fat ?? c.faturamento ?? c.Valor ?? c.valor ?? 0),
-        clientes: Number(c.clientes ?? c.Clientes ?? 0),
-      })).filter(c => Number.isFinite(c.lat) && Number.isFinite(c.lon));
-
-      // rebuild map cleanly on rep change
-      const container = document.getElementById("map");
-      container.innerHTML = "";
-      if (leafletMap) {
-        leafletMap.remove();
-        leafletMap = null;
-        leafletLayerGroup = null;
+      // Curr pie: top10 + Outras (como no streamlit)
+      const currSorted = curr.slice().sort((a,b)=> (b.valor||0)-(a.valor||0));
+      let pieCurr = currSorted.slice(0,10);
+      if (currSorted.length > 10){
+        const othersVal = currSorted.slice(10).reduce((s,x)=>s+Number(x.valor||0),0);
+        pieCurr = pieCurr.concat([{categoria:"Outras", valor: othersVal}]);
       }
 
-      leafletMap = L.map(container, { zoomControl: true });
+      // Prev pie: top10 + Outras
+      const prevSorted = prev.slice().sort((a,b)=> (b.valor||0)-(a.valor||0));
+      let piePrev = prevSorted.slice(0,10);
+      if (prevSorted.length > 10){
+        const othersVal = prevSorted.slice(10).reduce((s,x)=>s+Number(x.valor||0),0);
+        piePrev = piePrev.concat([{categoria:"Outras", valor: othersVal}]);
+      }
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors",
-        maxZoom: 18
-      }).addTo(leafletMap);
+      if (pieCatCurr) pieCatCurr.destroy();
+      if (pieCatPrev) pieCatPrev.destroy();
+      pieCatCurr = renderPie("pieCatCurr", pieCurr, "valor", "categoria");
+      pieCatPrev = renderPie("pieCatPrev", piePrev, "valor", "categoria");
 
-      leafletLayerGroup = L.layerGroup().addTo(leafletMap);
+      // Table Curr: add Valor Anterior and % anterior
+      buildTable("tblCatCurr",
+        [
+          {title:"Categoria", key:"categoria"},
+          {title:"Valor", key:"valor", align:"right", fmt:(v)=> fmtBRL(v)},
+          {title:"%", key:"pct", align:"right", fmt:(v)=> fmtPct(v)},
+          {title:"Valor Anterior", key:"valorAnterior", align:"right", fmt:(v)=> fmtBRL(v)},
+          {title:"% Anterior", key:"pctAnterior", align:"right", fmt:(v)=> fmtPct(v)},
+        ],
+        currSorted.slice(0, 25)
+      );
+
+      // Table Prev snapshot: only Categoria, Valor, %
+      buildTable("tblCatPrev",
+        [
+          {title:"Categoria", key:"categoria"},
+          {title:"Valor", key:"valor", align:"right", fmt:(v)=> fmtBRL(v)},
+          {title:"%", key:"pct", align:"right", fmt:(v)=> fmtPct(v)},
+        ],
+        prevSorted.slice(0, 25)
+      );
+    };
+
+    const renderMap = (mdata) => {
+      const cities = (mdata?.cities || []).filter(x =>
+        Number.isFinite(Number(x.lat)) && Number.isFinite(Number(x.lon))
+      );
+
+      // Default is Volume
+      const metricKey = "vol";
+      const values = cities.map(c => Number(c[metricKey] || 0));
+      const bins = buildDynamicBins(values, false);
+
+      // init leaflet once
+      if (!leafletMap){
+        leafletMap = L.map("map", { zoomControl: true });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "© OpenStreetMap contributors",
+          maxZoom: 18
+        }).addTo(leafletMap);
+
+        leafletLayerGroup = L.layerGroup().addTo(leafletMap);
+      }
+
+      leafletLayerGroup.clearLayers();
 
       if (!cities.length){
         leafletMap.setView([-14.2, -51.9], 4);
-        document.getElementById("mapLegend").innerHTML =
-          `<div class="sub">Sem coordenadas para exibir no mapa (verifique o merge com cidades_br_geo.csv).</div>`;
-        document.getElementById("mapCoverage").innerHTML = "—";
-        document.getElementById("tblTopClientes").innerHTML = "";
-        document.getElementById("tblCityClientes").innerHTML = "";
-        document.getElementById("cityHint").textContent = "Sem pontos no mapa para este recorte.";
-        setTimeout(() => leafletMap.invalidateSize(true), 60);
+        document.getElementById("mapLegend").innerHTML = `<div class="sub">Sem coordenadas para exibir no mapa.</div>`;
         return;
       }
-
-      // Default metric = Volume (requested)
-      const values = cities.map(c => Number(c.vol || 0));
-      const bins = buildDynamicBins(values, false);
 
       // center
-      const latAvg = cities.reduce((s, c) => s + c.lat, 0) / cities.length;
-      const lonAvg = cities.reduce((s, c) => s + c.lon, 0) / cities.length;
+      const latAvg = cities.reduce((s,c)=>s+Number(c.lat),0)/cities.length;
+      const lonAvg = cities.reduce((s,c)=>s+Number(c.lon),0)/cities.length;
       leafletMap.setView([latAvg, lonAvg], 5);
 
-      // legend
-      document.getElementById("mapLegend").innerHTML =
-        `<div style="font-weight:800; margin-bottom:6px;">Legenda – Volume (un)</div>` +
-        bins.map(b => `
-          <div class="legend-item">
-            <span class="swatch" style="background:${b.color}"></span>${escapeHtml(b.label)}
-          </div>
-        `).join("");
-
-      // coverage
-      const cov = repObj?.kpis || {};
-      document.getElementById("mapCoverage").innerHTML =
-        `Cidades atendidas: <b>${escapeHtml(String(cov.cidades_atendidas ?? "—"))}</b><br>` +
-        `Estados atendidos: <b>${escapeHtml(String(cov.estados_atendidos ?? "—"))}</b><br>` +
-        `Clientes atendidos: <b>${escapeHtml(String(cov.clientes_atendidos ?? "—"))}</b>`;
-
-      // markers
       for (const c of cities){
-        const b = getBin(c.vol || 0, bins);
+        const v = Number(c[metricKey] || 0);
+        const b = getBin(v, bins);
+        const color = b.color;
+
         const popup =
-          `<b>${escapeHtml(c.cidade)} - ${escapeHtml(c.uf)}</b><br>` +
-          `Volume: ${escapeHtml(fmtUN(c.vol||0))}<br>` +
-          `Faturamento: ${escapeHtml(fmtBRL(c.fat||0))}<br>` +
-          `Clientes: ${escapeHtml((c.clientes||0).toLocaleString("pt-BR"))}`;
+          `<b>${escapeHtml(c.cidade)} - ${escapeHtml(c.uf)}</b><br>`+
+          `Volume: ${escapeHtml(fmtUN(c.vol || 0))}<br>`+
+          `Faturamento: ${escapeHtml(fmtBRL(c.fat || 0))}<br>`+
+          `Clientes: ${escapeHtml((c.clientes || 0).toLocaleString("pt-BR"))}`;
 
-        const marker = L.circleMarker([c.lat, c.lon], {
+        L.circleMarker([Number(c.lat), Number(c.lon)], {
           radius: 6,
-          color: b.color,
-          fillColor: b.color,
-          fillOpacity: 0.85,
+          color,
+          fillColor: color,
+          fillOpacity: 0.8,
           weight: 1
-        });
-
-        marker.on("click", () => {
-          lastCityKey = `${c.cidade}|||${c.uf}`;
-          renderClientesCidade(repObj, c.cidade, c.uf);
-        });
-
-        marker.bindPopup(popup).addTo(leafletLayerGroup);
+        }).bindPopup(popup).addTo(leafletLayerGroup);
       }
 
-      // top clients table (add Volume next to Faturamento)
-      const tops = Array.isArray(mapObj.top_clients) ? mapObj.top_clients : [];
-      const topRows = tops.slice(0,15).map(t => ({
-        "Cliente": escapeHtml(t.cliente || ""),
-        "Cidade": escapeHtml(t.cidade || ""),
-        "UF": escapeHtml(t.uf || ""),
-        "Volume": escapeHtml(fmtUN(t.volume || 0)),
-        "Faturamento": escapeHtml(fmtBRL(t.faturamento || 0)),
-      }));
-      document.getElementById("tblTopClientes").innerHTML =
-        topRows.length ? tableHtml(["Cliente","Cidade","UF","Volume","Faturamento"], topRows)
-                       : `<div class="sub">Sem dados.</div>`;
-
-      // if last city exists, keep it selected across rep change IF present
-      if (lastCityKey){
-        const [lc, lu] = lastCityKey.split("|||");
-        const exists = cities.some(x => (x.cidade===lc && x.uf===lu));
-        if (exists) renderClientesCidade(repObj, lc, lu);
-        else {
-          document.getElementById("cityHint").textContent = "Clique em um ponto no mapa.";
-          document.getElementById("tblCityClientes").innerHTML = "";
-        }
-      } else {
-        document.getElementById("cityHint").textContent = "Clique em um ponto no mapa.";
-        document.getElementById("tblCityClientes").innerHTML = "";
-      }
-
-      // critical for GitHub Pages: ensure correct size after layout paint
-      setTimeout(() => leafletMap.invalidateSize(true), 60);
-    }
-
-    function renderClientesCidade(repObj, cidade, uf){
-      const mapObj = repObj?.mapa || {};
-      const cityList = Array.isArray(mapObj.city_clients) ? mapObj.city_clients : [];
-      const filtered = cityList.filter(x =>
-        String(x.cidade||"") === String(cidade||"") && String(x.uf||"") === String(uf||"")
-      );
-
-      document.getElementById("cityHint").innerHTML =
-        `Cidade selecionada: <b>${escapeHtml(cidade)} - ${escapeHtml(uf)}</b>`;
-
-      const rows = filtered
-        .slice()
-        .sort((a,b)=>Number(b.faturamento||0)-Number(a.faturamento||0))
-        .map(x => ({
-          "Cliente": escapeHtml(x.cliente || ""),
-          "Volume": escapeHtml(fmtUN(x.volume || 0)),
-          "Faturamento": escapeHtml(fmtBRL(x.faturamento || 0)),
-        }));
-
-      document.getElementById("tblCityClientes").innerHTML =
-        rows.length ? tableHtml(["Cliente","Volume","Faturamento"], rows)
-                    : `<div class="sub">Sem clientes cadastrados para esta cidade no recorte.</div>`;
-    }
-
-    function renderClientesDist(repObj){
-      const dist = repObj?.clientes_dist || {};
-      const k = dist.kpis || {};
-      const n80 = Number(k.n80 || 0);
-      const clientes = Number(k.clientes || 0);
-      const n80Ratio = clientes > 0 ? (n80 / clientes) : 0;
-
-      const hhi = Number(k.hhi || 0);
-      const top1 = Number(k.top1 || 0);
-      const top3 = Number(k.top3 || 0);
-      const top10 = Number(k.top10 || 0);
-
-      const grid = document.getElementById("kpiDistGrid");
-      grid.innerHTML = [
-        kpiCard("N80", String(n80), badgeHtml(`${pct(n80Ratio,0)} da carteira`, `rgb(${getCssColor(colorForN80Ratio(n80Ratio))})`)),
-        kpiCard("Índice de concentração", (k.hhi_label || "—"), badgeHtml(`HHI ${hhi.toFixed(3)}`, `rgb(${getCssColor(colorForHHI(hhi))})`)),
-        kpiCard("Top 1 cliente", pct1(top1)),
-        kpiCard("Top 3 clientes", pct1(top3)),
-        kpiCard("Top 10 clientes", pct1(top10)),
+      // legend
+      const legend = [
+        `<div style="font-weight:800; margin-bottom:6px;">Legenda – Volume (un)</div>`,
+        ...bins.map(b=>(
+          `<div class="legend-item"><span class="swatch" style="background:${b.color}"></span>${escapeHtml(b.label)}</div>`
+        ))
       ].join("");
+      document.getElementById("mapLegend").innerHTML = legend;
+    };
 
-      // pie
-      const pie = Array.isArray(dist.pie) ? dist.pie : [];
-      const labels = pie.map(d => `${d.label} ${(Number(d.share||0)*100).toFixed(1)}%`);
-      const vals = pie.map(d => Number(d.valor || 0));
-      Plotly.newPlot("pieClientes", [{
+    const renderTopClientsTable = (rows) => {
+      // Table: add Volume next to Faturamento (pedido)
+      buildTable("tblTopClients",
+        [
+          {title:"Cliente", key:"cliente"},
+          {title:"Cidade", key:"cidade"},
+          {title:"UF", key:"uf"},
+          {title:"Faturamento", key:"fat", align:"right", fmt:(v)=> fmtBRL(v)},
+          {title:"Volume", key:"vol", align:"right", fmt:(v)=> fmtUN(v)},
+        ],
+        (rows || []).slice(0, 15)
+      );
+    };
+
+    const renderDistribuicaoClientes = (k, dist) => {
+      // Badges (somente aqui)
+      const n80Text = `N80: ${k.n80 ?? 0} clientes (${Math.round((k.n80Ratio||0)*100)}% da carteira)`;
+      const n80Color = colorForN80Ratio(k.n80Ratio || 0);
+      document.getElementById("badgeN80").innerHTML = badgeHTML(n80Text, n80Color);
+
+      const hhiText = `${k.hhiLabel ?? "—"} (HHI ${(k.hhi ?? 0).toFixed(3)})`;
+      const hhiColor = colorForHHI(k.hhi || 0);
+      document.getElementById("badgeHHI").innerHTML = badgeHTML(hhiText, hhiColor);
+
+      document.getElementById("topSharesLine").textContent =
+        `Top 1: ${fmtPct(k.top1||0)} • Top 3: ${fmtPct(k.top3||0)} • Top 10: ${fmtPct(k.top10||0)}`;
+
+      // Pie
+      const pieRows = (dist?.pie || []).slice();
+      if (pieClients) pieClients.destroy();
+      pieClients = new Chart(document.getElementById("pieClients"),{
         type:"pie",
-        values: vals,
-        labels: labels,
-        hole: 0.00,
-        textinfo:"none"
-      }], {
-        ...PLOT_LAYOUT_BASE,
-        showlegend:false,
-        margin:{l:10,r:10,t:10,b:10}
-      }, {displayModeBar:false, responsive:true});
+        data:{
+          labels: pieRows.map(r=> r.grupo),
+          datasets:[{
+            data: pieRows.map(r=> Number(r.valor||0)),
+            backgroundColor: pieRows.map((_,i)=> palettePie[i % palettePie.length]),
+            borderWidth:0
+          }]
+        },
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          plugins:{
+            legend:{ display:false },
+            tooltip:{
+              callbacks:{
+                label:(c)=>{
+                  const v = Number(c.raw||0);
+                  const total = c.dataset.data.reduce((a,b)=>a+Number(b||0),0) || 1;
+                  const pct = v/total;
+                  return `${c.label}: ${fmtBRL(v)} (${fmtPct(pct)})`;
+                }
+              }
+            }
+          }
+        }
+      });
 
-      // table top 15
-      const tbl = Array.isArray(dist.table) ? dist.table : [];
-      const rows = tbl.slice(0,15).map(r => ({
-        "Cliente": escapeHtml(r.cliente||""),
-        "Cidade": escapeHtml(r.cidade||""),
-        "UF": escapeHtml(r.uf||""),
-        "Faturamento": escapeHtml(fmtBRL(r.faturamento||0)),
-        "% Faturamento": escapeHtml(pct1(r.share||0)),
-        "Volume": escapeHtml(fmtUN(r.volume||0))
-      }));
-      document.getElementById("tblClientes").innerHTML =
-        rows.length ? tableHtml(["Cliente","Cidade","UF","Faturamento","% Faturamento","Volume"], rows)
-                    : `<div class="sub">Sem dados.</div>`;
-    }
+      // Top table
+      buildTable("tblClientsTop",
+        [
+          {title:"Cliente", key:"cliente"},
+          {title:"Cidade", key:"cidade"},
+          {title:"UF", key:"uf"},
+          {title:"Faturamento", key:"fat", align:"right", fmt:(v)=> fmtBRL(v)},
+          {title:"% Fat", key:"pct", align:"right", fmt:(v)=> fmtPct(v)},
+          {title:"Volume", key:"vol", align:"right", fmt:(v)=> fmtUN(v)},
+        ],
+        (dist?.top || []).slice(0, 15)
+      );
+    };
 
-    function renderCarteira(repObj){
-      const car = repObj?.carteira || {};
-      const score = Number(car.score || 50);
-      const label = car.label || "Neutra";
-      const color = `rgb(${getCssColor(colorForCarteiraScore(score))})`;
+    const renderCarteira = (k, resumoRows) => {
+      const score = Number(k.carteiraScore ?? 50);
+      const label = k.carteiraLabel ?? "Neutra";
+      const color = colorForCarteiraScore(score);
+      document.getElementById("badgeCarteira").innerHTML = badgeHTML(`${Math.round(score)} / 100 — ${label}`, color);
 
-      document.getElementById("carteiraScoreBox").innerHTML =
-        `<h3>Pontuação – Saúde da carteira</h3>
-         <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
-           <div style="font-size:28px;font-weight:900">${Math.round(score)} / 100</div>
-           ${badgeHtml(label, color)}
-         </div>
-         <div class="sub" style="margin-top:10px">
-           A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos)
-           no comparativo entre período atual e anterior.
-         </div>`;
+      buildTable("tblStatusResumo",
+        [
+          {title:"Status", key:"status"},
+          {title:"Clientes", key:"qtdClientes", align:"right", fmt:(v)=> Number(v||0).toLocaleString("pt-BR")},
+          {title:"% Clientes", key:"pctClientes", align:"right", fmt:(v)=> fmtPct(v)},
+          {title:"Δ Faturamento", key:"fatDelta", align:"right", fmt:(v)=> {
+            const n = Number(v||0);
+            const s = n < 0 ? "-" : "";
+            return s + fmtBRL(Math.abs(n));
+          }},
+        ],
+        (resumoRows || [])
+      );
+    };
 
-      // pie status
-      const by = Array.isArray(car.status_counts) ? car.status_counts : [];
-      const labelsPie = by.map(d => d.status);
-      const valsPie = by.map(d => Number(d.clientes || 0));
-      Plotly.newPlot("pieStatus", [{
-        type:"pie",
-        values: valsPie,
-        labels: labelsPie,
-        hole: 0.30,
-        textinfo:"none"
-      }], {
-        ...PLOT_LAYOUT_BASE,
-        showlegend:true,
-        margin:{l:10,r:10,t:10,b:10}
-      }, {displayModeBar:false, responsive:true});
+    const renderStatusClientes = (meta, statusObj) => {
+      const root = document.getElementById("statusTables");
+      root.innerHTML = "";
 
-      // table resumo
-      const rows = by.map(d => ({
-        "Status": escapeHtml(d.status || ""),
-        "QtdClientes": escapeHtml(String(d.clientes || 0)),
-        "%Clientes": escapeHtml(pct1(d.pct_clientes || 0)),
-        "Faturamento (Δ)": escapeHtml(fmtBRL(Number(d.delta_fat || 0))),
-      }));
-      document.getElementById("tblCarteiraResumo").innerHTML =
-        rows.length ? tableHtml(["Status","QtdClientes","%Clientes","Faturamento (Δ)"], rows)
-                    : `<div class="sub">Sem dados.</div>`;
-    }
+      const curLabel = meta?.currentLabel ?? "Atual";
+      const prevLabel = meta?.previousLabel ?? "Anterior";
 
-    function renderStatusClientes(repObj){
-      const block = document.getElementById("statusTables");
-      const search = (document.getElementById("searchCliente").value || "").toLowerCase();
+      const makeBlock = (statusName, rows) => {
+        const wrap = document.createElement("div");
+        wrap.className = "card";
+        wrap.style.marginBottom = "12px";
 
-      const st = repObj?.status_clientes || {};
-      let html = "";
+        const title = document.createElement("div");
+        title.style.fontWeight = "800";
+        title.style.marginBottom = "8px";
+        title.textContent = statusName;
 
-      for (const statusName of STATUS_ORDER){
-        const arr = Array.isArray(st[statusName]) ? st[statusName] : [];
-        const filtered = search
-          ? arr.filter(r => String(r.cliente||"").toLowerCase().includes(search))
-          : arr;
+        const tableId = "tbl_" + statusName.replace(/\s+/g,"_");
+        const table = document.createElement("table");
+        table.id = tableId;
 
-        if (!filtered.length) continue;
+        wrap.appendChild(title);
+        wrap.appendChild(table);
+        root.appendChild(wrap);
 
-        const rows = filtered
-          .slice()
-          .sort((a,b)=>Number(b.fat_atual||0)-Number(a.fat_atual||0))
-          .map(r => {
-            const fatA = Number(r.fat_atual||0);
-            const fatP = Number(r.fat_prev||0);
-            const volA = Number(r.vol_atual||0);
-            const volP = Number(r.vol_prev||0);
-
-            const dFat = fatA - fatP;
-            const dVol = volA - volP;
-
-            const pctFat = (fatP > 0) ? (dFat / fatP) : (fatA > 0 ? null : 0);
-            const pctVol = (volP > 0) ? (dVol / volP) : (volA > 0 ? null : 0);
-
-            const fmtPct = (x) => (x === null || Number.isNaN(x)) ? "Novo" : ((x>=0?"+":"") + (x*100).toFixed(1).replace(".",",") + "%");
-            const fmtDeltaMoney = (x) => {
-              const n = Number(x||0);
-              const sign = n < 0 ? "-" : "";
-              return sign + fmtBRL(Math.abs(n));
-            };
-
-            return {
-              "Cliente": escapeHtml(r.cliente||""),
-              "UF": escapeHtml(r.uf||""),
-              "Cidade": escapeHtml(r.cidade||""),
-              "Fat Atual": escapeHtml(fmtBRL(fatA)),
-              "Fat Anterior": escapeHtml(fmtBRL(fatP)),
-              "Δ Fat (R$)": escapeHtml(fmtDeltaMoney(dFat)),
-              "% Fat": escapeHtml(fmtPct(pctFat)),
-              "Vol Atual": escapeHtml(fmtUN(volA)),
-              "Vol Anterior": escapeHtml(fmtUN(volP)),
-              "Δ Vol": escapeHtml((Math.round(dVol)).toLocaleString("pt-BR") + " un"),
-              "% Vol": escapeHtml(fmtPct(pctVol)),
-            };
-          });
-
-        html += `<div style="margin:6px 0 10px;font-weight:900">${escapeHtml(statusName)}</div>`;
-        html += `<div class="table-wrap">${tableHtml(
-          ["Cliente","UF","Cidade","Fat Atual","Fat Anterior","Δ Fat (R$)","% Fat","Vol Atual","Vol Anterior","Δ Vol","% Vol"],
+        buildTable(tableId,
+          [
+            {title:"Cliente", key:"cliente"},
+            {title:"UF", key:"uf"},
+            {title:"Cidade", key:"cidade"},
+            {title:`Fat ${curLabel}`, key:"fatAtual", align:"right", fmt:(v)=> fmtBRL(v)},
+            {title:`Fat ${prevLabel}`, key:"fatAnterior", align:"right", fmt:(v)=> fmtBRL(v)},
+            {title:`Vol ${curLabel}`, key:"volAtual", align:"right", fmt:(v)=> fmtUN(v)},
+            {title:`Vol ${prevLabel}`, key:"volAnterior", align:"right", fmt:(v)=> fmtUN(v)},
+            {title:"Δ Fat", key:"fatDelta", align:"right", fmt:(v, r)=>{
+              const d = Number(r.fatAtual||0) - Number(r.fatAnterior||0);
+              const s = d < 0 ? "-" : "";
+              return s + fmtBRL(Math.abs(d));
+            }},
+            {title:"Δ Vol", key:"volDelta", align:"right", fmt:(v, r)=>{
+              const d = Number(r.volAtual||0) - Number(r.volAnterior||0);
+              const s = d < 0 ? "-" : "";
+              return s + fmtUN(Math.abs(d));
+            }},
+          ],
           rows
-        )}</div>`;
-        html += `<div style="height:12px"></div>`;
-      }
-
-      block.innerHTML = html || `<div class="sub">Sem clientes para exibir.</div>`;
-    }
-
-    // ---------- main render ----------
-    function render(repName, currKey, prevKey){
-      const repObj = DATA?.reports?.[repName]?.[currKey]?.[prevKey];
-      if (!repObj){
-        document.getElementById("headerSub").textContent = "Recorte não encontrado no JSON.";
-        return;
-      }
-
-      const currLabel = repObj.meta?.curr_label || currKey;
-      const prevLabel = repObj.meta?.prev_label || prevKey;
-
-      renderHeader(repName, currLabel, prevLabel);
-      renderKpis(repObj);
-      renderEvolucao(repObj);
-      renderCategorias(repObj, currLabel, prevLabel);
-      renderMapa(repObj);
-      renderClientesDist(repObj);
-      renderCarteira(repObj);
-      renderStatusClientes(repObj);
-    }
-
-    // ---------- selectors ----------
-    function fillSelectors(){
-      const repSel = document.getElementById("repSel");
-      const currSel = document.getElementById("currLabel");
-      const prevSel = document.getElementById("prevLabel");
-
-      // reps
-      const reps = DATA?.reps || Object.keys(DATA?.reports || {});
-      repSel.innerHTML = reps.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
-
-      // periods available per rep
-      const setPeriodOptions = () => {
-        const rep = repSel.value;
-        const repNode = DATA?.reports?.[rep] || {};
-        const currKeys = Object.keys(repNode);
-        currSel.innerHTML = currKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
-
-        const currKey = currSel.value || currKeys[0];
-        const prevNode = repNode[currKey] || {};
-        const prevKeys = Object.keys(prevNode);
-        prevSel.innerHTML = prevKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
+        );
       };
 
-      repSel.addEventListener("change", () => {
-        setPeriodOptions();
-        render(repSel.value, currSel.value, prevSel.value);
-      });
-
-      currSel.addEventListener("change", () => {
-        // update prev list when curr changes
-        const rep = repSel.value;
-        const repNode = DATA?.reports?.[rep] || {};
-        const prevNode = repNode[currSel.value] || {};
-        const prevKeys = Object.keys(prevNode);
-        prevSel.innerHTML = prevKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
-        render(repSel.value, currSel.value, prevSel.value);
-      });
-
-      prevSel.addEventListener("change", () => {
-        render(repSel.value, currSel.value, prevSel.value);
-      });
-
-      document.getElementById("btnPrint").addEventListener("click", () => window.print());
-      document.getElementById("searchCliente").addEventListener("input", () => {
-        renderStatusClientes(DATA?.reports?.[repSel.value]?.[currSel.value]?.[prevSel.value]);
-      });
-
-      setPeriodOptions();
-
-      // default selections if provided
-      if (DATA?.defaults?.rep && reps.includes(DATA.defaults.rep)) repSel.value = DATA.defaults.rep;
-      setPeriodOptions();
-      if (DATA?.defaults?.curr && currSel.querySelector(`option[value="${CSS.escape(DATA.defaults.curr)}"]`)) currSel.value = DATA.defaults.curr;
-      // rebuild prev list based on curr
-      const rep = repSel.value;
-      const repNode = DATA?.reports?.[rep] || {};
-      const prevNode = repNode[currSel.value] || {};
-      const prevKeys = Object.keys(prevNode);
-      prevSel.innerHTML = prevKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("");
-      if (DATA?.defaults?.prev && prevSel.querySelector(`option[value="${CSS.escape(DATA.defaults.prev)}"]`)) prevSel.value = DATA.defaults.prev;
-
-      render(repSel.value, currSel.value, prevSel.value);
-    }
-
-    async function loadJson(){
-      let lastErr = null;
-      for (const url of DATA_URLS){
-        try{
-          const r = await fetch(url, {cache:"no-store"});
-          if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-          const j = await r.json();
-          return {json:j, url};
-        }catch(e){
-          lastErr = e;
-        }
+      for (const s of STATUS_ORDER){
+        const rows = (statusObj && statusObj[s]) ? statusObj[s].slice() : [];
+        if (!rows.length) continue;
+        // sort by fatAtual desc (como streamlit)
+        rows.sort((a,b)=> (Number(b.fatAtual||0) - Number(a.fatAtual||0)));
+        makeBlock(s, rows);
       }
-      throw lastErr || new Error("Falha ao carregar JSON.");
-    }
+    };
 
-    // boot
-    (async function(){
+    const applySearch = (meta, statusObj, query) => {
+      const filtered = {};
+      const q = (query || "").trim().toLowerCase();
+      for (const s of STATUS_ORDER){
+        const rows = (statusObj && statusObj[s]) ? statusObj[s] : [];
+        filtered[s] = !q ? rows : rows.filter(r => String(r.cliente||"").toLowerCase().includes(q));
+      }
+      renderStatusClientes(meta, filtered);
+    };
+
+    // ===== Main render =====
+    const populateRepSelect = (reports) => {
+      const sel = document.getElementById("repSelect");
+      sel.innerHTML = "";
+
+      const reps = reports.reps || [];
+      reps.forEach((r, i) => {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = r.rep || `Rep ${i+1}`;
+        sel.appendChild(opt);
+      });
+
+      return reps.length ? 0 : -1;
+    };
+
+    const renderRepIndex = (reports, idx) => {
+      const meta = reports.meta || {};
+      const repObj = reports.reps[idx];
+      if (!repObj) return;
+
+      setSubtitle(repObj.rep || "-", meta);
+
+      // KPIs (sem badges verdes extras)
+      renderKPIs(repObj.kpis || {});
+
+      // Destaques
+      renderHighlights(repObj.highlights || {});
+
+      // Evolução (barras)
+      const evo = repObj.evolucao || {};
+      const labels = evo.months || [];
+      if (chartFat) chartFat.destroy();
+      if (chartVol) chartVol.destroy();
+      chartFat = renderBarCompare("chartFat", labels, (evo.fatCurr||[]), (evo.fatPrev||[]));
+      chartVol = renderBarCompare("chartVol", labels, (evo.volCurr||[]), (evo.volPrev||[]));
+
+      // Categorias
+      renderCategorias(repObj.categorias || {}, meta);
+
+      // Map + coverage + top clients table (com volume ao lado)
+      document.getElementById("covCities").textContent = (repObj.kpis?.cidades ?? 0).toLocaleString("pt-BR");
+      document.getElementById("covStates").textContent = (repObj.kpis?.estados ?? 0).toLocaleString("pt-BR");
+      document.getElementById("covClients").textContent = (repObj.kpis?.clientes ?? 0).toLocaleString("pt-BR");
+      renderMap(repObj.map || {});
+
+      // Top clients (usar a lista "top" do dist se existir; senão tenta mdata)
+      const topClientsRows = (repObj.map?.topClients || repObj.clientsDist?.top || []).slice(0, 15);
+      renderTopClientsTable(topClientsRows);
+
+      // Distribuição por clientes (badges coloridos aqui)
+      renderDistribuicaoClientes(repObj.kpis || {}, repObj.clientsDist || {});
+
+      // Carteira detalhes
+      renderCarteira(repObj.kpis || {}, repObj.carteiraStatusResumo || []);
+
+      // Status clientes
+      renderStatusClientes(meta, repObj.statusClientes || {});
+      const search = document.getElementById("clientSearch");
+      search.value = "";
+      search.oninput = () => applySearch(meta, repObj.statusClientes || {}, search.value);
+    };
+
+    // ===== Boot =====
+    (async function boot(){
+      document.getElementById("btnPrint").addEventListener("click", () => window.print());
+
       try{
-        const {json, url} = await loadJson();
-        DATA = json;
-        console.log("[DATA] loaded from", url);
-        fillSelectors();
-      }catch(e){
-        console.error(e);
-        document.getElementById("headerSub").innerHTML =
-          `<span style="color:rgba(239,68,68,0.95);font-weight:800">
-            Erro ao carregar rep_reports.json:
-          </span> ${escapeHtml(e.message || String(e))}<br>
-          <span class="sub">Confirme se o arquivo existe em <code>./data/rep_reports.json</code> dentro de <code>/reports/</code>.</span>`;
+        const reports = await loadReports();
+
+        const defaultIdx = populateRepSelect(reports);
+        if (defaultIdx < 0){
+          alert("Nenhum representante encontrado no JSON. Verifique reports.reps.");
+          return;
+        }
+
+        // initial render
+        renderRepIndex(reports, defaultIdx);
+
+        // dropdown change: troca sem recarregar
+        document.getElementById("repSelect").addEventListener("change", (e)=>{
+          const idx = Number(e.target.value);
+          renderRepIndex(reports, idx);
+          window.scrollTo({top:0, behavior:"instant"});
+        });
+
+      }catch(err){
+        console.error(err);
+        alert(
+          "Erro ao carregar dados do relatório.\n\n" +
+          String(err?.message || err) +
+          "\n\nColoque um arquivo ./rep_reports.json na mesma pasta do HTML " +
+          "OU embuta window.REPORTS = {...} no final do HTML."
+        );
       }
     })();
   </script>
+
+  <!--
+    OPCIONAL: embutir dados aqui para virar um HTML 100% standalone.
+    Exemplo:
+    <script>
+      window.REPORTS = { ... JSON ... };
+    </script>
+  -->
+
 </body>
 </html>
