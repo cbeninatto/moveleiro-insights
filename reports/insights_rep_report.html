@@ -1,0 +1,1644 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Insights de Vendas — Relatório por Representante</title>
+
+  <!-- Leaflet 1.9.4 (igual ao insights.py) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Chart.js (bar + pie) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#ffffff;
+      --panel:#f3f4f6;
+      --card:#ffffff;
+      --border:rgba(15,23,42,.10);
+      --text:#0f172a;
+      --muted:rgba(15,23,42,.65);
+
+      --blue:#38bdf8;
+      --green:#22c55e;
+      --yellow:#eab308;
+      --orange:#f97316;
+      --red:#ef4444;
+
+      --radius:14px;
+      --shadow:0 10px 30px rgba(15,23,42,.07);
+    }
+
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
+      color:var(--text);
+      background:var(--bg);
+    }
+
+    /* Layout */
+    .app{
+      display:grid;
+      grid-template-columns: 320px 1fr;
+      min-height:100vh;
+    }
+    .sidebar{
+      background:var(--panel);
+      border-right:1px solid var(--border);
+      padding:18px 16px;
+      position:sticky;
+      top:0;
+      height:100vh;
+      overflow:auto;
+    }
+    .main{
+      padding:26px 26px 60px;
+      max-width: 1400px;
+      margin:0 auto;
+      width:100%;
+    }
+
+    /* Mobile */
+    .topbar{
+      display:none;
+      position:sticky; top:0;
+      background:rgba(255,255,255,.9);
+      backdrop-filter:saturate(180%) blur(10px);
+      border-bottom:1px solid var(--border);
+      padding:12px 14px;
+      z-index:30;
+    }
+    .btn{
+      border:1px solid var(--border);
+      background:#fff;
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      box-shadow: 0 6px 16px rgba(15,23,42,.06);
+    }
+    @media (max-width: 980px){
+      .app{grid-template-columns: 1fr;}
+      .sidebar{position:fixed; left:0; top:0; height:100vh; width:320px; transform:translateX(-102%); transition:.22s ease; z-index:40;}
+      .sidebar.open{transform:translateX(0);}
+      .topbar{display:flex; gap:10px; align-items:center;}
+      .main{padding:18px 14px 60px;}
+    }
+
+    /* Headings */
+    h1{margin:0 0 4px; font-size:28px; letter-spacing:-0.02em;}
+    h2{margin:0; font-size:18px;}
+    .sub{color:var(--muted); font-size:13px; margin-top:6px;}
+    .divider{height:1px; background:var(--border); margin:18px 0;}
+
+    /* Sidebar */
+    .sb-title{font-weight:800; font-size:20px; margin:6px 2px 14px;}
+    .sb-section{margin:14px 0 10px;}
+    .sb-section h3{margin:0 0 8px; font-size:14px; color:rgba(15,23,42,.75); letter-spacing:.02em;}
+    .sb-caption{font-size:12px; color:rgba(15,23,42,.55); margin:10px 2px 6px;}
+    .row2{display:grid; grid-template-columns: 1fr 1fr; gap:10px;}
+    label{font-size:12px; color:rgba(15,23,42,.65); display:block; margin:0 0 6px;}
+    select, input{
+      width:100%;
+      padding:10px 10px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+      color:var(--text);
+      outline:none;
+    }
+    .sb-error{
+      margin-top:10px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:rgba(239,68,68,.10);
+      border:1px solid rgba(239,68,68,.22);
+      color:#991b1b;
+      font-size:13px;
+      display:none;
+    }
+
+    /* KPI cards */
+    .kpis{
+      display:grid;
+      grid-template-columns: repeat(5, minmax(0,1fr));
+      gap:14px;
+      margin-top:14px;
+    }
+    @media (max-width:1200px){ .kpis{grid-template-columns: repeat(2, minmax(0,1fr));} }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:14px 14px 12px;
+    }
+    .metric-title{font-size:12px; color:rgba(15,23,42,.55); margin-bottom:8px;}
+    .metric-value{font-size:28px; font-weight:800; letter-spacing:-0.02em; line-height:1.05;}
+    .metric-sub{font-size:12px; color:rgba(15,23,42,.55); margin-top:8px;}
+
+    /* Colored “chips” (não usar no topo — você pediu remover o verde).
+       Vamos usar só dentro das seções de distribuição quando útil. */
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      border:1px solid var(--border);
+      background:#fff;
+      margin-top:8px;
+      color:var(--text);
+    }
+    .dot{width:8px;height:8px;border-radius:999px;background:var(--border)}
+
+    /* Section blocks */
+    .section-title{
+      font-size:18px;
+      font-weight:800;
+      margin:0 0 10px;
+    }
+    .section-caption{font-size:13px; color:var(--muted); margin:2px 0 12px;}
+    .grid2{display:grid; grid-template-columns: 1fr 1fr; gap:14px;}
+    @media (max-width:1200px){ .grid2{grid-template-columns: 1fr;} }
+
+    /* Tables (parecidas com as do Streamlit) */
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:13px;
+    }
+    th, td{
+      padding:8px 10px;
+      border-bottom:1px solid rgba(15,23,42,.08);
+      text-align:left;
+      white-space:nowrap;
+    }
+    th{font-weight:800; color:rgba(15,23,42,.75);}
+    .table-wrap{overflow:auto; border-radius:12px; border:1px solid var(--border); background:#fff;}
+    .muted{color:var(--muted)}
+    .right{text-align:right}
+    .center{text-align:center}
+
+    /* Map */
+    #map{height:780px; border-radius:14px; border:1px solid var(--border); box-shadow:var(--shadow);}
+    .legend{
+      font-size:12px;
+      color:rgba(15,23,42,.85);
+      margin-top:10px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      background:#fff;
+      border-radius:12px;
+      width:fit-content;
+    }
+    .legend .sw{display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; border:1px solid rgba(0,0,0,.12)}
+    .note{
+      font-size:12px;
+      color:rgba(15,23,42,.62);
+      margin-top:10px;
+      line-height:1.35;
+    }
+
+    /* Print */
+    @page { size: A4 portrait; margin: 1.5cm; }
+    @media print{
+      .sidebar, .topbar{display:none!important;}
+      .app{grid-template-columns: 1fr;}
+      .main{padding:0;}
+      #map{height:520px;}
+      .card{box-shadow:none;}
+      body{-webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;}
+      .page-break{break-before:page; page-break-before:always;}
+    }
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <button class="btn" id="btnToggle">☰ Filtros</button>
+    <div style="font-weight:800;">Insights de Vendas</div>
+  </div>
+
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-title">Filtros – Insights de Vendas</div>
+
+      <div class="sb-section">
+        <h3>Período atual</h3>
+        <div class="sb-caption">Período inicial</div>
+        <div class="row2">
+          <div>
+            <label>Mês</label>
+            <select id="startMonth"></select>
+          </div>
+          <div>
+            <label>Ano</label>
+            <select id="startYear"></select>
+          </div>
+        </div>
+
+        <div class="sb-caption">Período final</div>
+        <div class="row2">
+          <div>
+            <label>Mês</label>
+            <select id="endMonth"></select>
+          </div>
+          <div>
+            <label>Ano</label>
+            <select id="endYear"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <h3>Período anterior (manual)</h3>
+
+        <div class="sb-caption">Período anterior – inicial</div>
+        <div class="row2">
+          <div>
+            <label>Mês (anterior – início)</label>
+            <select id="prevStartMonth"></select>
+          </div>
+          <div>
+            <label>Ano (anterior – início)</label>
+            <select id="prevStartYear"></select>
+          </div>
+        </div>
+
+        <div class="sb-caption">Período anterior – final</div>
+        <div class="row2">
+          <div>
+            <label>Mês (anterior – fim)</label>
+            <select id="prevEndMonth"></select>
+          </div>
+          <div>
+            <label>Ano (anterior – fim)</label>
+            <select id="prevEndYear"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="sb-section">
+        <h3>Representante</h3>
+        <select id="repSelect"></select>
+      </div>
+
+      <div class="sb-error" id="sbError"></div>
+
+      <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" id="btnApply">Aplicar</button>
+        <button class="btn" id="btnReset">Reset</button>
+      </div>
+
+      <div class="note">
+        Fonte: CSVs em <b>data/raw</b> do repo (GitHub raw).<br/>
+        Troca de representante é <b>instantânea</b> (sem reload).
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <h1>Insights de Vendas</h1>
+      <div id="hdrRep" style="font-size:16px; font-weight:800; margin-top:6px;">Representante: —</div>
+      <div class="sub" id="hdrPeriods">Período atual: — | Período anterior: —</div>
+
+      <div class="divider"></div>
+
+      <!-- KPIs -->
+      <section class="kpis" id="kpiRow">
+        <div class="card">
+          <div class="metric-title">Total período</div>
+          <div class="metric-value" id="kpiFat">—</div>
+        </div>
+        <div class="card">
+          <div class="metric-title">Volume período</div>
+          <div class="metric-value" id="kpiVol">—</div>
+        </div>
+        <div class="card">
+          <div class="metric-title">Distribuição por clientes</div>
+          <div class="metric-value" id="kpiHHI">—</div>
+          <div class="metric-sub" id="kpiN80">—</div>
+        </div>
+        <div class="card">
+          <div class="metric-title">Saúde da carteira</div>
+          <div class="metric-value" id="kpiCarteira">—</div>
+          <div class="metric-sub" id="kpiCarteiraLbl">—</div>
+        </div>
+        <div class="card">
+          <div class="metric-title">Clientes atendidos</div>
+          <div class="metric-value" id="kpiClientes">—</div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- EVOLUÇÃO -->
+      <section>
+        <div class="section-title">Evolução – Faturamento e Volume (comparativo)</div>
+        <div class="section-caption" id="evoCaption">—</div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>Faturamento (R$)</h2>
+            <div class="sub">Atual vs Anterior (barras)</div>
+            <div style="margin-top:10px;">
+              <canvas id="chartFat" height="120"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Volume (un)</h2>
+            <div class="sub">Atual vs Anterior (barras)</div>
+            <div style="margin-top:10px;">
+              <canvas id="chartVol" height="120"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- CATEGORIAS -->
+      <section>
+        <div class="section-title">Categorias vendidas</div>
+        <div class="section-caption">Comparativo com o período anterior (sem tabs).</div>
+
+        <div class="grid2">
+          <!-- Atual -->
+          <div class="card">
+            <h2>Período atual</h2>
+            <div class="sub" id="catCaptionCurr">—</div>
+
+            <div class="grid2" style="grid-template-columns: 1fr 1.2fr; gap:14px; margin-top:10px;">
+              <div>
+                <canvas id="pieCatCurr" height="170"></canvas>
+              </div>
+              <div class="table-wrap" style="max-height:420px;">
+                <table id="tblCatCurr"></table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Anterior (somente Categoria/Valor/%) -->
+          <div class="card">
+            <h2>Período anterior</h2>
+            <div class="sub" id="catCaptionPrev">—</div>
+
+            <div class="grid2" style="grid-template-columns: 1fr 1.2fr; gap:14px; margin-top:10px;">
+              <div>
+                <canvas id="pieCatPrev" height="170"></canvas>
+              </div>
+              <div class="table-wrap" style="max-height:420px;">
+                <table id="tblCatPrev"></table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- MAPA -->
+      <section>
+        <div class="section-title">Mapa de Clientes</div>
+        <div class="section-caption">Métrica padrão: <b>Volume</b> (sem seletor).</div>
+
+        <div class="grid2" style="grid-template-columns: .85fr 1.15fr;">
+          <div>
+            <div id="map"></div>
+            <div class="legend" id="mapLegend" style="display:none;"></div>
+          </div>
+
+          <div class="card">
+            <h2>Cobertura</h2>
+            <div class="sub">Cidades/Estados/Clientes no período atual</div>
+
+            <div class="kpis" style="grid-template-columns: repeat(3, minmax(0,1fr)); margin-top:12px;">
+              <div class="card" style="box-shadow:none;">
+                <div class="metric-title">Cidades atendidas</div>
+                <div class="metric-value" style="font-size:22px;" id="covCidades">—</div>
+              </div>
+              <div class="card" style="box-shadow:none;">
+                <div class="metric-title">Estados atendidos</div>
+                <div class="metric-value" style="font-size:22px;" id="covEstados">—</div>
+              </div>
+              <div class="card" style="box-shadow:none;">
+                <div class="metric-title">Clientes atendidos</div>
+                <div class="metric-value" style="font-size:22px;" id="covClientes">—</div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <h2>Principais clientes</h2>
+            <div class="sub">Top 15 por faturamento (agora com Volume também)</div>
+            <div class="table-wrap" style="margin-top:10px; max-height:330px;">
+              <table id="tblTopClients"></table>
+            </div>
+
+            <div class="divider"></div>
+
+            <h2 id="cityClientsTitle">Clientes na cidade selecionada</h2>
+            <div class="sub muted">Clique num ponto no mapa para listar os clientes da cidade.</div>
+            <div class="table-wrap" style="margin-top:10px; max-height:330px;">
+              <table id="tblCityClients"></table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- DISTRIBUIÇÃO CLIENTES -->
+      <section>
+        <div class="section-title">Distribuição por clientes</div>
+        <div class="section-caption">N80 + HHI + Top concentração e ranking dos clientes.</div>
+
+        <div class="card">
+          <div class="kpis" style="grid-template-columns: repeat(5, minmax(0,1fr)); margin-top:0;">
+            <div class="card" style="box-shadow:none;">
+              <div class="metric-title">N80</div>
+              <div class="metric-value" style="font-size:22px;" id="distN80">—</div>
+              <div class="metric-sub" id="distN80sub">—</div>
+            </div>
+            <div class="card" style="box-shadow:none;">
+              <div class="metric-title">Índice de concentração</div>
+              <div class="metric-value" style="font-size:22px;" id="distHHI">—</div>
+              <div class="metric-sub" id="distHHIsub">—</div>
+            </div>
+            <div class="card" style="box-shadow:none;">
+              <div class="metric-title">Top 1 cliente</div>
+              <div class="metric-value" style="font-size:22px;" id="distTop1">—</div>
+            </div>
+            <div class="card" style="box-shadow:none;">
+              <div class="metric-title">Top 3 clientes</div>
+              <div class="metric-value" style="font-size:22px;" id="distTop3">—</div>
+            </div>
+            <div class="card" style="box-shadow:none;">
+              <div class="metric-title">Top 10 clientes</div>
+              <div class="metric-value" style="font-size:22px;" id="distTop10">—</div>
+            </div>
+          </div>
+
+          <div class="grid2" style="grid-template-columns: 1.05fr 1.45fr; margin-top:14px;">
+            <div>
+              <h2>Participação dos clientes (Top 10 destacados)</h2>
+              <div class="sub">Pizza com “Outros”</div>
+              <div style="margin-top:10px;">
+                <canvas id="pieClients" height="200"></canvas>
+              </div>
+            </div>
+            <div>
+              <h2>Resumo (Top 15)</h2>
+              <div class="sub">Cliente • Cidade • Estado • Faturamento • % • Volume</div>
+              <div class="table-wrap" style="margin-top:10px; max-height:420px;">
+                <table id="tblClientsSummary"></table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- SAÚDE DETALHES -->
+      <section>
+        <div class="section-title">Saúde da carteira – Detalhes</div>
+        <div class="section-caption">
+          A pontuação reflete a distribuição de receita entre os status (Novos/Crescendo/Estáveis/Caindo/Perdidos)
+          no comparativo entre período atual e anterior (manual).
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <h2>Pontuação</h2>
+            <div class="metric-value" style="font-size:34px; margin-top:10px;" id="carteiraScoreBig">—</div>
+            <div class="sub" id="carteiraLabelBig">—</div>
+          </div>
+          <div class="card">
+            <h2>Resumo por status</h2>
+            <div class="table-wrap" style="margin-top:10px;">
+              <table id="tblCarteiraStatus"></table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="page-break"></div>
+
+      <!-- STATUS CLIENTES -->
+      <section>
+        <div class="section-title">Status dos clientes</div>
+        <div class="section-caption">Ordenado por Novos, Crescendo, Estáveis, Caindo, Perdidos.</div>
+
+        <div class="card">
+          <div class="row2" style="grid-template-columns: 1fr;">
+            <div>
+              <label>Buscar cliente</label>
+              <input id="searchClient" placeholder="Digite parte do nome do cliente" />
+            </div>
+          </div>
+
+          <div id="statusTables" style="margin-top:14px;"></div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <div class="note">
+        Se você publicar via GitHub Pages, este HTML vai buscar os CSVs no domínio <b>raw.githubusercontent.com</b>.
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // =========================
+    // CONFIG (URLs do seu repo)
+    // =========================
+    const RAW_BASE = "https://raw.githubusercontent.com/cbeninatto/moveleiro-insights/main/data/raw/";
+    const URL_SALES = RAW_BASE + "relatorio_faturamento.csv";
+    const URL_GEO   = RAW_BASE + "cidades_br_geo.csv";
+
+    // Leaflet tile (igual ao insights.py)
+    const OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    const OSM_ATTR = "© OpenStreetMap contributors";
+
+    // Status weights (igual)
+    const STATUS_COL = "StatusCarteira";
+    const STATUS_WEIGHTS = {
+      "Novos": 1, "Novo": 1,
+      "Crescendo": 2, "CRESCENDO": 2,
+      "Estáveis": 1, "Estável": 1, "ESTAVEIS": 1,
+      "Caindo": -1, "CAINDO": -1,
+      "Perdidos": -2, "Perdido": -2, "PERDIDOS": -2
+    };
+    const STATUS_ORDER = ["Novos","Crescendo","Estáveis","Caindo","Perdidos"];
+
+    const MONTH_MAP_NUM_TO_NAME = {
+      1:"JAN",2:"FEV",3:"MAR",4:"ABR",5:"MAI",6:"JUN",7:"JUL",8:"AGO",9:"SET",10:"OUT",11:"NOV",12:"DEZ"
+    };
+    const MONTH_MAP_NAME_TO_NUM = Object.fromEntries(Object.entries(MONTH_MAP_NUM_TO_NAME).map(([k,v])=>[v,Number(k)]));
+
+    // bins colors (igual)
+    const MAP_BIN_COLORS = ["#22c55e","#eab308","#f97316","#ef4444"]; // green->red
+
+    // =========================
+    // STATE
+    // =========================
+    let SALES = [];      // linhas normalizadas
+    let GEO = [];        // {key, Estado, Cidade, lat, lon}
+    let map = null;
+    let mapLayer = null;
+    let selectedCityKey = null;
+
+    let chartFat = null, chartVol = null;
+    let pieCatCurr = null, pieCatPrev = null;
+    let pieClients = null;
+
+    // =========================
+    // UTILS
+    // =========================
+    function cbUrl(url){
+      const cb = Date.now();
+      return url + (url.includes("?") ? "&" : "?") + "cb=" + cb;
+    }
+
+    function parseCSV(text){
+      // CSV simples (sem aspas complexas). Para seus arquivos isso costuma funcionar bem.
+      // Se algum dia tiver vírgula dentro de campo, a gente troca por PapaParse.
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+      const header = lines[0].split(",").map(s=>s.trim().replace(/^\uFEFF/, "")); // remove BOM
+      const rows = [];
+      for(let i=1;i<lines.length;i++){
+        const cols = lines[i].split(",");
+        if(cols.length < header.length) continue;
+        const obj = {};
+        for(let j=0;j<header.length;j++) obj[header[j]] = (cols[j] ?? "").trim();
+        rows.push(obj);
+      }
+      return rows;
+    }
+
+    function formatBRL(v){
+      const n = Number(v || 0);
+      return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+    }
+    function formatBRLcompact(v){
+      const n = Number(v || 0);
+      const av = Math.abs(n);
+      if(av >= 1e9) return "R$ " + (n/1e9).toFixed(1).replace(".",",") + " bi";
+      if(av >= 1e6) return "R$ " + (n/1e6).toFixed(1).replace(".",",") + " mi";
+      if(av >= 1e3) return "R$ " + (n/1e3).toFixed(1).replace(".",",") + " mil";
+      return formatBRL(n);
+    }
+    function formatUN(v){
+      const n = Math.round(Number(v || 0));
+      return n.toLocaleString("pt-BR") + " un";
+    }
+    function formatPct(v){
+      return (Number(v||0)*100).toFixed(1).replace(".",",") + "%";
+    }
+
+    function periodLabel(startY,startM,endY,endM){
+      const a = MONTH_MAP_NUM_TO_NAME[startM] + " " + String(startY).slice(2);
+      const b = MONTH_MAP_NUM_TO_NAME[endM] + " " + String(endY).slice(2);
+      if(startY===endY && startM===endM) return a;
+      return a + " - " + b;
+    }
+
+    function ymToIndex(y,m){ return y*12 + (m-1); }
+    function inRange(y,m, sy,sm, ey,em){
+      const v = ymToIndex(y,m);
+      return v >= ymToIndex(sy,sm) && v <= ymToIndex(ey,em);
+    }
+
+    function groupSum(arr, keyFn, valFn){
+      const m = new Map();
+      for(const r of arr){
+        const k = keyFn(r);
+        const prev = m.get(k) || 0;
+        m.set(k, prev + valFn(r));
+      }
+      return m;
+    }
+
+    function safeDiv(a,b){ return (b && b!==0) ? (a/b) : 0; }
+
+    // =========================
+    // COLORS (para distribuição)
+    // =========================
+    function colorForN80Ratio(r){
+      // r = n80 / clientes
+      if(r <= 0.20) return {name:"Excelente", color:"#22c55e"};
+      if(r <= 0.35) return {name:"Boa", color:"#eab308"};
+      if(r <= 0.50) return {name:"Atenção", color:"#f97316"};
+      return {name:"Crítica", color:"#ef4444"};
+    }
+    function colorForHHI(hhi){
+      if(hhi < 0.10) return {name:"Baixa", color:"#22c55e"};
+      if(hhi < 0.20) return {name:"Moderada", color:"#eab308"};
+      return {name:"Alta", color:"#ef4444"};
+    }
+    function colorForCarteiraScore(score){
+      if(score < 30) return {name:"Crítica", color:"#ef4444"};
+      if(score < 50) return {name:"Alerta", color:"#f97316"};
+      if(score < 70) return {name:"Neutra", color:"#eab308"};
+      return {name:"Saudável", color:"#22c55e"};
+    }
+
+    // =========================
+    // Map bins (igual lógica)
+    // =========================
+    function buildDynamicBins(values, isMoney){
+      const cleaned = values.map(Number).filter(v=>Number.isFinite(v) && v>=0).sort((a,b)=>a-b);
+      const fmt = (v)=>{
+        if(isMoney) return "R$ " + Math.round(v).toLocaleString("pt-BR");
+        return Math.round(v).toLocaleString("pt-BR") + " un";
+      };
+      if(!cleaned.length){
+        return isMoney
+          ? [
+              {min:1000000, color:MAP_BIN_COLORS[0], label:"R$ 1.000.000+"},
+              {min:500000,  color:MAP_BIN_COLORS[1], label:"R$ 500.000 - 999.999"},
+              {min:250000,  color:MAP_BIN_COLORS[2], label:"R$ 250.000 - 499.999"},
+              {min:0,       color:MAP_BIN_COLORS[3], label:"R$ 0 - 249.999"},
+            ]
+          : [
+              {min:10000, color:MAP_BIN_COLORS[0], label:"10.000 un+"},
+              {min:5000,  color:MAP_BIN_COLORS[1], label:"5.000 - 9.999 un"},
+              {min:2500,  color:MAP_BIN_COLORS[2], label:"2.500 - 4.999 un"},
+              {min:0,     color:MAP_BIN_COLORS[3], label:"0 - 2.499 un"},
+            ];
+      }
+      const n = cleaned.length;
+      const minVal = cleaned[0], maxVal = cleaned[n-1];
+      if(minVal === maxVal){
+        return [
+          {min:minVal, color:MAP_BIN_COLORS[0], label:fmt(minVal)},
+          {min:minVal, color:MAP_BIN_COLORS[0], label:fmt(minVal)},
+          {min:minVal, color:MAP_BIN_COLORS[0], label:fmt(minVal)},
+          {min:0,      color:MAP_BIN_COLORS[0], label:fmt(minVal)},
+        ];
+      }
+      const idx = (p)=>Math.floor(p*(n-1));
+      const q1 = cleaned[idx(0.25)], q2 = cleaned[idx(0.5)], q3 = cleaned[idx(0.75)];
+      const t0 = Math.max(0, minVal);
+      const t1 = Math.max(t0, q1);
+      const t2 = Math.max(t1, q2);
+      const t3 = Math.max(t2, q3);
+
+      return [
+        {min:t3, color:MAP_BIN_COLORS[0], label:`${fmt(t3)}+`},
+        {min:t2, color:MAP_BIN_COLORS[1], label:`${fmt(t2)} - ${fmt(t3)}`},
+        {min:t1, color:MAP_BIN_COLORS[2], label:`${fmt(t1)} - ${fmt(t2)}`},
+        {min:t0, color:MAP_BIN_COLORS[3], label:`${fmt(t0)} - ${fmt(t1)}`},
+      ];
+    }
+    function getBin(v, bins){
+      for(const b of bins){
+        if(v >= b.min) return b;
+      }
+      return bins[bins.length-1];
+    }
+
+    // =========================
+    // Carteira (igual)
+    // =========================
+    function buildCarteiraStatusManualPrev(rowsAll, rep, curr, prev){
+      const filtered = (rep==="Todos")
+        ? rowsAll
+        : rowsAll.filter(r => r.Representante === rep);
+
+      const currRows = filtered.filter(r => inRange(r.Ano, r.MesNum, curr.sy,curr.sm,curr.ey,curr.em));
+      const prevRows = filtered.filter(r => inRange(r.Ano, r.MesNum, prev.sy,prev.sm,prev.ey,prev.em));
+
+      // agg por cliente
+      const currMap = new Map();
+      for(const r of currRows){
+        const key = r.Cliente;
+        const x = currMap.get(key) || {Cliente:key, ValorAtual:0, QuantAtual:0, Estado:r.Estado, Cidade:r.Cidade};
+        x.ValorAtual += r.Valor;
+        x.QuantAtual += r.Quantidade;
+        x.Estado = x.Estado || r.Estado;
+        x.Cidade = x.Cidade || r.Cidade;
+        currMap.set(key, x);
+      }
+      const prevMap = new Map();
+      for(const r of prevRows){
+        const key = r.Cliente;
+        const x = prevMap.get(key) || {Cliente:key, ValorAnterior:0, QuantAnterior:0, Estado:r.Estado, Cidade:r.Cidade};
+        x.ValorAnterior += r.Valor;
+        x.QuantAnterior += r.Quantidade;
+        x.Estado = x.Estado || r.Estado;
+        x.Cidade = x.Cidade || r.Cidade;
+        prevMap.set(key, x);
+      }
+
+      const allClients = new Set([...currMap.keys(), ...prevMap.keys()]);
+      const out = [];
+      for(const c of allClients){
+        const a = currMap.get(c) || {Cliente:c, ValorAtual:0, QuantAtual:0, Estado:"", Cidade:""};
+        const b = prevMap.get(c) || {Cliente:c, ValorAnterior:0, QuantAnterior:0, Estado:"", Cidade:""};
+        const Estado = a.Estado || b.Estado || "";
+        const Cidade = a.Cidade || b.Cidade || "";
+        const ValorAtual = Number(a.ValorAtual||0);
+        const ValorAnterior = Number(b.ValorAnterior||0);
+        const QuantAtual = Number(a.QuantAtual||0);
+        const QuantAnterior = Number(b.QuantAnterior||0);
+
+        let status = "Estáveis";
+        if(ValorAtual>0 && ValorAnterior===0) status = "Novos";
+        else if(ValorAtual===0 && ValorAnterior>0) status = "Perdidos";
+        else if(ValorAtual>0 && ValorAnterior>0){
+          const ratio = ValorAnterior!==0 ? (ValorAtual/ValorAnterior) : 0;
+          if(ratio >= 1.2) status = "Crescendo";
+          else if(ratio <= 0.8) status = "Caindo";
+          else status = "Estáveis";
+        }
+
+        if(ValorAtual>0 || ValorAnterior>0){
+          out.push({
+            Cliente:c, Estado, Cidade,
+            ValorAtual, ValorAnterior,
+            QuantAtual, QuantAnterior,
+            [STATUS_COL]: status
+          });
+        }
+      }
+      return out;
+    }
+
+    function computeCarteiraScore(clientes){
+      if(!clientes || !clientes.length) return {score:50, label:"Neutra"};
+
+      // PesoReceita = max(ValorAtual, ValorAnterior)
+      const byStatus = new Map();
+      let total = 0;
+      for(const r of clientes){
+        const peso = Math.max(Number(r.ValorAtual||0), Number(r.ValorAnterior||0));
+        const st = String(r[STATUS_COL] || "Estáveis");
+        byStatus.set(st, (byStatus.get(st)||0) + peso);
+        total += peso;
+      }
+      if(total<=0) return {score:50, label:"Neutra"};
+
+      let scoreBruto = 0;
+      for(const [st, receita] of byStatus.entries()){
+        const w = STATUS_WEIGHTS[st] ?? 0;
+        scoreBruto += w * (receita / total);
+      }
+      let isc = (scoreBruto + 2) / 4 * 100;
+      isc = Math.max(0, Math.min(100, isc));
+
+      // churn rule (igual)
+      const baseAnterior = clientes.filter(r => Number(r.ValorAnterior||0) > 0);
+      const baseTotal = baseAnterior.reduce((s,r)=>s + Math.max(Number(r.ValorAtual||0), Number(r.ValorAnterior||0)), 0);
+      const receitaPerdida = clientes
+        .filter(r => String(r[STATUS_COL]||"").toUpperCase().includes("PERDID"))
+        .reduce((s,r)=>s + Math.max(Number(r.ValorAtual||0), Number(r.ValorAnterior||0)), 0);
+      const churn = baseTotal>0 ? (receitaPerdida/baseTotal) : 0;
+      if(churn > 0.20 && isc >= 70) isc = 69;
+
+      let label = "Saudável";
+      if(isc < 30) label = "Crítica";
+      else if(isc < 50) label = "Alerta";
+      else if(isc < 70) label = "Neutra";
+
+      return {score:isc, label};
+    }
+
+    // =========================
+    // RENDER helpers
+    // =========================
+    function setTable(el, cols, rows, alignRightCols = new Set()){
+      let html = "<thead><tr>";
+      for(const c of cols){
+        html += `<th class="${alignRightCols.has(c) ? "right":""}">${escapeHtml(c)}</th>`;
+      }
+      html += "</tr></thead><tbody>";
+      for(const r of rows){
+        html += "<tr>";
+        for(const c of cols){
+          const v = r[c] ?? "";
+          html += `<td class="${alignRightCols.has(c) ? "right":""}">${escapeHtml(String(v))}</td>`;
+        }
+        html += "</tr>";
+      }
+      html += "</tbody>";
+      el.innerHTML = html;
+    }
+
+    function escapeHtml(s){
+      return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function monthLabelsFromRange(sy,sm, ey,em){
+      const out = [];
+      let y=sy, m=sm;
+      while(ymToIndex(y,m) <= ymToIndex(ey,em)){
+        out.push(MONTH_MAP_NUM_TO_NAME[m] + " " + String(y).slice(2));
+        m++;
+        if(m===13){ m=1; y++; }
+      }
+      return out;
+    }
+
+    // =========================
+    // CHARTS
+    // =========================
+    function renderBarCompare(canvasId, labels, currVals, prevVals, yFmtFn){
+      const ctx = document.getElementById(canvasId);
+      const data = {
+        labels,
+        datasets: [
+          { label:"Atual", data: currVals, backgroundColor: "rgba(56,189,248,.75)", borderRadius: 8 },
+          { label:"Anterior", data: prevVals, backgroundColor: "rgba(34,197,94,.55)", borderRadius: 8 },
+        ]
+      };
+      const opts = {
+        responsive:true,
+        plugins:{
+          legend:{position:"bottom"},
+          tooltip:{
+            callbacks:{
+              label:(c)=>{
+                const v = c.raw ?? 0;
+                return `${c.dataset.label}: ${yFmtFn(v)}`;
+              }
+            }
+          }
+        },
+        scales:{
+          x:{grid:{display:false}},
+          y:{
+            ticks:{callback:(v)=> (typeof yFmtFn==="function" ? yFmtFn(v) : v)},
+            grid:{color:"rgba(15,23,42,.08)"}
+          }
+        }
+      };
+
+      // destroy if exists
+      let inst = null;
+      if(canvasId==="chartFat" && chartFat){ chartFat.destroy(); }
+      if(canvasId==="chartVol" && chartVol){ chartVol.destroy(); }
+
+      inst = new Chart(ctx, {type:"bar", data, options:opts});
+      if(canvasId==="chartFat") chartFat = inst;
+      if(canvasId==="chartVol") chartVol = inst;
+    }
+
+    function renderPie(canvasId, labels, values){
+      const ctx = document.getElementById(canvasId);
+      const palette = [
+        "rgba(56,189,248,.85)",
+        "rgba(34,197,94,.70)",
+        "rgba(234,179,8,.70)",
+        "rgba(249,115,22,.70)",
+        "rgba(239,68,68,.70)",
+        "rgba(148,163,184,.70)"
+      ];
+      const data = {
+        labels,
+        datasets:[{data:values, backgroundColor: labels.map((_,i)=>palette[i%palette.length]), borderWidth:1}]
+      };
+      const opts = {
+        responsive:true,
+        plugins:{
+          legend:{display:false},
+          tooltip:{
+            callbacks:{
+              label:(c)=>{
+                const total = c.dataset.data.reduce((s,x)=>s+Number(x||0),0) || 1;
+                const pct = (Number(c.raw||0)/total);
+                return `${c.label}: ${formatPct(pct)} (${formatBRL(c.raw)})`;
+              }
+            }
+          }
+        }
+      };
+
+      if(canvasId==="pieCatCurr" && pieCatCurr){ pieCatCurr.destroy(); }
+      if(canvasId==="pieCatPrev" && pieCatPrev){ pieCatPrev.destroy(); }
+      if(canvasId==="pieClients" && pieClients){ pieClients.destroy(); }
+
+      const inst = new Chart(ctx, {type:"doughnut", data, options:opts});
+      if(canvasId==="pieCatCurr") pieCatCurr = inst;
+      if(canvasId==="pieCatPrev") pieCatPrev = inst;
+      if(canvasId==="pieClients") pieClients = inst;
+    }
+
+    // =========================
+    // MAP
+    // =========================
+    function ensureMap(){
+      if(map) return;
+      map = L.map("map", {zoomSnap:0.25, zoomControl:true});
+      L.tileLayer(OSM_TILE_URL, {attribution: OSM_ATTR, maxZoom: 18}).addTo(map);
+      mapLayer = L.layerGroup().addTo(map);
+    }
+
+    function renderMap(dfRepCurr){
+      ensureMap();
+      mapLayer.clearLayers();
+      selectedCityKey = null;
+      document.getElementById("cityClientsTitle").textContent = "Clientes na cidade selecionada";
+
+      // agregação por cidade
+      const byCity = new Map();
+      for(const r of dfRepCurr){
+        const key = (String(r.Estado||"").trim().toUpperCase()) + "|" + (String(r.Cidade||"").trim().toUpperCase());
+        const x = byCity.get(key) || {key, Estado:r.Estado, Cidade:r.Cidade, Valor:0, Quantidade:0, Clientes:new Set()};
+        x.Valor += r.Valor;
+        x.Quantidade += r.Quantidade;
+        x.Clientes.add(r.Cliente);
+        byCity.set(key, x);
+      }
+      const cities = [...byCity.values()].map(x=>({
+        key:x.key, Estado:x.Estado, Cidade:x.Cidade,
+        Valor:x.Valor, Quantidade:x.Quantidade,
+        Clientes:x.Clientes.size
+      }));
+
+      // merge com GEO
+      const geoMap = new Map(GEO.map(g=>[g.key, g]));
+      const mapRows = [];
+      for(const c of cities){
+        const g = geoMap.get(c.key);
+        if(!g) continue;
+        mapRows.push({...c, lat:g.lat, lon:g.lon});
+      }
+
+      if(!mapRows.length){
+        document.getElementById("mapLegend").style.display = "none";
+        map.setView([-15.78,-47.93], 4); // Brasil approx
+        return;
+      }
+
+      // Default = Volume
+      const values = mapRows.map(r=>r.Quantidade);
+      const bins = buildDynamicBins(values, false);
+
+      // render markers
+      let latSum=0, lonSum=0;
+      for(const r of mapRows){
+        latSum += r.lat; lonSum += r.lon;
+        const bin = getBin(r.Quantidade, bins);
+        const color = bin.color;
+        const tooltip = `${r.Cidade} - ${r.Estado}`;
+        const popup = `
+          <b>${escapeHtml(tooltip)}</b><br/>
+          Volume (un): ${escapeHtml(formatUN(r.Quantidade))}<br/>
+          Faturamento (R$): ${escapeHtml(formatBRL(r.Valor))}<br/>
+          Clientes: ${r.Clientes}
+        `;
+
+        const marker = L.circleMarker([r.lat, r.lon], {
+          radius:6,
+          color: color,
+          fillColor: color,
+          fillOpacity: .8,
+          weight:2
+        }).bindTooltip(tooltip).bindPopup(popup);
+
+        marker.on("click", ()=>{
+          selectedCityKey = r.key;
+          renderCityClientsTable();
+          document.getElementById("cityClientsTitle").textContent = `Clientes em ${r.Cidade} - ${r.Estado}`;
+        });
+
+        marker.addTo(mapLayer);
+      }
+      map.setView([latSum/mapRows.length, lonSum/mapRows.length], 5);
+
+      // legend
+      const leg = document.getElementById("mapLegend");
+      leg.style.display = "block";
+      let html = `<b>Legenda – Volume (un)</b><br/>`;
+      for(const b of bins){
+        html += `<div style="margin-top:6px;"><span class="sw" style="background:${b.color};"></span>${escapeHtml(b.label)}</div>`;
+      }
+      leg.innerHTML = html;
+
+      // store for city client list
+      window.__dfRepCurr = dfRepCurr;
+    }
+
+    function renderCityClientsTable(){
+      const df = window.__dfRepCurr || [];
+      const tbl = document.getElementById("tblCityClients");
+      if(!selectedCityKey){
+        tbl.innerHTML = "<thead><tr><th class='muted'>Clique num ponto no mapa…</th></tr></thead>";
+        return;
+      }
+      const [uf, cidade] = selectedCityKey.split("|");
+      const rows = df.filter(r => String(r.Estado||"").trim().toUpperCase()===uf && String(r.Cidade||"").trim().toUpperCase()===cidade);
+
+      const byClient = new Map();
+      for(const r of rows){
+        const k = r.Cliente;
+        const x = byClient.get(k) || {Cliente:k, Volume:0, Faturamento:0};
+        x.Volume += r.Quantidade;
+        x.Faturamento += r.Valor;
+        byClient.set(k,x);
+      }
+      const out = [...byClient.values()].sort((a,b)=>b.Faturamento-a.Faturamento).slice(0,200).map(x=>({
+        "Cliente": x.Cliente,
+        "Quantidade": formatUN(x.Volume),
+        "Faturamento": formatBRL(x.Faturamento)
+      }));
+
+      setTable(tbl, ["Cliente","Quantidade","Faturamento"], out, new Set(["Quantidade","Faturamento"]));
+    }
+
+    // =========================
+    // MAIN compute + render
+    // =========================
+    function computeAndRender(){
+      const sbError = document.getElementById("sbError");
+      sbError.style.display = "none";
+      sbError.textContent = "";
+
+      // read filters
+      const sy = Number(document.getElementById("startYear").value);
+      const sm = MONTH_MAP_NAME_TO_NUM[document.getElementById("startMonth").value];
+      const ey = Number(document.getElementById("endYear").value);
+      const em = MONTH_MAP_NAME_TO_NUM[document.getElementById("endMonth").value];
+
+      const psy = Number(document.getElementById("prevStartYear").value);
+      const psm = MONTH_MAP_NAME_TO_NUM[document.getElementById("prevStartMonth").value];
+      const pey = Number(document.getElementById("prevEndYear").value);
+      const pem = MONTH_MAP_NAME_TO_NUM[document.getElementById("prevEndMonth").value];
+
+      // validate
+      if(ymToIndex(sy,sm) > ymToIndex(ey,em)){
+        sbError.textContent = "Período inicial não pode ser maior que o período final.";
+        sbError.style.display = "block"; return;
+      }
+      if(ymToIndex(psy,psm) > ymToIndex(pey,pem)){
+        sbError.textContent = "Período anterior: início não pode ser maior que o fim.";
+        sbError.style.display = "block"; return;
+      }
+
+      const currLabel = periodLabel(sy,sm,ey,em);
+      const prevLabel = periodLabel(psy,psm,pey,pem);
+
+      // filter current/prev
+      const dfPeriod = SALES.filter(r => inRange(r.Ano, r.MesNum, sy,sm,ey,em));
+      if(!dfPeriod.length){
+        sbError.textContent = "Nenhuma venda no período selecionado.";
+        sbError.style.display = "block"; return;
+      }
+
+      // rep options depend on current period
+      const reps = Array.from(new Set(dfPeriod.map(r=>r.Representante).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+      const repSelect = document.getElementById("repSelect");
+      const currentRep = repSelect.value || "Todos";
+      repSelect.innerHTML = ["Todos", ...reps].map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("");
+      repSelect.value = (["Todos",...reps].includes(currentRep)) ? currentRep : "Todos";
+
+      const rep = repSelect.value;
+
+      const dfRepCurr = (rep==="Todos") ? dfPeriod : dfPeriod.filter(r=>r.Representante===rep);
+      const dfPrevPeriod = SALES.filter(r => inRange(r.Ano, r.MesNum, psy,psm,pey,pem));
+      const dfRepPrev = (rep==="Todos") ? dfPrevPeriod : dfPrevPeriod.filter(r=>r.Representante===rep);
+
+      // header
+      document.getElementById("hdrRep").innerHTML = `Representante: <b>${escapeHtml(rep)}</b>`;
+      document.getElementById("hdrPeriods").textContent = `Período atual: ${currLabel}  |  Período anterior: ${prevLabel}`;
+      document.getElementById("evoCaption").textContent = `Atual: ${currLabel}  •  Anterior: ${prevLabel}`;
+
+      // KPIs (top) — sem badges verdes
+      const fatCurr = dfRepCurr.reduce((s,r)=>s + r.Valor, 0);
+      const volCurr = dfRepCurr.reduce((s,r)=>s + r.Quantidade, 0);
+
+      document.getElementById("kpiFat").textContent = formatBRLcompact(fatCurr);
+      document.getElementById("kpiVol").textContent = formatUN(volCurr);
+
+      // distribuição por clientes (HHI + N80)
+      const byClient = new Map();
+      for(const r of dfRepCurr){
+        const x = byClient.get(r.Cliente) || 0;
+        byClient.set(r.Cliente, x + r.Valor);
+      }
+      const clientVals = [...byClient.values()].sort((a,b)=>b-a);
+      const total = clientVals.reduce((s,x)=>s+x,0) || 1;
+      const shares = clientVals.map(v=>v/total);
+      let cum=0, n80=0;
+      for(let i=0;i<shares.length;i++){
+        cum += shares[i]; n80=i+1;
+        if(cum>=0.8) break;
+      }
+      const hhi = shares.reduce((s,x)=>s + x*x, 0);
+
+      const hhiInfo = colorForHHI(hhi);
+      document.getElementById("kpiHHI").textContent = hhiInfo.name;
+      document.getElementById("kpiN80").textContent = `N80: ${n80} clientes`;
+
+      // carteira
+      const carteira = buildCarteiraStatusManualPrev(SALES, rep, {sy,sm,ey,em}, {sy:psy,sm:psm,ey:pey,em:pem});
+      const cs = computeCarteiraScore(carteira);
+      document.getElementById("kpiCarteira").textContent = `${Math.round(cs.score)} / 100`;
+      document.getElementById("kpiCarteiraLbl").textContent = cs.label;
+
+      // clientes atendidos
+      document.getElementById("kpiClientes").textContent = String(byClient.size);
+
+      // Evolução (2 bar charts, comparativo)
+      const labels = monthLabelsFromRange(sy,sm,ey,em);
+
+      function seriesFor(df, sy,sm, ey,em, valueKey){
+        const m = new Map();
+        for(const r of df){
+          if(!inRange(r.Ano,r.MesNum,sy,sm,ey,em)) continue;
+          const lbl = MONTH_MAP_NUM_TO_NAME[r.MesNum] + " " + String(r.Ano).slice(2);
+          m.set(lbl, (m.get(lbl)||0) + r[valueKey]);
+        }
+        return labels.map(l => m.get(l) || 0);
+      }
+
+      const fatCurrSeries = seriesFor(dfRepCurr, sy,sm,ey,em, "Valor");
+      const volCurrSeries = seriesFor(dfRepCurr, sy,sm,ey,em, "Quantidade");
+
+      // map previous to same label positions if period lengths differ:
+      // we compare by “posição no range atual”. For a true “same window length” you already set prev manually.
+      const prevLabels = monthLabelsFromRange(psy,psm,pey,pem);
+      const fatPrevMap = new Map();
+      for(const r of dfRepPrev){
+        const lbl = MONTH_MAP_NUM_TO_NAME[r.MesNum] + " " + String(r.Ano).slice(2);
+        fatPrevMap.set(lbl, (fatPrevMap.get(lbl)||0) + r.Valor);
+      }
+      const volPrevMap = new Map();
+      for(const r of dfRepPrev){
+        const lbl = MONTH_MAP_NUM_TO_NAME[r.MesNum] + " " + String(r.Ano).slice(2);
+        volPrevMap.set(lbl, (volPrevMap.get(lbl)||0) + r.Quantidade);
+      }
+      const fatPrevSeries = labels.map((_,i)=> fatPrevMap.get(prevLabels[i]) || 0);
+      const volPrevSeries = labels.map((_,i)=> volPrevMap.get(prevLabels[i]) || 0);
+
+      renderBarCompare("chartFat", labels, fatCurrSeries, fatPrevSeries, (v)=>formatBRLcompact(v));
+      renderBarCompare("chartVol", labels, volCurrSeries, volPrevSeries, (v)=> {
+        const n = Number(v||0);
+        return Math.round(n).toLocaleString("pt-BR");
+      });
+
+      // Categorias
+      document.getElementById("catCaptionCurr").textContent = currLabel;
+      document.getElementById("catCaptionPrev").textContent = prevLabel;
+
+      function catAgg(df){
+        const m = new Map();
+        for(const r of df){
+          const k = r.Categoria || "Sem categoria";
+          m.set(k, (m.get(k)||0) + r.Valor);
+        }
+        return [...m.entries()].map(([Categoria, Valor])=>({Categoria, Valor}))
+          .sort((a,b)=>b.Valor-a.Valor);
+      }
+
+      const catsCurr = catAgg(dfRepCurr);
+      const catsPrev = catAgg(dfRepPrev);
+
+      // pie current top10 + Outras
+      function pieTop10(cats){
+        const top = cats.slice(0,10);
+        const other = cats.slice(10).reduce((s,x)=>s+x.Valor,0);
+        const out = [...top];
+        if(other>0) out.push({Categoria:"Outras", Valor:other});
+        const total = out.reduce((s,x)=>s+x.Valor,0) || 1;
+        return {labels: out.map(x=>`${x.Categoria} ${(x.Valor/total*100).toFixed(1).replace(".",",")}%`), values: out.map(x=>x.Valor), total};
+      }
+
+      const pieC = pieTop10(catsCurr);
+      const pieP = pieTop10(catsPrev);
+      renderPie("pieCatCurr", pieC.labels, pieC.values);
+      renderPie("pieCatPrev", pieP.labels, pieP.values);
+
+      // Tables
+      // Curr table: Categoria, Valor Atual, Valor Anterior, % Atual, % Anterior, Variação (R$)
+      const currTotalCat = catsCurr.reduce((s,x)=>s+x.Valor,0) || 1;
+      const prevTotalCat = catsPrev.reduce((s,x)=>s+x.Valor,0) || 1;
+
+      const prevMapCat = new Map(catsPrev.map(x=>[x.Categoria, x.Valor]));
+      const tblCurr = catsCurr.slice(0,30).map(x=>{
+        const prevV = prevMapCat.get(x.Categoria) || 0;
+        const pctA = x.Valor / currTotalCat;
+        const pctP = prevV / prevTotalCat;
+        return {
+          "Categoria": x.Categoria,
+          "Valor": formatBRL(x.Valor),
+          "Valor Anterior": formatBRL(prevV),
+          "%": formatPct(pctA),
+          "% Anterior": formatPct(pctP),
+          "Variação (R$)": formatBRL(x.Valor - prevV)
+        };
+      });
+      setTable(document.getElementById("tblCatCurr"),
+        ["Categoria","Valor","Valor Anterior","%","% Anterior","Variação (R$)"],
+        tblCurr,
+        new Set(["Valor","Valor Anterior","%","% Anterior","Variação (R$)"])
+      );
+
+      // Prev table: apenas Categoria, Valor, %
+      const tblPrev = catsPrev.slice(0,30).map(x=>{
+        const pct = x.Valor / prevTotalCat;
+        return {"Categoria": x.Categoria, "Valor": formatBRL(x.Valor), "%": formatPct(pct)};
+      });
+      setTable(document.getElementById("tblCatPrev"),
+        ["Categoria","Valor","%"],
+        tblPrev,
+        new Set(["Valor","%"])
+      );
+
+      // Map + coverage + top clients
+      const cidadesSet = new Set(dfRepCurr.map(r => (String(r.Estado||"").trim().toUpperCase()) + "|" + (String(r.Cidade||"").trim().toUpperCase())));
+      const estadosSet = new Set(dfRepCurr.map(r => String(r.Estado||"").trim().toUpperCase()).filter(Boolean));
+      document.getElementById("covCidades").textContent = String(cidadesSet.size);
+      document.getElementById("covEstados").textContent = String(estadosSet.size);
+      document.getElementById("covClientes").textContent = String(byClient.size);
+
+      // top clients table (Top 15) add Volume
+      const byClient2 = new Map();
+      for(const r of dfRepCurr){
+        const x = byClient2.get(r.Cliente) || {Cliente:r.Cliente, Cidade:r.Cidade, Estado:r.Estado, Valor:0, Quantidade:0};
+        x.Valor += r.Valor;
+        x.Quantidade += r.Quantidade;
+        byClient2.set(r.Cliente, x);
+      }
+      const top15 = [...byClient2.values()].sort((a,b)=>b.Valor-a.Valor).slice(0,15).map(x=>({
+        "Cliente": x.Cliente,
+        "Cidade": x.Cidade,
+        "Estado": x.Estado,
+        "Faturamento": formatBRL(x.Valor),
+        "Volume": formatUN(x.Quantidade)
+      }));
+      setTable(document.getElementById("tblTopClients"),
+        ["Cliente","Cidade","Estado","Faturamento","Volume"],
+        top15,
+        new Set(["Faturamento","Volume"])
+      );
+
+      renderMap(dfRepCurr);
+      renderCityClientsTable();
+
+      // Distribuição por clientes section (cores em texto)
+      const clientesAtendidos = byClient.size;
+      const n80ratio = clientesAtendidos>0 ? (n80/clientesAtendidos) : 0;
+      const n80info = colorForN80Ratio(n80ratio);
+      const hhiInfo2 = colorForHHI(hhi);
+
+      document.getElementById("distN80").textContent = String(n80);
+      document.getElementById("distN80sub").innerHTML =
+        `<span style="color:${n80info.color}; font-weight:800;">${escapeHtml(n80info.name)}</span> • ${Math.round(n80ratio*100)}% da carteira`;
+
+      document.getElementById("distHHI").textContent = hhiInfo2.name;
+      document.getElementById("distHHIsub").innerHTML =
+        `HHI ${hhi.toFixed(3)} • <span style="color:${hhiInfo2.color}; font-weight:800;">${escapeHtml(hhiInfo2.name)}</span>`;
+
+      const top1 = shares.slice(0,1).reduce((s,x)=>s+x,0);
+      const top3 = shares.slice(0,3).reduce((s,x)=>s+x,0);
+      const top10 = shares.slice(0,10).reduce((s,x)=>s+x,0);
+      document.getElementById("distTop1").textContent = formatPct(top1);
+      document.getElementById("distTop3").textContent = formatPct(top3);
+      document.getElementById("distTop10").textContent = formatPct(top10);
+
+      // Pie clients (Top10 + Outros)
+      const clientAgg = [...byClient2.values()].sort((a,b)=>b.Valor-a.Valor);
+      const topC = clientAgg.slice(0,10);
+      const others = clientAgg.slice(10).reduce((s,x)=>s+x.Valor,0);
+      const pieList = [...topC.map(x=>({name:x.Cliente, val:x.Valor}))];
+      if(others>0) pieList.push({name:"Outros", val:others});
+      const pieTotal = pieList.reduce((s,x)=>s+x.val,0) || 1;
+      const pieLabels = pieList.map(x=>`${x.name} ${(x.val/pieTotal*100).toFixed(1).replace(".",",")}%`);
+      renderPie("pieClients", pieLabels, pieList.map(x=>x.val));
+
+      // clients summary table
+      const tblClients = clientAgg.slice(0,15).map(x=>{
+        const pct = x.Valor / (total||1);
+        return {
+          "Cliente": x.Cliente,
+          "Cidade": x.Cidade,
+          "Estado": x.Estado,
+          "Faturamento": formatBRL(x.Valor),
+          "% Faturamento": formatPct(pct),
+          "Volume": formatUN(x.Quantidade)
+        };
+      });
+      setTable(document.getElementById("tblClientsSummary"),
+        ["Cliente","Cidade","Estado","Faturamento","% Faturamento","Volume"],
+        tblClients,
+        new Set(["Faturamento","% Faturamento","Volume"])
+      );
+
+      // Carteira detalhes
+      const carteiraColor = colorForCarteiraScore(cs.score);
+      document.getElementById("carteiraScoreBig").textContent = `${Math.round(cs.score)} / 100`;
+      document.getElementById("carteiraLabelBig").innerHTML =
+        `<span style="color:${carteiraColor.color}; font-weight:900;">${escapeHtml(cs.label)}</span>`;
+
+      // status summary table: Status, Clientes, %Clientes, Faturamento (dif)
+      const byStatusClients = new Map();
+      const byStatusFatDiff = new Map();
+      for(const r of carteira){
+        const st = r[STATUS_COL];
+        byStatusClients.set(st, (byStatusClients.get(st)||new Set()).add(r.Cliente));
+        byStatusFatDiff.set(st, (byStatusFatDiff.get(st)||0) + (r.ValorAtual - r.ValorAnterior));
+      }
+      const totalCli = carteira.length ? new Set(carteira.map(x=>x.Cliente)).size : 0;
+      const rowsStatus = STATUS_ORDER.map(st=>{
+        const set = byStatusClients.get(st) || new Set();
+        const qtd = set.size;
+        const pct = totalCli>0 ? (qtd/totalCli) : 0;
+        const fat = byStatusFatDiff.get(st) || 0;
+        return {
+          "Status": st,
+          "QtdClientes": String(qtd),
+          "%Clientes": formatPct(pct),
+          "Faturamento": (fat>=0 ? "+" : "") + formatBRL(Math.abs(fat))
+        };
+      });
+      setTable(document.getElementById("tblCarteiraStatus"),
+        ["Status","QtdClientes","%Clientes","Faturamento"],
+        rowsStatus,
+        new Set(["QtdClientes","%Clientes","Faturamento"])
+      );
+
+      // Status dos clientes (tabelas por status)
+      const q = (document.getElementById("searchClient").value || "").trim().toLowerCase();
+      const container = document.getElementById("statusTables");
+      container.innerHTML = "";
+
+      function fmtChange(curr, prev){
+        const abs = curr - prev;
+        const pct = prev>0 ? (abs/prev) : (curr>0 ? null : 0);
+        return {abs, pct};
+      }
+
+      for(const st of STATUS_ORDER){
+        let rows = carteira.filter(r => r[STATUS_COL]===st);
+        if(q) rows = rows.filter(r => String(r.Cliente||"").toLowerCase().includes(q));
+        if(!rows.length) continue;
+
+        rows.sort((a,b)=>b.ValorAtual - a.ValorAtual);
+
+        // include faturamento/volume atual+anterior + var abs/pct
+        const tRows = rows.map(r=>{
+          const fatCh = fmtChange(r.ValorAtual, r.ValorAnterior);
+          const volCh = fmtChange(r.QuantAtual, r.QuantAnterior);
+
+          return {
+            "Cliente": r.Cliente,
+            "Estado": r.Estado,
+            "Cidade": r.Cidade,
+            "Status": r[STATUS_COL],
+            [`Fat ${currLabel}`]: formatBRL(r.ValorAtual),
+            [`Fat ${prevLabel}`]: formatBRL(r.ValorAnterior),
+            "Δ Fat": (fatCh.abs>=0?"+":"-") + formatBRL(Math.abs(fatCh.abs)),
+            "% Fat": fatCh.pct===null ? "Novo" : ((fatCh.pct>=0?"+":"") + formatPct(Math.abs(fatCh.pct))),
+            [`Vol ${currLabel}`]: formatUN(r.QuantAtual),
+            [`Vol ${prevLabel}`]: formatUN(r.QuantAnterior),
+            "Δ Vol": (volCh.abs>=0?"+":"-") + formatUN(Math.abs(volCh.abs)),
+            "% Vol": volCh.pct===null ? "Novo" : ((volCh.pct>=0?"+":"") + formatPct(Math.abs(volCh.pct))),
+          };
+        });
+
+        const block = document.createElement("div");
+        block.style.marginTop = "14px";
+        block.innerHTML = `
+          <div style="font-weight:900; font-size:15px; margin-bottom:8px;">${escapeHtml(st)}</div>
+          <div class="table-wrap" style="max-height:420px;">
+            <table></table>
+          </div>
+        `;
+        const tbl = block.querySelector("table");
+        const cols = ["Cliente","Estado","Cidade","Status",
+          `Fat ${currLabel}`, `Fat ${prevLabel}`, "Δ Fat", "% Fat",
+          `Vol ${currLabel}`, `Vol ${prevLabel}`, "Δ Vol", "% Vol"
+        ];
+        setTable(tbl, cols, tRows, new Set([
+          `Fat ${currLabel}`, `Fat ${prevLabel}`, "Δ Fat", "% Fat",
+          `Vol ${currLabel}`, `Vol ${prevLabel}`, "Δ Vol", "% Vol"
+        ]));
+        container.appendChild(block);
+      }
+    }
+
+    // =========================
+    // INIT: load data + populate filters
+    // =========================
+    async function loadAll(){
+      const [salesTxt, geoTxt] = await Promise.all([
+        fetch(cbUrl(URL_SALES), {cache:"no-store"}).then(r=>r.text()),
+        fetch(cbUrl(URL_GEO),   {cache:"no-store"}).then(r=>r.text()),
+      ]);
+
+      // sales normalize like insights.py expected
+      const rawSales = parseCSV(salesTxt);
+
+      // validate required columns in your CSV
+      const expected = ["Codigo","Descricao","Quantidade","Valor","Mes","Ano","ClienteCodigo","Cliente","Estado","Cidade","RepresentanteCodigo","Representante","Categoria","SourcePDF"];
+      const cols = rawSales.length ? Object.keys(rawSales[0]) : [];
+      const missing = expected.filter(c => !cols.includes(c));
+      if(missing.length){
+        const msg = "CSV relatorio_faturamento.csv não tem colunas esperadas: " + missing.join(", ");
+        document.getElementById("sbError").textContent = msg;
+        document.getElementById("sbError").style.display = "block";
+        throw new Error(msg);
+      }
+
+      SALES = rawSales.map(r=>{
+        const Ano = Number(r.Ano||0);
+        const MesNum = Number(r.Mes||0);
+        return {
+          Codigo: r.Codigo,
+          Descricao: r.Descricao,
+          Quantidade: Number(String(r.Quantidade||"0").replace(",", ".")) || 0,
+          Valor: Number(String(r.Valor||"0").replace(",", ".")) || 0,
+          MesNum,
+          Ano,
+          ClienteCodigo: r.ClienteCodigo,
+          Cliente: r.Cliente,
+          Estado: r.Estado,
+          Cidade: r.Cidade,
+          RepresentanteCodigo: r.RepresentanteCodigo,
+          Representante: r.Representante,
+          Categoria: r.Categoria,
+          SourcePDF: r.SourcePDF
+        };
+      }).filter(r=>r.Ano && r.MesNum);
+
+      // geo normalize (best effort: try common column names)
+      const rawGeo = parseCSV(geoTxt);
+      const geoCols = rawGeo.length ? Object.keys(rawGeo[0]) : [];
+      const norm = (s)=>String(s||"").trim().toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"");
+
+      const mapNorm = new Map(geoCols.map(c=>[norm(c), c]));
+      const pick = (cands)=>{
+        for(const c of cands){ if(mapNorm.has(c)) return mapNorm.get(c); }
+        for(const [nk, orig] of mapNorm.entries()){
+          for(const c of cands){ if(nk.includes(c)) return orig; }
+        }
+        return null;
+      };
+
+      const cEstado = pick(["estado","uf","siglauf","ufsigla","unidadefederativa","estadouf","ufestado","coduf"]);
+      const cCidade = pick(["cidade","municipio","nomemunicipio","nmmunicipio","nomecidade","cidadenome","municipionome"]);
+      const cLat = pick(["lat","latitude","y","coordy","coordenaday"]);
+      const cLon = pick(["lon","lng","long","longitude","x","coordx","coordenadax"]);
+
+      if(!cEstado || !cCidade || !cLat || !cLon){
+        const msg = "cidades_br_geo.csv está com colunas diferentes das esperadas.";
+        document.getElementById("sbError").textContent = msg + " Encontradas: " + geoCols.join(", ");
+        document.getElementById("sbError").style.display = "block";
+        throw new Error(msg);
+      }
+
+      GEO = rawGeo.map(r=>{
+        const Estado = String(r[cEstado]||"").trim().toUpperCase();
+        const Cidade = String(r[cCidade]||"").trim().toUpperCase();
+        const lat = Number(String(r[cLat]||"").replace(",", "."));
+        const lon = Number(String(r[cLon]||"").replace(",", "."));
+        if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return {
+          key: Estado + "|" + Cidade,
+          Estado, Cidade,
+          lat, lon
+        };
+      }).filter(Boolean);
+
+      initFilters();
+      computeAndRender();
+    }
+
+    function initFilters(){
+      // years available
+      const years = Array.from(new Set(SALES.map(r=>r.Ano))).sort((a,b)=>a-b);
+      const lastYear = years[years.length-1];
+
+      // months in last year
+      const monthsInLast = SALES.filter(r=>r.Ano===lastYear).map(r=>r.MesNum);
+      const minM = Math.min(...monthsInLast);
+      const maxM = Math.max(...monthsInLast);
+
+      const monthNames = Array.from({length:12},(_,i)=>MONTH_MAP_NUM_TO_NAME[i+1]);
+
+      // fill selects
+      const setOptions = (sel, options, val)=>{
+        sel.innerHTML = options.map(o=>`<option value="${escapeHtml(String(o))}">${escapeHtml(String(o))}</option>`).join("");
+        sel.value = String(val);
+      };
+
+      setOptions(document.getElementById("startMonth"), monthNames, MONTH_MAP_NUM_TO_NAME[minM]);
+      setOptions(document.getElementById("endMonth"),   monthNames, MONTH_MAP_NUM_TO_NAME[maxM]);
+      setOptions(document.getElementById("prevStartMonth"), monthNames, MONTH_MAP_NUM_TO_NAME[minM]);
+      setOptions(document.getElementById("prevEndMonth"),   monthNames, MONTH_MAP_NUM_TO_NAME[maxM]);
+
+      // years
+      const yearsOpt = years.map(x=>String(x));
+      setOptions(document.getElementById("startYear"), yearsOpt, lastYear);
+      setOptions(document.getElementById("endYear"),   yearsOpt, lastYear);
+
+      // default prev window = months span ending before current start
+      const sm = minM, sy = lastYear, em = maxM, ey = lastYear;
+      const span = (ymToIndex(ey,em) - ymToIndex(sy,sm) + 1);
+      let prevEndIndex = ymToIndex(sy,sm) - 1;
+      let prevStartIndex = prevEndIndex - (span - 1);
+
+      const idxToYM = (idx)=>{
+        const y = Math.floor(idx/12);
+        const m = (idx % 12) + 1;
+        return {y,m};
+      };
+      const ps = idxToYM(prevStartIndex);
+      const pe = idxToYM(prevEndIndex);
+
+      setOptions(document.getElementById("prevStartYear"), yearsOpt, years.includes(ps.y)?ps.y:years[0]);
+      setOptions(document.getElementById("prevEndYear"),   yearsOpt, years.includes(pe.y)?pe.y:years[0]);
+
+      document.getElementById("prevStartMonth").value = MONTH_MAP_NUM_TO_NAME[ps.m] || "JAN";
+      document.getElementById("prevEndMonth").value   = MONTH_MAP_NUM_TO_NAME[pe.m] || "JAN";
+
+      // rep select initial (filled on compute)
+      document.getElementById("repSelect").innerHTML = `<option value="Todos">Todos</option>`;
+      document.getElementById("repSelect").value = "Todos";
+    }
+
+    // =========================
+    // Events
+    // =========================
+    document.getElementById("btnApply").addEventListener("click", ()=>{
+      computeAndRender();
+      // close sidebar on mobile
+      document.getElementById("sidebar").classList.remove("open");
+    });
+
+    document.getElementById("btnReset").addEventListener("click", ()=>{
+      initFilters();
+      computeAndRender();
+    });
+
+    document.getElementById("repSelect").addEventListener("change", ()=>{
+      // instant rep switch (no reload)
+      computeAndRender();
+    });
+
+    document.getElementById("searchClient").addEventListener("input", ()=>{
+      // only refresh status tables to keep it snappy
+      computeAndRender();
+    });
+
+    document.getElementById("btnToggle").addEventListener("click", ()=>{
+      document.getElementById("sidebar").classList.toggle("open");
+    });
+
+    // =========================
+    // Boot
+    // =========================
+    loadAll().catch(err=>console.error(err));
+  </script>
+</body>
+</html>
